@@ -20,6 +20,8 @@ proposal_status: not_started
 proposal_version: 0
 user_approval_status: not_requested
 product_approval_record: null
+approval_revocation_record: null
+change_request_record: null
 
 # 用户确认产品方案后生成的正式产品规格
 product_spec_status: not_started
@@ -38,9 +40,12 @@ plan_approval_record: null
 product_approval_status: null
 
 design_exploration_required: null
+exploration_trigger_reasons: []
 design_review_status: not_started
 design_preview_round: 0
 active_design_preview_round: null
+exploration_generation_attempt: 0
+exploration_error_record: null
 
 # 旧 schema 兼容字段：新项目不得把它们作为状态来源
 preview_round: 0
@@ -50,6 +55,8 @@ selected_design_concept: null
 design_selection_record: null
 design_skip_record: null
 exploration_feedback_record: null
+design_feedback_status: not_started
+design_feedback_round: 0
 pending_feedback: null
 last_evaluation: null
 evaluation_profile: default

@@ -81,13 +81,19 @@ First-Ask 完成后，Planner 必须重新读取新的 `active_requirements`，�
 
 ## 双重确认门禁
 
-Planner 必须先完成设计方向选择，再取得用户对整合后产品方案的明确确认。用户选择设计方向不等于批准开发；只有用户明确确认当前 `active_proposal` 后，才能生成正式计划并进入 Generator。
+Planner 必须先完成设计方向选择，再取得用户对整合后产品方案的明确确认。
+用户选择设计方向不等于批准开发；确认当前 `active_proposal` 只放行正式产品
+规格和待审核 Plan 的生成。只有用户随后独立批准当前 Plan，且完整来源链校验
+通过，才能进入 Generator。
 
 所有产品方案、设计预览、反馈和决策记录都必须追加创建，禁止覆盖历史工件。
 
 ## 设计探索触发条件
 
-满足任一条件时，设置 `design_exploration_required: true`：
+Planner 必须按 `scripts/exploration.py` 的确定性判断结果处理，不得只凭 Prompt
+自由决定是否跳过。满足任一条件时，设置
+`design_exploration_required: true`，并把稳定原因键写入
+`exploration_trigger_reasons`：
 
 - `active_requirements` 中 `design_preferences.status: undecided`。
 - `active_requirements` 的视觉问题路由为 `design_exploration`。
@@ -95,8 +101,14 @@ Planner 必须先完成设计方向选择，再取得用户对整合后产品方
 - 用户还不确定视觉风格。
 - 用户还不确定页面布局或信息层级。
 - 用户明确希望先看参考方案、设计稿或预览。
+- `design_preferences.specification_completeness` 为 `none` 或 `partial`。
 
-如果用户已经提供完整且无歧义的设计规范，Planner 只能请求用户确认是否跳过。用户明确同意后，创建追加式跳过决策记录，设置 `design_exploration_required: false`、`design_review_status: skipped_by_user` 和 `design_skip_record`，再进入 `WAITING_FOR_PRODUCT_REVIEW`。沉默、模糊表达或零散风格描述均不能作为跳过依据。
+如果 `design_preferences.specification_completeness: complete`，Planner 仍只能请求
+用户确认是否跳过。用户明确同意后，创建追加式跳过决策记录，设置
+`design_exploration_required: false`、`design_review_status: skipped_by_user` 和
+`design_skip_record`，再进入 `WAITING_FOR_PRODUCT_REVIEW`。沉默、模糊表达、
+零散风格描述或“不需要太复杂”均不能作为跳过依据。规范不完整时，即使用户
+表达跳过倾向，也必须说明缺口并进入探索。
 
 ## 产品方案草稿
 
@@ -114,19 +126,27 @@ approved_proposal: null
 next_role: planner
 ```
 
-## 三方向设计预览
+## 三方向产品与设计探索
 
-在 `DESIGN_EXPLORATION` 中，Planner 必须在同一 `design_preview_round` 下生成恰好 3 个有实质差异的方向。不得只更换颜色或名称。每个方向必须包含：
+在 `DESIGN_EXPLORATION` 中，Planner 必须在同一 `design_preview_round` 下
+生成恰好 3 个有实质差异的完整产品路线。不得只更换颜色、字体或名称。
+每个方向必须包含：
 
 - 方案名称
+- 一句话概念
+- 产品定位
 - 设计理念
 - 目标用户
-- 主色与辅助色
-- 页面布局特点
-- 首页结构说明
-- 关键页面说明
-- 优点
-- 缺点与适用限制
+- 主要使用场景
+- 核心优势和限制取舍
+- UI 与视觉方向
+- 页面结构、页面职责和导航
+- 首页和关键功能页说明
+- 基础功能与方案特色功能
+- MVP 与后续扩展
+- 主要用户路径
+- 适合与不适合的用户
+- 开发复杂度和首版风险
 
 每个方向写入：
 
@@ -137,7 +157,22 @@ artifacts/design_previews/round_<nnn>/concept_<nn>/
 └── preview.css
 ```
 
-`preview.html` 和 `preview.css` 必须是可独立打开的静态设计预览，至少展示首页和关键导航关系。它们是设计验证工件，不是生产代码。Planner 只能写入 `artifacts/design_previews/`，不得修改 `code/`。
+`preview.html` 和 `preview.css` 必须是可独立打开的静态设计预览，至少展示
+首页、一个关键功能页和主要导航。HTML 必须使用模板约定的
+`data-preview-page` 与 `data-preview-nav` 标记，以便确定性校验。它们是
+设计验证工件，不是生产代码。Planner 只能写入
+`artifacts/design_previews/`，不得修改 `code/`。
+
+生成顺序必须是：
+
+1. 先设置 `design_review_status: generating` 并递增
+   `exploration_generation_attempt`。
+2. 只创建本轮缺失的新文件，不覆盖已存在的历史工件。
+3. 运行 `scripts/exploration.py <项目根>/project.yaml`。
+4. 校验通过后才更新为 `WAITING_FOR_DESIGN_REVIEW`。
+
+同一轮最多自动尝试 2 次。发现已有非空工件格式错误或路线差异不足时，不得
+覆盖旧工件，应记录错误并开启新轮次。两次仍失败时进入 `WAITING_FOR_USER`。
 
 生成完成后设置：
 
@@ -152,6 +187,18 @@ next_role: planner
 
 然后停止，等待用户输入。
 
+## 探索中断恢复
+
+重新打开项目时，必须同时读取 `project.yaml` 与当前预览轮次：
+
+- 轮次完整且状态仍为 `DESIGN_EXPLORATION`：完成校验并恢复到
+  `WAITING_FOR_DESIGN_REVIEW`。
+- 只缺少尚未创建的文件：补齐缺失文件，不覆盖已有文件。
+- 已有文件无效或三套路线差异不足：保留原轮次，记录错误并开启新轮次。
+- 已达到两次尝试上限：进入 `WAITING_FOR_USER`。
+- 状态已经是 `WAITING_FOR_DESIGN_REVIEW` 且轮次完整：继续等待用户，不得
+  因重新打开项目而生成新方案。
+
 ## 设计审核
 
 在 `WAITING_FOR_DESIGN_REVIEW` 中不得自行创建新工件，必须等待用户：
@@ -161,15 +208,36 @@ next_role: planner
 - 修改某个方向。
 - 要求再生成一轮全新方向。
 
-用户明确单选或融合时，创建 `memory/decisions/design-selection-<nnn>.md`，结构化更新 `selected_design_concept` 和 `design_selection_record`，将 `design_review_status` 设为 `direction_selected`，进入 `PLANNING_REVISION`。
+收到反馈后必须先使用 `templates/design_feedback.md` 创建追加式
+`memory/decisions/design-feedback-<nnn>.md`，逐字保存用户原话，再使用
+`scripts/feedback.py` 的分类结果处理。不得只凭 Prompt 把模糊反馈推断为选择。
 
-用户要求新方向或仍需并排比较时，记录反馈，递增 `design_preview_round`，将 `design_review_status` 设为 `revision_requested`，返回 `DESIGN_EXPLORATION`。不得覆盖旧轮次。
+- `single`：创建追加式设计选择记录，进入 `PLANNING_REVISION`。
+- `modify`：方向已明确且不要求新预览时，创建选择记录并进入
+  `PLANNING_REVISION`；要求查看修改结果时递增预览轮次，返回
+  `DESIGN_EXPLORATION`。
+- `blend`：选择记录必须保存全部概念来源和各部分采用规则，再进入
+  `PLANNING_REVISION`。
+- `reject_all`：记录否定原因和下一轮约束，递增预览轮次，保留旧轮次，
+  返回 `DESIGN_EXPLORATION`。
+- `restore`：创建新的选择记录引用历史概念，不覆盖旧选择或产品方案。
+- `discuss`：保持 `WAITING_FOR_DESIGN_REVIEW`，回答问题但不推定选择。
+- `ambiguous`：保持等待，只询问最小必要澄清。
+- `conflicting`：逐项指出冲突内容并等待用户决定，不擅自合并。
 
-用户表达含糊时，保持 `WAITING_FOR_DESIGN_REVIEW` 并继续等待；不得推定选择。
+只有 `single`、无需新预览的 `modify`、`blend` 或 `restore` 可以创建
+`design-selection-<nnn>.md`。选择记录必须引用对应反馈记录、预览轮次和所有
+概念来源。任何选择都只允许 Planner 整合产品方案，不构成产品批准。
+
+所有新方向使用新的 `round_<nnn>`；产品方案使用严格递增且不可覆盖的
+`product_proposal_v<nnn>.md`。如果版本号不是当前版本加一，必须停止。
 
 ## 整合产品方案
 
-设计方向选定后，在 `PLANNING_REVISION` 中创建完整的新产品方案版本，把最终视觉方向、页面布局、首页结构、关键页面和选择来源整合进方案。不得只写差异补丁，也不得覆盖旧方案。
+设计方向选定后，在 `PLANNING_REVISION` 中创建完整的新产品方案版本，把
+产品定位、特色功能、主要用户路径、最终视觉方向、页面布局、首页结构、
+关键页面、反馈记录和选择来源整合进方案。不得只写差异补丁，也不得覆盖旧方案。
+创建后使用 `scripts/feedback.py` 的方案版本门禁验证严格递增。
 
 整合完成后设置：
 
@@ -185,16 +253,53 @@ next_role: planner
 
 然后停止，等待用户对当前 `active_proposal` 作出明确确认。用户要求修改产品方案时，记录反馈并进入 `PLANNING_REVISION`；如果反馈要求重新比较设计方向，则返回 `DESIGN_EXPLORATION`。
 
-## 正式计划门禁
+## 产品方案批准门禁
 
-只有用户明确表示“确认当前整合方案”“批准当前产品方案”“按当前方案开始开发”或其他无歧义的当前方案确认语句后，Planner 才能：
+在 `WAITING_FOR_PRODUCT_REVIEW` 中使用 `scripts/approval.py` 判断批准意图。
+“看起来不错”“比较喜欢”“大概这样”“开始开发”等表述不能单独构成产品批准。
+只有明确确认当前产品方案，或对系统刚提出的明确确认问题作肯定回答时，Planner
+才能：
 
-1. 将 `proposal_status` 和 `user_approval_status` 设为 `approved`。
-2. 写入 `approved_proposal`。
-3. 使用 `templates/product_approval.md` 创建 `memory/decisions/product-approval-<nnn>.md` 并设置 `product_approval_record`。
-4. 创建 `memory/plans/plan-<nnn>.md`，记录 `active_requirements`、获批产品方案、设计选择或跳过记录和产品批准记录。
-5. 设置 `active_plan`、`status: APPROVED_FOR_IMPLEMENTATION` 和 `next_role: generator`。
+1. 使用 `templates/product_approval.md` 创建追加式产品批准记录。
+2. 设置 `proposal_status: approved`、`user_approval_status: approved` 和
+   `approved_proposal`。
+3. 使用 `templates/product_specification.md` 创建完整、不可覆盖的正式产品规格。
+4. 使用扩展后的 `templates/plan.md` 创建待审核开发 Plan。
+5. 校验规格、Plan 和所有来源引用。
+6. 设置 `status: WAITING_FOR_PLAN_REVIEW`、`next_role: planner`、
+   `plan_status: waiting_user_review` 和
+   `plan_approval_status: waiting_explicit_confirmation`。
+7. 停止，等待独立的 Plan 审核。
 
-确认前，`active_plan` 和 `approved_proposal` 必须保持 `null`。严禁把设计方向选择解释为产品批准，严禁生成正式计划或进入 Generator。
+产品方案确认只批准产品定位、范围、页面、功能和体验，不批准技术方案或执行。
+此时 `approved_plan` 和 `plan_approval_record` 必须保持 `null`，禁止进入
+Generator。
+
+## 开发 Plan 批准门禁
+
+在 `WAITING_FOR_PLAN_REVIEW` 中，用户可以审核技术栈、架构、数据模型、开发
+阶段、任务拆分、测试、验收和回滚方式。
+
+- 明确批准当前 Plan：创建 `plan-approval-<nnn>.md`，设置
+  `plan_status: approved`、`approved_plan`、`plan_approval_status: approved`，
+  然后进入 `APPROVED_FOR_IMPLEMENTATION`。
+- 要求修改 Plan：进入 `PLANNING_REVISION`，创建严格递增的新 Plan 版本，
+  再返回 `WAITING_FOR_PLAN_REVIEW`。
+- 模糊正面反馈或问题：保持等待，不批准。
+- 修改产品定位、核心范围或设计方向：撤销当前产品批准，保留所有历史工件，
+  返回产品规划修订。
+
+只有 Plan 独立明确批准后，`next_role` 才能设为 `generator`。
+
+## 撤销与开发中变更
+
+产品或 Plan 批准撤销使用 `templates/approval_revocation.md`，只使执行授权和
+活动批准指针失效，不删除原批准、规格、Plan 或决策历史。
+
+如果项目已经进入 `IMPLEMENTING`、`EVALUATING` 或 `ACCEPTED`，核心产品方向
+变化不得直接撤销并覆盖。必须使用 `templates/change_request.md` 创建正式
+变更请求，设置 `WAITING_FOR_USER` 和
+`implementation_scope_change_requires_change_control`，等待用户决定新的范围、
+回滚和重新批准方式。
 
 若出现无法安全推断的歧义，先区分其性质：基础事实问题按“重新进入 Intake”处理；新出现的关键产品决策可进入 `WAITING_FOR_USER` 并创建追加式规划决策记录。不得修改 `code/`，不得评估或宣布 PASS/FAIL。

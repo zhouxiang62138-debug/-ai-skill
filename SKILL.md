@@ -33,13 +33,27 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 ### 产品确认流程
 
-Planner 在任何开发计划前都必须先产出可审核的产品方案，并在用户明确确认后才能生成正式计划并交给 Generator。详细状态机、文件约定和交互示例见 `docs/PLANNER_APPROVAL_WORKFLOW.md`；产品方案使用 `templates/product_proposal.md`。
+Planner 在任何开发计划前都必须先产出可审核的产品方案。用户明确确认产品方案
+后，Planner 生成正式产品规格和待审核开发 Plan；只有用户再次独立批准 Plan，
+才能交给 Generator。详细状态机、文件约定和交互示例见
+`docs/PLANNER_APPROVAL_WORKFLOW.md`；产品方案使用
+`templates/product_proposal.md`。
 
 ### Design Exploration
 
-当用户尚未确定 App 的视觉风格、页面布局，或明确希望先看参考方案时，Planner 必须先基于产品方案草稿生成一轮 3 个不同方向的静态设计预览。用户可以单选、融合、修改或要求新一轮方向。设计方向选定后，Planner 必须将其整合进新的产品方案版本，并再次等待用户明确确认；选择设计方向本身不构成开发批准。
+当用户尚未确定 App 的视觉风格、页面布局，或明确希望先看参考方案时，
+Planner 必须先基于产品方案草稿生成一轮 3 个不同的完整产品路线及静态设计
+预览。三套路线必须在定位、特色功能、主要用户路径或信息架构上存在实质差异，
+不能只换颜色。用户可以单选、融合、修改或要求新一轮方向。设计方向选定后，
+Planner 必须将其整合进新的产品方案版本，并再次等待用户明确确认；选择设计
+方向本身不构成开发批准。
 
-设计说明使用 `templates/design_concept.md`，设计选择记录使用 `templates/design_selection.md`，跳过设计探索时使用 `templates/design_skip_decision.md`。预览仅写入项目的 `artifacts/design_previews/`，不得写入 Skill 目录或项目 `code/`。完整规范见 `DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
+设计说明使用 `templates/design_concept.md`，每次用户反馈使用
+`templates/design_feedback.md`，明确选择使用
+`templates/design_selection.md`，跳过设计探索时使用
+`templates/design_skip_decision.md`。预览仅写入项目的
+`artifacts/design_previews/`，不得写入 Skill 目录或项目 `code/`。完整规范
+见 `DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
 
 - 状态协议与迁移规则：读取 `docs/workflow_protocol.md`。
 - 项目目录、命名和隔离规则：读取 `docs/project_conventions.md`。

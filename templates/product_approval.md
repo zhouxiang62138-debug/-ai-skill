@@ -32,8 +32,9 @@
 
 ## 正式计划
 
-- 生成的正式计划：
-- 计划是否完整引用上述来源：`yes` / `no`
+- 生成的正式产品规格：
+- 生成的待审核开发 Plan：
+- 两者是否完整引用上述来源：`yes` / `no`
 
 ## 状态更新
 
@@ -42,8 +43,15 @@ proposal_status: approved
 user_approval_status: approved
 approved_proposal: <获批产品方案路径>
 product_approval_record: memory/decisions/product-approval-<nnn>.md
+product_spec_status: finalized
+active_product_spec: memory/specifications/product_spec_v<nnn>.md
+plan_status: waiting_user_review
 active_plan: memory/plans/plan-<nnn>.md
-status: APPROVED_FOR_IMPLEMENTATION
-next_role: generator
+approved_plan: null
+plan_approval_status: waiting_explicit_confirmation
+plan_approval_record: null
+status: WAITING_FOR_PLAN_REVIEW
+next_role: planner
 ```
 
+本记录只批准产品方案，不批准开发 Plan，也不允许 Generator 开始实施。

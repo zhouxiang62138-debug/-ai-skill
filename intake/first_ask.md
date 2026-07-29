@@ -2,7 +2,7 @@
 
 > 模块标识：`first_ask_intake`  
 > 类型：Planner 之前的需求采访模块，不是 Agent  
-> F2 状态：协议已定义，尚未接入 `config/workflow.yaml` 或 `templates/project.yaml`  
+> 当前状态：已接入 workflow v4 与 project schema v4
 > 角色约束：不得注册为第四个 `next_role`
 
 ## 1. 目标
@@ -188,6 +188,7 @@ requires_user_decision → answered
 ```yaml
 design_preferences:
   status: undecided
+  specification_completeness: none
 
 undecided_items:
   - field: design_preferences
@@ -195,6 +196,15 @@ undecided_items:
 ```
 
 视觉类 `undecided` 不阻塞 `sufficient_for_planning`，也不得继续需求采访。
+
+当用户提供设计规范时，First-Ask 只记录完整度事实，不决定是否跳过探索：
+
+- `none`：没有可执行的视觉、布局或关键页面规范。
+- `partial`：只有零散风格、配色或局部页面描述。
+- `complete`：视觉系统、页面布局、信息层级和关键页面均有明确规范。
+
+只有 `complete` 才允许 Planner 请求用户确认是否跳过；跳过决定仍由 Planner
+记录，First-Ask 不得代替用户批准。
 
 以下方向性问题通常不能长期保持 `undecided`：
 
@@ -434,4 +444,3 @@ Planner 必须把 `active_requirements` 作为产品方案来源，不得修改 
 - 请求要求读取未经授权的其他项目。
 
 本模块不得在停止后自行进入 Planner。
-

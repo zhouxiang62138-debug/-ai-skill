@@ -87,6 +87,8 @@ design_preferences:
   assumption_reason: null
   decision_impact: low
   routing: null
+  # none | partial | complete
+  specification_completeness: none
 
 undecided_items: []
 

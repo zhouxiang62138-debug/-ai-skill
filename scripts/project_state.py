@@ -303,6 +303,16 @@ def _validate_schema_node(value: Any, schema: dict[str, Any], path: str) -> list
                 errors.extend(_validate_schema_node(item, properties[key], f"{path}.{key}"))
             elif schema.get("additionalProperties") is False:
                 errors.append(f"{path}.{key} 是未知字段")
+    if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0):
+            errors.append(f"{path} 至少需要 {schema['minItems']} 项")
+        if schema.get("uniqueItems") and len({repr(item) for item in value}) != len(value):
+            errors.append(f"{path} 不允许重复项")
+        if "items" in schema:
+            for index, item in enumerate(value):
+                errors.extend(
+                    _validate_schema_node(item, schema["items"], f"{path}[{index}]")
+                )
     return errors
 
 
@@ -344,8 +354,83 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
     if version == 4:
         if status in {"DESIGN_REVIEW", "PRODUCT_REVIEW", "PLANNING_COMPLETE"}:
             errors.append("v4 新项目不得写入旧状态别名")
-        if status == "WAITING_FOR_PRODUCT_REVIEW" and state.get("active_plan") is not None:
-            errors.append("产品方案确认前 active_plan 必须为 null")
+        if status == "DESIGN_EXPLORATION":
+            for field in ("active_requirements", "active_proposal"):
+                _require(state, field, errors)
+            if state.get("requirements_status") != "sufficient_for_planning":
+                errors.append("进入设计探索前需求必须足以规划")
+            if state.get("design_exploration_required") is not True:
+                errors.append("DESIGN_EXPLORATION 要求 design_exploration_required=true")
+            if not state.get("exploration_trigger_reasons"):
+                errors.append("DESIGN_EXPLORATION 必须记录 exploration_trigger_reasons")
+            if state.get("design_review_status") not in {
+                "generating",
+                "revision_requested",
+            }:
+                errors.append("DESIGN_EXPLORATION 的 design_review_status 无效")
+            if state.get("active_plan") is not None:
+                errors.append("设计探索期间 active_plan 必须为 null")
+            if state.get("next_role") != "planner":
+                errors.append("设计探索期间 next_role 必须是 planner")
+        if status == "WAITING_FOR_DESIGN_REVIEW":
+            _require(state, "active_design_preview_round", errors)
+            if state.get("design_exploration_required") is not True:
+                errors.append("等待设计审核时必须启用设计探索")
+            if state.get("design_review_status") != "waiting_user_selection":
+                errors.append(
+                    "WAITING_FOR_DESIGN_REVIEW 的 design_review_status "
+                    "必须是 waiting_user_selection"
+                )
+            if state.get("active_plan") is not None:
+                errors.append("设计审核期间 active_plan 必须为 null")
+            if state.get("next_role") != "planner":
+                errors.append("等待设计审核时 next_role 必须是 planner")
+            if not 1 <= state.get("exploration_generation_attempt", 0) <= 2:
+                errors.append("等待设计审核时生成尝试次数必须在 1 到 2 之间")
+            if state.get("design_feedback_status") not in {
+                "waiting_user_feedback",
+                "discussing",
+                "ambiguous",
+                "conflicting",
+            }:
+                errors.append("等待设计审核时 design_feedback_status 无效")
+        if status == "PLANNING_REVISION" and state.get("design_review_status") == "direction_selected":
+            _require(state, "selected_design_concept", errors)
+            _require(state, "design_selection_record", errors)
+            _require(state, "exploration_feedback_record", errors)
+            if state.get("design_feedback_status") not in {
+                "direction_selected",
+                "modification_requested",
+                "blend_selected",
+            }:
+                errors.append("设计方向已选择时 design_feedback_status 无效")
+            if state.get("active_plan") is not None:
+                errors.append("整合设计方向期间 active_plan 必须为 null")
+            if state.get("next_role") != "planner":
+                errors.append("整合设计方向期间 next_role 必须是 planner")
+        if (
+            status == "DESIGN_EXPLORATION"
+            and state.get("design_review_status") == "revision_requested"
+            and state.get("design_feedback_status") == "all_rejected"
+        ):
+            _require(state, "exploration_feedback_record", errors)
+            if state.get("selected_design_concept") is not None:
+                errors.append("全部方向被否定后 selected_design_concept 必须为 null")
+        if (
+            state.get("design_exploration_required") is False
+            and state.get("design_review_status") == "skipped_by_user"
+        ):
+            _require(state, "design_skip_record", errors)
+        if status == "WAITING_FOR_PRODUCT_REVIEW":
+            if state.get("active_plan") is not None:
+                errors.append("产品方案确认前 active_plan 必须为 null")
+            if state.get("design_exploration_required") is True:
+                _require(state, "selected_design_concept", errors)
+                _require(state, "design_selection_record", errors)
+                if state.get("design_review_status") != "integrated_into_proposal":
+                    errors.append("产品审核前设计方向必须已整合进方案")
+                if state.get("design_feedback_status") != "integrated_into_proposal":
+                    errors.append("产品审核前设计反馈必须已整合进方案")
         if status == "WAITING_FOR_PLAN_REVIEW":
             for field in (
                 "approved_proposal",
@@ -356,6 +441,12 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 _require(state, field, errors)
             if state.get("product_spec_status") != "finalized":
                 errors.append("等待 Plan 审核时 product_spec_status 必须是 finalized")
+            if state.get("proposal_status") != "approved":
+                errors.append("等待 Plan 审核时 proposal_status 必须是 approved")
+            if state.get("active_proposal") != state.get("approved_proposal"):
+                errors.append("等待 Plan 审核时 approved_proposal 必须与 active_proposal 一致")
+            if state.get("user_approval_status") != "approved":
+                errors.append("等待 Plan 审核前产品方案必须已明确批准")
             if state.get("plan_status") != "waiting_user_review":
                 errors.append("等待 Plan 审核时 plan_status 必须是 waiting_user_review")
             if state.get("plan_approval_status") != "waiting_explicit_confirmation":
@@ -379,6 +470,12 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 _require(state, field, errors)
             if state.get("plan_status") != "approved":
                 errors.append("进入实施批准状态前 plan_status 必须是 approved")
+            if state.get("product_spec_status") != "finalized":
+                errors.append("进入实施批准状态前正式产品规格必须 finalized")
+            if state.get("proposal_status") != "approved":
+                errors.append("进入实施批准状态前产品方案必须 approved")
+            if state.get("active_proposal") != state.get("approved_proposal"):
+                errors.append("approved_proposal 必须与 active_proposal 一致")
             if state.get("plan_approval_status") != "approved":
                 errors.append("进入实施批准状态前 plan_approval_status 必须是 approved")
             if state.get("approved_plan") != state.get("active_plan"):
@@ -410,6 +507,10 @@ def validate_project_state(
             "design_selection_record",
             "design_skip_record",
             "exploration_feedback_record",
+            "active_design_preview_round",
+            "exploration_error_record",
+            "approval_revocation_record",
+            "change_request_record",
         ):
             reference = state.get(field)
             if not reference:
@@ -422,6 +523,23 @@ def validate_project_state(
                 continue
             if not candidate.exists():
                 errors.append(f"$.{field} 指向不存在的文件：{reference}")
+        selected = state.get("selected_design_concept")
+        if isinstance(selected, dict):
+            for index, reference in enumerate(selected.get("concept_refs") or []):
+                candidate = (root / reference).resolve()
+                try:
+                    candidate.relative_to(root)
+                except ValueError:
+                    errors.append(
+                        f"$.selected_design_concept.concept_refs[{index}] "
+                        "指向项目目录之外"
+                    )
+                    continue
+                if not candidate.is_dir():
+                    errors.append(
+                        f"$.selected_design_concept.concept_refs[{index}] "
+                        f"指向不存在的概念目录：{reference}"
+                    )
     return errors
 
 
@@ -435,6 +553,13 @@ V4_DEFAULTS: dict[str, Any] = {
     "plan_approval_status": "not_requested",
     "plan_approval_record": None,
     "exploration_feedback_record": None,
+    "exploration_trigger_reasons": [],
+    "exploration_generation_attempt": 0,
+    "exploration_error_record": None,
+    "design_feedback_status": "not_started",
+    "design_feedback_round": 0,
+    "approval_revocation_record": None,
+    "change_request_record": None,
 }
 
 

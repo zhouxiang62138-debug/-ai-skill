@@ -37,9 +37,14 @@ def make_v4_state() -> dict:
         "active_module": "first_ask_intake",
         "requirements_status": "draft",
         "proposal_status": "not_started",
+        "user_approval_status": "not_requested",
         "product_spec_status": "not_started",
         "plan_status": "not_started",
         "plan_approval_status": "not_requested",
+        "exploration_trigger_reasons": [],
+        "exploration_generation_attempt": 0,
+        "design_feedback_status": "not_started",
+        "design_feedback_round": 0,
     }
 
 
@@ -95,6 +100,44 @@ class ProjectStateValidationTests(unittest.TestCase):
         self.assertTrue(any("approved_proposal" in error for error in errors))
         self.assertTrue(any("active_plan" in error for error in errors))
 
+    def test_design_exploration_requires_trigger_source(self) -> None:
+        state = make_v4_state()
+        state.update(
+            {
+                "status": "DESIGN_EXPLORATION",
+                "active_module": None,
+                "next_role": "planner",
+                "requirements_status": "sufficient_for_planning",
+                "active_requirements": "memory/requirements/requirements_v001.yaml",
+                "active_proposal": "memory/proposals/product_proposal_v001.md",
+                "design_exploration_required": True,
+                "design_review_status": "generating",
+                "exploration_generation_attempt": 1,
+            }
+        )
+        errors = validate_project_state(state)
+        self.assertTrue(any("exploration_trigger_reasons" in error for error in errors))
+
+    def test_complete_waiting_design_state_is_valid(self) -> None:
+        state = make_v4_state()
+        state.update(
+            {
+                "status": "WAITING_FOR_DESIGN_REVIEW",
+                "active_module": None,
+                "next_role": "planner",
+                "requirements_status": "sufficient_for_planning",
+                "active_requirements": "memory/requirements/requirements_v001.yaml",
+                "active_proposal": "memory/proposals/product_proposal_v001.md",
+                "design_exploration_required": True,
+                "exploration_trigger_reasons": ["visual_preferences_undecided"],
+                "design_review_status": "waiting_user_selection",
+                "design_feedback_status": "waiting_user_feedback",
+                "active_design_preview_round": "artifacts/design_previews/round_001",
+                "exploration_generation_attempt": 1,
+            }
+        )
+        self.assertEqual([], validate_project_state(state))
+
     def test_approved_for_implementation_requires_plan_approval(self) -> None:
         state = make_v4_state()
         state.update(
@@ -108,6 +151,7 @@ class ProjectStateValidationTests(unittest.TestCase):
                 "plan_status": "waiting_user_review",
                 "plan_approval_status": "waiting_explicit_confirmation",
                 "active_requirements": "memory/requirements/requirements_v001.yaml",
+                "active_proposal": "memory/proposals/product_proposal_v002.md",
                 "approved_proposal": "memory/proposals/product_proposal_v002.md",
                 "product_approval_record": "memory/decisions/product-approval-001.md",
                 "active_product_spec": "memory/specifications/product_spec_v001.md",
@@ -131,6 +175,7 @@ class ProjectStateValidationTests(unittest.TestCase):
                 "plan_status": "approved",
                 "plan_approval_status": "approved",
                 "active_requirements": "memory/requirements/requirements_v001.yaml",
+                "active_proposal": "memory/proposals/product_proposal_v002.md",
                 "approved_proposal": "memory/proposals/product_proposal_v002.md",
                 "product_approval_record": "memory/decisions/product-approval-001.md",
                 "active_product_spec": "memory/specifications/product_spec_v001.md",
@@ -147,6 +192,19 @@ class ProjectStateValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="test_state_") as directory:
             errors = validate_project_state(state, directory)
         self.assertTrue(any("项目目录之外" in error for error in errors))
+
+    def test_selected_concept_source_must_exist_when_checking_paths(self) -> None:
+        state = make_v4_state()
+        state["selected_design_concept"] = {
+            "mode": "single",
+            "concept_refs": [
+                "artifacts/design_previews/round_001/concept_01"
+            ],
+            "integration_notes": "选择方案一",
+        }
+        with tempfile.TemporaryDirectory(prefix="test_state_") as directory:
+            errors = validate_project_state(state, directory)
+        self.assertTrue(any("不存在的概念目录" in error for error in errors))
 
 
 class V3CompatibilityTests(unittest.TestCase):

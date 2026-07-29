@@ -1,4 +1,4 @@
-version: 3
+version: 4
 
 policy_precedence:
   write_prohibited_overrides_writes: true
@@ -15,6 +15,7 @@ modules:
     prohibited:
       - code/
       - memory/proposals/
+      - memory/specifications/
       - memory/plans/
       - artifacts/design_previews/
       - evaluation/
@@ -27,6 +28,7 @@ roles:
       - project.yaml
       - memory/requirements/
       - memory/proposals/
+      - memory/specifications/
       - memory/decisions/
       - memory/plans/
       - evaluation/reports/
@@ -36,6 +38,7 @@ roles:
       - memory/proposals/
       - memory/decisions/
       - memory/plans/
+      - memory/specifications/
       - memory/handoffs/
       - artifacts/design_previews/
       - project.yaml
@@ -49,6 +52,7 @@ roles:
       - project.yaml
       - memory/requirements/
       - memory/plans/
+      - memory/specifications/
       - memory/handoffs/
       - memory/decisions/
       - evaluation/reports/
@@ -71,6 +75,7 @@ roles:
     reads:
       - project.yaml
       - memory/plans/
+      - memory/specifications/
       - memory/handoffs/
       - code/
       - artifacts/
@@ -97,15 +102,22 @@ field_ownership:
     - active_proposal
     - approved_proposal
     - design_exploration_required
+    - exploration_trigger_reasons
     - design_review_status
     - design_preview_round
     - active_design_preview_round
+    - exploration_generation_attempt
+    - exploration_error_record
     - selected_design_concept
     - design_selection_record
     - design_skip_record
+    - design_feedback_status
+    - design_feedback_round
     - exploration_feedback_record
     - user_approval_status
     - product_approval_record
+    - approval_revocation_record
+    - change_request_record
     - product_spec_status
     - product_spec_version
     - active_product_spec

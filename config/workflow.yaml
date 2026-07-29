@@ -1,6 +1,14 @@
-version: 3
+version: 4
 protocol: file_driven
 maximum_iterations: 5
+
+design_exploration:
+  required_concept_count: 3
+  maximum_generation_attempts: 2
+  required_concept_files:
+    - concept.md
+    - preview.html
+    - preview.css
 
 states:
   INTAKE:
@@ -22,6 +30,9 @@ states:
     legacy_read_only: true
     migrates_to: WAITING_FOR_DESIGN_REVIEW
   WAITING_FOR_PRODUCT_REVIEW:
+    next_role: planner
+    wait_for_user: true
+  WAITING_FOR_PLAN_REVIEW:
     next_role: planner
     wait_for_user: true
   PRODUCT_REVIEW:
@@ -77,11 +88,38 @@ failure_routing:
   design_revision_requested:
     status: DESIGN_EXPLORATION
     next_role: planner
+  design_generation_invalid:
+    status: DESIGN_EXPLORATION
+    next_role: planner
+  design_generation_attempts_exhausted:
+    status: WAITING_FOR_USER
+    next_role: null
   new_design_directions_requested:
     status: DESIGN_EXPLORATION
     next_role: planner
   design_direction_selected:
     status: PLANNING_REVISION
+    next_role: planner
+  design_modification_selected:
+    status: PLANNING_REVISION
+    next_role: planner
+  design_blend_selected:
+    status: PLANNING_REVISION
+    next_role: planner
+  design_previous_direction_restored:
+    status: PLANNING_REVISION
+    next_role: planner
+  all_design_directions_rejected:
+    status: DESIGN_EXPLORATION
+    next_role: planner
+  design_feedback_discussion:
+    status: WAITING_FOR_DESIGN_REVIEW
+    next_role: planner
+  design_feedback_ambiguous:
+    status: WAITING_FOR_DESIGN_REVIEW
+    next_role: planner
+  design_feedback_conflicting:
+    status: WAITING_FOR_DESIGN_REVIEW
     next_role: planner
   design_exploration_skipped:
     status: WAITING_FOR_PRODUCT_REVIEW
@@ -90,8 +128,23 @@ failure_routing:
     status: WAITING_FOR_PRODUCT_REVIEW
     next_role: planner
   product_approved:
+    status: WAITING_FOR_PLAN_REVIEW
+    next_role: planner
+  plan_approved:
     status: APPROVED_FOR_IMPLEMENTATION
     next_role: generator
+  plan_revision_requested:
+    status: PLANNING_REVISION
+    next_role: planner
+  product_approval_revoked:
+    status: PLANNING_REVISION
+    next_role: planner
+  plan_approval_revoked:
+    status: PLANNING_REVISION
+    next_role: planner
+  implementation_scope_change_requested:
+    status: WAITING_FOR_USER
+    next_role: null
   ambiguous_requirement:
     status: WAITING_FOR_USER
     next_role: null
@@ -121,14 +174,33 @@ state_guards:
   PLANNING:
     required_requirements_status: sufficient_for_planning
     required_active_requirements: true
+  DESIGN_EXPLORATION:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+    required_active_proposal: true
+    required_design_exploration: true
+    active_plan_must_be_null: true
   WAITING_FOR_DESIGN_REVIEW:
     halt_until_user_input: true
+    required_complete_preview_round: true
+    required_concept_count: 3
+    active_plan_must_be_null: true
   WAITING_FOR_PRODUCT_REVIEW:
     halt_until_user_input: true
     active_plan_must_be_null: true
+  WAITING_FOR_PLAN_REVIEW:
+    halt_until_user_input: true
+    required_user_approval_status: approved
+    required_approved_proposal: true
+    required_product_approval_record: true
+    required_active_product_spec: true
+    required_active_plan: true
+    approved_plan_must_be_null: true
   APPROVED_FOR_IMPLEMENTATION:
     required_user_approval_status: approved
     required_active_requirements: true
     required_approved_proposal: true
     required_product_approval_record: true
     required_active_plan: true
+    required_approved_plan: true
+    required_plan_approval_record: true
