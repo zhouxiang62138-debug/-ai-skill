@@ -1,0 +1,36 @@
+profile: web_app
+evaluation:
+  scale:
+    minimum: 0
+    maximum: 10
+  pass_score: 8.0
+  required_checks:
+    runtime: PASS
+    core_functionality: PASS
+  criteria:
+    functionality:
+      weight: 0.20
+      minimum_score: 8.0
+    design_quality:
+      weight: 0.10
+      minimum_score: 7.0
+    code_quality:
+      weight: 0.20
+      minimum_score: 8.0
+    security:
+      weight: 0.10
+      minimum_score: 8.0
+    testing:
+      weight: 0.10
+      minimum_score: 7.0
+    requirement_alignment:
+      weight: 0.15
+      minimum_score: 8.0
+    user_experience:
+      weight: 0.10
+      minimum_score: 8.0
+    maintainability:
+      weight: 0.05
+      minimum_score: 7.0
+  evidence_required_for_required_checks: true
+

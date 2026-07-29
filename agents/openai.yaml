@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Development Team"
+  short_description: "包含需求采访、三方向设计探索与批准门禁的文件驱动三角色流程"
+  default_prompt: "Use $ai-development-team-skill to initialize or advance an isolated AI software project."

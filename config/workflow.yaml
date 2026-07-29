@@ -1,0 +1,134 @@
+version: 3
+protocol: file_driven
+maximum_iterations: 5
+
+states:
+  INTAKE:
+    next_role: null
+    active_module: first_ask_intake
+  WAITING_FOR_REQUIREMENTS:
+    next_role: null
+    active_module: first_ask_intake
+    wait_for_user: true
+  PLANNING:
+    next_role: planner
+  DESIGN_EXPLORATION:
+    next_role: planner
+  WAITING_FOR_DESIGN_REVIEW:
+    next_role: planner
+    wait_for_user: true
+  DESIGN_REVIEW:
+    next_role: planner
+    legacy_read_only: true
+    migrates_to: WAITING_FOR_DESIGN_REVIEW
+  WAITING_FOR_PRODUCT_REVIEW:
+    next_role: planner
+    wait_for_user: true
+  PRODUCT_REVIEW:
+    next_role: planner
+    legacy_read_only: true
+    migrates_to: WAITING_FOR_PRODUCT_REVIEW
+  PLANNING_REVISION:
+    next_role: planner
+  APPROVED_FOR_IMPLEMENTATION:
+    next_role: generator
+  PLANNING_COMPLETE:
+    next_role: generator
+    legacy_read_only: true
+    migrates_to: APPROVED_FOR_IMPLEMENTATION
+  IMPLEMENTING:
+    next_role: generator
+  EVALUATING:
+    next_role: evaluator
+  WAITING_FOR_USER:
+    next_role: null
+  BLOCKED:
+    next_role: null
+  ACCEPTED:
+    next_role: null
+  ARCHIVED:
+    next_role: null
+
+failure_routing:
+  implementation_issue:
+    status: IMPLEMENTING
+    next_role: generator
+  testing_issue:
+    status: IMPLEMENTING
+    next_role: generator
+  requirement_issue:
+    status: INTAKE
+    next_role: null
+    active_module: first_ask_intake
+  incomplete_requirements:
+    status: WAITING_FOR_REQUIREMENTS
+    next_role: null
+    active_module: first_ask_intake
+  requirement_conflict:
+    status: WAITING_FOR_REQUIREMENTS
+    next_role: null
+    active_module: first_ask_intake
+  product_scope_issue:
+    status: PLANNING
+    next_role: planner
+  product_revision_requested:
+    status: PLANNING_REVISION
+    next_role: planner
+  design_revision_requested:
+    status: DESIGN_EXPLORATION
+    next_role: planner
+  new_design_directions_requested:
+    status: DESIGN_EXPLORATION
+    next_role: planner
+  design_direction_selected:
+    status: PLANNING_REVISION
+    next_role: planner
+  design_exploration_skipped:
+    status: WAITING_FOR_PRODUCT_REVIEW
+    next_role: planner
+  product_proposal_ready:
+    status: WAITING_FOR_PRODUCT_REVIEW
+    next_role: planner
+  product_approved:
+    status: APPROVED_FOR_IMPLEMENTATION
+    next_role: generator
+  ambiguous_requirement:
+    status: WAITING_FOR_USER
+    next_role: null
+  environment_blocked:
+    status: BLOCKED
+    next_role: null
+  maximum_iterations_reached:
+    status: WAITING_FOR_USER
+    next_role: null
+
+legacy_state_aliases:
+  DESIGN_REVIEW: WAITING_FOR_DESIGN_REVIEW
+  PRODUCT_REVIEW: WAITING_FOR_PRODUCT_REVIEW
+  PLANNING_COMPLETE: APPROVED_FOR_IMPLEMENTATION
+
+legacy_state_policy: read_only_require_migration
+
+state_guards:
+  INTAKE:
+    required_active_module: first_ask_intake
+    allowed_next_roles:
+      - null
+  WAITING_FOR_REQUIREMENTS:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  PLANNING:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+  WAITING_FOR_DESIGN_REVIEW:
+    halt_until_user_input: true
+  WAITING_FOR_PRODUCT_REVIEW:
+    halt_until_user_input: true
+    active_plan_must_be_null: true
+  APPROVED_FOR_IMPLEMENTATION:
+    required_user_approval_status: approved
+    required_active_requirements: true
+    required_approved_proposal: true
+    required_product_approval_record: true
+    required_active_plan: true

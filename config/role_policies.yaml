@@ -1,0 +1,120 @@
+version: 3
+
+policy_precedence:
+  write_prohibited_overrides_writes: true
+
+modules:
+  first_ask_intake:
+    reads:
+      - project.yaml
+      - memory/requirements/
+      - memory/handoffs/intake-request-*.md
+    writes:
+      - memory/requirements/
+      - project.yaml
+    prohibited:
+      - code/
+      - memory/proposals/
+      - memory/plans/
+      - artifacts/design_previews/
+      - evaluation/
+      - config/
+      - prompts/
+
+roles:
+  planner:
+    reads:
+      - project.yaml
+      - memory/requirements/
+      - memory/proposals/
+      - memory/decisions/
+      - memory/plans/
+      - evaluation/reports/
+      - artifacts/design_previews/
+    writes:
+      - memory/requirements/
+      - memory/proposals/
+      - memory/decisions/
+      - memory/plans/
+      - memory/handoffs/
+      - artifacts/design_previews/
+      - project.yaml
+    prohibited:
+      - code/
+      - evaluation/reports/
+    write_prohibited:
+      - memory/requirements/
+  generator:
+    reads:
+      - project.yaml
+      - memory/requirements/
+      - memory/plans/
+      - memory/handoffs/
+      - memory/decisions/
+      - evaluation/reports/
+      - code/
+      - artifacts/design_previews/
+    writes:
+      - code/
+      - artifacts/
+      - memory/handoffs/
+      - project.yaml
+    prohibited:
+      - config/evaluation_rules/
+      - evaluation/reports/
+    write_prohibited:
+      - artifacts/design_previews/
+      - memory/requirements/
+      - memory/proposals/
+      - memory/decisions/
+  evaluator:
+    reads:
+      - project.yaml
+      - memory/plans/
+      - memory/handoffs/
+      - code/
+      - artifacts/
+      - evaluation/reports/
+    writes:
+      - evaluation/reports/
+      - memory/handoffs/
+      - project.yaml
+    prohibited:
+      - code/
+      - memory/plans/
+      - config/evaluation_rules/
+
+field_ownership:
+  first_ask_intake:
+    - requirements_status
+    - requirements_version
+    - active_requirements
+    - active_interview
+    - intake_round
+  planner:
+    - proposal_status
+    - proposal_version
+    - active_proposal
+    - approved_proposal
+    - design_exploration_required
+    - design_review_status
+    - design_preview_round
+    - active_design_preview_round
+    - selected_design_concept
+    - design_selection_record
+    - design_skip_record
+    - exploration_feedback_record
+    - user_approval_status
+    - product_approval_record
+    - product_spec_status
+    - product_spec_version
+    - active_product_spec
+    - plan_status
+    - plan_version
+    - active_plan
+    - approved_plan
+    - plan_approval_status
+    - plan_approval_record
+  evaluator:
+    - current_iteration
+    - last_evaluation

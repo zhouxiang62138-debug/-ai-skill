@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/project-v3.schema.json",
+  "title": "AI Development Team project state v3",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project_id",
+    "status",
+    "current_iteration",
+    "next_role"
+  ],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "project_name": { "type": ["string", "null"] },
+    "project_type": { "type": ["string", "null"] },
+    "status": {
+      "enum": [
+        "INTAKE",
+        "WAITING_FOR_REQUIREMENTS",
+        "PLANNING",
+        "DESIGN_EXPLORATION",
+        "WAITING_FOR_DESIGN_REVIEW",
+        "DESIGN_REVIEW",
+        "WAITING_FOR_PRODUCT_REVIEW",
+        "PRODUCT_REVIEW",
+        "PLANNING_REVISION",
+        "APPROVED_FOR_IMPLEMENTATION",
+        "PLANNING_COMPLETE",
+        "IMPLEMENTING",
+        "EVALUATING",
+        "WAITING_FOR_USER",
+        "BLOCKED",
+        "ACCEPTED",
+        "ARCHIVED"
+      ]
+    },
+    "current_iteration": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "next_role": { "enum": [null, "planner", "generator", "evaluator"] },
+    "active_module": { "enum": [null, "first_ask_intake"] },
+    "active_requirements": { "type": ["string", "null"] },
+    "active_proposal": { "type": ["string", "null"] },
+    "approved_proposal": { "type": ["string", "null"] },
+    "product_approval_record": { "type": ["string", "null"] },
+    "active_plan": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

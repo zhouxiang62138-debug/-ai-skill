@@ -1,0 +1,24 @@
+profile: default
+evaluation:
+  scale:
+    minimum: 0
+    maximum: 10
+  pass_score: 8.0
+  required_checks:
+    runtime: PASS
+    core_functionality: PASS
+  criteria:
+    functionality:
+      weight: 0.30
+      minimum_score: 8.0
+    code_quality:
+      weight: 0.25
+      minimum_score: 8.0
+    testing:
+      weight: 0.20
+      minimum_score: 7.0
+    requirement_alignment:
+      weight: 0.25
+      minimum_score: 8.0
+  evidence_required_for_required_checks: true
+

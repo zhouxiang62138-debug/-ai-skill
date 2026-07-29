@@ -1,0 +1,62 @@
+schema_version: 4
+project_id: <project_id>
+project_name: <project_name>
+project_type: <project_type>
+status: INTAKE
+current_iteration: 0
+next_role: null
+active_module: first_ask_intake
+
+# Intake Module 所有权字段
+requirements_status: draft
+requirements_version: 0
+active_requirements: null
+active_interview: null
+intake_round: 0
+
+active_proposal: null
+approved_proposal: null
+proposal_status: not_started
+proposal_version: 0
+user_approval_status: not_requested
+product_approval_record: null
+
+# 用户确认产品方案后生成的正式产品规格
+product_spec_status: not_started
+product_spec_version: 0
+active_product_spec: null
+
+# 正式开发 Plan 与独立批准门禁
+plan_status: not_started
+plan_version: 0
+active_plan: null
+approved_plan: null
+plan_approval_status: not_requested
+plan_approval_record: null
+
+# 旧 schema 兼容字段：新项目不得把它作为状态来源
+product_approval_status: null
+
+design_exploration_required: null
+design_review_status: not_started
+design_preview_round: 0
+active_design_preview_round: null
+
+# 旧 schema 兼容字段：新项目不得把它们作为状态来源
+preview_round: 0
+active_preview_round: null
+
+selected_design_concept: null
+design_selection_record: null
+design_skip_record: null
+exploration_feedback_record: null
+pending_feedback: null
+last_evaluation: null
+evaluation_profile: default
+blocked_reason: null
+# 旧 schema 兼容字段：新项目使用 active_requirements
+requirement_source: null
+latest_handoff: null
+schema_migration_record: null
+created_at: <ISO-8601 timestamp>
+updated_at: <ISO-8601 timestamp>

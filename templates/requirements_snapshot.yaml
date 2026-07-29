@@ -1,0 +1,126 @@
+# 完整需求快照。复制本模板创建 requirements_v<nnn>.yaml，禁止覆盖旧版本。
+schema_version: 1
+requirement_version: 0
+project_id: null
+created_at: null
+supersedes: null
+source_interviews: []
+
+original_request:
+  ref: null
+  text: |-
+    <逐字保留用户原始请求>
+
+# 字段状态：
+# unanswered | answered | assumed | undecided | conflicting |
+# requires_user_decision | not_applicable
+
+target_users:
+  question_key: target_users.primary
+  value: null
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+primary_goal:
+  question_key: primary_goal.main
+  value: null
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+use_cases:
+  question_key: use_cases.core
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+platform:
+  question_key: platform.primary
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+required_features:
+  question_key: required_features.must_have
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+optional_features:
+  question_key: optional_features.nice_to_have
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: low
+
+data_sources:
+  question_key: data_sources.primary
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+technical_constraints:
+  question_key: technical_constraints.hard_limits
+  value: []
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: high
+
+design_preferences:
+  question_key: design_preferences.explicit
+  value: null
+  status: unanswered
+  source_refs: []
+  assumption_reason: null
+  decision_impact: low
+  routing: null
+
+undecided_items: []
+
+assumptions: []
+# 示例：
+# - field: optional_features
+#   value: 暂不纳入 MVP
+#   reason: 可逆且不影响核心目标
+#   risk: low
+#   source_refs: []
+
+conflicts: []
+# 示例：
+# - field: platform
+#   values:
+#     - value: web
+#       source_ref: memory/requirements/interview-001.md#answer-01
+#     - value: desktop
+#       source_ref: memory/requirements/interview-002.md#answer-01
+#   resolution_status: requires_user_decision
+
+open_questions: []
+# 示例：
+# - question_key: platform.primary
+#   field: platform
+#   reason: 目标平台会改变技术方案
+#   status: requires_user_decision
+
+completion_assessment:
+  critical_fields_ready: false
+  blocking_fields: []
+  visual_undecided_routed: false
+  notes: null
+
+# draft | interviewing | waiting_user |
+# sufficient_for_planning | blocked_by_conflict
+requirements_status: draft

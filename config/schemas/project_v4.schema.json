@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/project-v4.schema.json",
+  "title": "AI Development Team project state v4",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project_id",
+    "status",
+    "current_iteration",
+    "next_role",
+    "requirements_status",
+    "proposal_status",
+    "product_spec_status",
+    "plan_status",
+    "plan_approval_status"
+  ],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "project_name": { "type": ["string", "null"] },
+    "project_type": { "type": ["string", "null"] },
+    "status": {
+      "enum": [
+        "INTAKE",
+        "WAITING_FOR_REQUIREMENTS",
+        "PLANNING",
+        "DESIGN_EXPLORATION",
+        "WAITING_FOR_DESIGN_REVIEW",
+        "WAITING_FOR_PRODUCT_REVIEW",
+        "PLANNING_REVISION",
+        "WAITING_FOR_PLAN_REVIEW",
+        "APPROVED_FOR_IMPLEMENTATION",
+        "IMPLEMENTING",
+        "EVALUATING",
+        "WAITING_FOR_USER",
+        "BLOCKED",
+        "ACCEPTED",
+        "ARCHIVED"
+      ]
+    },
+    "current_iteration": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "next_role": { "enum": [null, "planner", "generator", "evaluator"] },
+    "active_module": { "enum": [null, "first_ask_intake"] },
+    "requirements_status": {
+      "enum": [
+        "draft",
+        "interviewing",
+        "waiting_user",
+        "sufficient_for_planning",
+        "blocked_by_conflict"
+      ]
+    },
+    "proposal_status": {
+      "enum": ["not_started", "draft", "waiting_user_review", "approved", "revision_requested"]
+    },
+    "product_spec_status": {
+      "enum": ["not_started", "draft", "finalized", "superseded"]
+    },
+    "plan_status": {
+      "enum": ["not_started", "draft", "waiting_user_review", "revision_requested", "approved"]
+    },
+    "plan_approval_status": {
+      "enum": ["not_requested", "waiting_explicit_confirmation", "approved", "revoked"]
+    },
+    "active_requirements": { "type": ["string", "null"] },
+    "active_proposal": { "type": ["string", "null"] },
+    "approved_proposal": { "type": ["string", "null"] },
+    "product_approval_record": { "type": ["string", "null"] },
+    "active_product_spec": { "type": ["string", "null"] },
+    "active_plan": { "type": ["string", "null"] },
+    "approved_plan": { "type": ["string", "null"] },
+    "plan_approval_record": { "type": ["string", "null"] },
+    "design_selection_record": { "type": ["string", "null"] },
+    "design_skip_record": { "type": ["string", "null"] },
+    "exploration_feedback_record": { "type": ["string", "null"] },
+    "requirements_version": { "type": "integer", "minimum": 0 },
+    "proposal_version": { "type": "integer", "minimum": 0 },
+    "product_spec_version": { "type": "integer", "minimum": 0 },
+    "plan_version": { "type": "integer", "minimum": 0 },
+    "design_preview_round": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}
