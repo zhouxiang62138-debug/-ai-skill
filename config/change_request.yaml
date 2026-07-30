@@ -1,0 +1,55 @@
+version: 1
+module: change_request
+project_state_source: project.yaml
+single_active_request: true
+maximum_evaluation_iterations: 5
+reopenable_project_statuses:
+  - ACCEPTED
+  - ARCHIVED
+project_states:
+  requested: CHANGE_REQUESTED
+  waiting_approval: WAITING_FOR_CHANGE_APPROVAL
+  implementing: IMPLEMENTING
+  evaluating: EVALUATING
+  release_ready: RELEASE_READY
+change_request_statuses:
+  - PROPOSED
+  - ANALYZING
+  - WAITING_FOR_APPROVAL
+  - APPROVED
+  - IMPLEMENTING
+  - EVALUATING
+  - RELEASE_READY
+  - WAITING_FOR_USER
+  - ACCEPTED
+  - REJECTED
+  - CANCELLED
+  - BLOCKED
+change_types:
+  bug_fix: "已批准需求要求该行为，但当前实现不符合"
+  ui_improvement: "不改变主要范围的视觉或布局调整"
+  usability_improvement: "不改变核心能力的操作体验调整"
+  content_change: "文案、说明或静态内容变更"
+  configuration_change: "运行配置或可配置行为变更"
+  new_feature: "增加原计划未包含的用户能力"
+  behavior_change: "改变已有功能的业务行为"
+  performance_improvement: "以可测量性能目标为主的变更"
+  security_change: "影响身份、授权、数据保护或安全边界"
+  compatibility_change: "影响平台、格式、接口或版本兼容性"
+  data_migration: "需要改变或迁移持久化数据"
+  scope_change: "改变产品边界但尚未达到大型重构"
+  major_change: "显著改变产品定位、主体架构或兼容性"
+release_policy:
+  bug_fix: patch
+  new_feature: minor
+  major_change: major
+  default: patch
+artifact_paths:
+  request: change_requests/<change_request_id>.yaml
+  events: change_requests/<change_request_id>/events
+  impact_analysis: change_requests/<change_request_id>/impact-analysis-<nnn>.yaml
+  approvals: change_requests/<change_request_id>/approvals
+  baseline: change_requests/<change_request_id>/baseline/manifest.yaml
+  handoff: change_requests/<change_request_id>/handoffs/generator-handoff.yaml
+  evaluations: change_requests/<change_request_id>/evaluations
+  releases: releases

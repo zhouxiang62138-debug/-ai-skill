@@ -1,0 +1,21 @@
+schema_version: "1.0"
+change_request_id: "CR-<nnnn>"
+project_id: "<project_id>"
+created_at: "<ISO-8601 timestamp>"
+created_by: user
+source:
+  type: user_feedback
+  description: "<来源说明>"
+raw_feedback: |
+  <逐字保存用户原始反馈>
+baseline:
+  previous_project_status: ACCEPTED
+  plan_version: null
+  release_version: null
+  last_evaluation: null
+  commit_sha: null
+requested_changes:
+  - change_item_id: "CR-<nnnn>-01"
+    type: behavior_change
+    description: "<修改说明>"
+    approval_status: PENDING

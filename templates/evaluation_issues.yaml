@@ -1,0 +1,40 @@
+schema_version: "1.0"
+evaluation_id: evaluation-001
+project_id: <project-id>
+result: FAIL
+created_at: <ISO-8601-with-timezone>
+current_iteration: 0
+return_to: GENERATOR
+report_reference: evaluation/reports/evaluation-001.md
+previous_evaluation: null
+summary:
+  total_issues: 1
+  blocking_issues: 1
+  non_blocking_issues: 0
+issues:
+  - issue_id: EVAL-001-001
+    category: implementation_defect
+    severity: critical
+    title: <问题标题>
+    requirement_id: REQ-001
+    acceptance_criterion_id: AC-001-01
+    traceability_status: MAPPED
+    traceability_reason: null
+    expected_result: <预期结果>
+    actual_result: <实际结果>
+    reproduction_steps:
+      - <复现步骤>
+    evidence_refs:
+      - evaluation/evidence/evaluation-001/manifest.yaml
+    affected_scope:
+      - code/example.py
+    allowed_scope:
+      - code/example.py
+    forbidden_changes:
+      - memory/plans/plan-001.md
+      - config/evaluation_rules/default.yaml
+    verification_commands:
+      - ["python", "-m", "unittest"]
+    blocking: true
+    status: OPEN
+    route_to: GENERATOR

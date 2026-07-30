@@ -1,5 +1,24 @@
 # 文件驱动调度协议
 
+## Workflow v6：Completed Project Change Request
+
+`ACCEPTED/ARCHIVED → CHANGE_REQUESTED → WAITING_FOR_CHANGE_APPROVAL →
+IMPLEMENTING → EVALUATING → RELEASE_READY → ACCEPTED`。`project.yaml` 是
+唯一项目状态源；Change Request 文件只保存请求事实和追加式生命周期。完整 Gate
+与恢复协议见 `COMPLETED_PROJECT_CHANGE_REQUEST_WORKFLOW.md`。
+
+## Workflow v5 兼容层：结构化验收返工
+
+Workflow v5 保留 Markdown 验收报告，并新增机器可读
+`evaluation/issues/evaluation-<nnn>.yaml`。Evaluator 使用
+`config/evaluation_protocol.yaml` 的枚举、路由和硬 PASS 条件；Generator 在
+`memory/handoffs/responses/` 对每个 blocking/critical Issue 逐项回应。
+
+路由优先级固定为 `SYSTEM_OR_USER > USER > PLANNER > GENERATOR > ACCEPTED`。
+`project.yaml` 必须在 Issue Package 与 Markdown 报告均校验并提交后最后更新。
+状态提交失败时，`evaluation/.transactions/<evaluation-id>/journal.json` 保留
+`RECOVERY_REQUIRED`，不得把半完成事务当作新状态。
+
 每次由 Codex 主动读取项目根目录唯一的 `project.yaml`。如果 `active_module: first_ask_intake`，读取 `intake/first_ask.md`；否则根据 `status` 和 `next_role` 选择 Planner、Generator 或 Evaluator。First-Ask 是前置 Module，不是第四个 Agent。YAML 只记录协议和状态，不会自行调度或执行。
 
 `INTAKE` 和 `WAITING_FOR_REQUIREMENTS` 由 First-Ask Intake Module 处理。需求达到 `sufficient_for_planning` 且 `active_requirements` 有效后，进入 `PLANNING`。

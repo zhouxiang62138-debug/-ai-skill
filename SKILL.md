@@ -59,3 +59,34 @@ Planner 必须将其整合进新的产品方案版本，并再次等待用户明
 - 项目目录、命名和隔离规则：读取 `docs/project_conventions.md`。
 - 新建工件时：从 `templates/` 选择对应模板。
 - 评估时：从 `config/evaluation_rules/` 读取 `project.yaml` 中 `evaluation_profile` 对应的 Profile。
+
+### F9 结构化验收闭环
+
+Evaluator 同时生成 Markdown 报告、`evaluation/issues/` Issue Package 和
+`evaluation/evidence/` Manifest；Generator 在 `memory/handoffs/responses/`
+逐项回应。确定性规则分别位于 `config/evaluation_protocol.yaml`、
+`config/evaluation_gates.yaml` 和 `config/retry_governance.yaml`，实现位于
+`scripts/evaluation_protocol.py`、`scripts/evaluation_evidence.py` 和
+`scripts/evaluation_governance.py`。
+
+必需 Gate 或证据缺失、开放 blocker/critical、受保护工件未授权修改时不得 PASS。
+只有发往 Generator 的可返工 FAIL 增加 `current_iteration`；提前升级或第 5 次
+失败后停止自动返工。新项目使用 project schema v6；旧项目迁移使用
+`scripts/project_migration.py` 的检查、预览、迁移、验证和回滚动作。
+
+### 已完成项目 Change Request
+
+用户提供已有项目路径和新的修改意见时，读取该项目根目录唯一的
+`project.yaml`。若状态为 `ACCEPTED` 或 `ARCHIVED`，使用
+`scripts/change_request.py` 与 `config/change_request.yaml` 创建追加式
+Change Request；不得新建同名项目、重新执行 First-Ask 或要求用户重述全部历史。
+
+Change Request 是 Module，不是 Agent。Planner 先生成影响分析，明确批准前禁止
+改代码；部分批准只实施获批项。Generator 开始前必须建立稳定基线并通过范围
+Gate；Evaluator 必须逐项验收并执行原功能回归。PASS 后先进入
+`RELEASE_READY`，只有 Release 成功写入才回到 `ACCEPTED`。
+
+同一项目只允许一个 `active_change_request`。返工上限按当前请求的
+`change_context.evaluation_iteration` 计算，新请求从 0 开始。完整协议、迁移、
+回滚、用户示例和测试方式见
+`docs/COMPLETED_PROJECT_CHANGE_REQUEST_WORKFLOW.md`。

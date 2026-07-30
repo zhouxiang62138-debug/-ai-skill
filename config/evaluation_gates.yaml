@@ -1,0 +1,86 @@
+version: 1
+manifest_schema: config/schemas/evidence_manifest_v1.schema.json
+manifest_directory: evaluation/evidence/evaluation-<nnn>
+append_only: true
+
+gates:
+  - id: GATE-DELIVERY
+    required: true
+    trigger: always
+    pass_when: required_handoff_fields_present
+    evidence_required: true
+    skip_allowed: false
+  - id: GATE-BUILD
+    required: true
+    trigger: profile_has_build_or_static_checks
+    pass_when: all_required_commands_exit_zero
+    evidence_required: true
+    skip_allowed: false
+  - id: GATE-TESTS
+    required: true
+    trigger: always
+    pass_when: all_required_test_commands_pass
+    evidence_required: true
+    skip_allowed: false
+  - id: GATE-REQUIREMENTS
+    required: true
+    trigger: always
+    pass_when: all_required_acceptance_criteria_checked
+    evidence_required: true
+    skip_allowed: false
+  - id: GATE-REGRESSION
+    required: true
+    trigger: always
+    pass_when: mandatory_regression_suite_passes
+    evidence_required: true
+    skip_allowed: false
+  - id: GATE-NON_FUNCTIONAL
+    required: false
+    trigger: profile_or_approved_plan_requires
+    pass_when: all_configured_non_functional_checks_pass
+    evidence_required: true
+    skip_allowed: true
+  - id: GATE-EVIDENCE
+    required: true
+    trigger: always
+    pass_when: manifest_and_all_required_references_are_complete
+    evidence_required: true
+    skip_allowed: false
+
+command_security:
+  shell: false
+  command_source:
+    - evaluation_profile
+    - project_configuration
+    - approved_plan
+  cwd_must_be_inside_project: true
+  timeout_seconds: 120
+  output_limit_bytes: 1000000
+  redact_sensitive_values: true
+  prohibit_shell_executables: true
+  prohibit_destructive_commands: true
+
+protected_paths:
+  - memory/plans
+  - memory/specifications
+  - memory/decisions
+  - config/evaluation_rules
+  - config/schemas
+  - tests
+  - project.yaml
+
+protected_snapshot:
+  algorithm: sha256
+  git_required: false
+  detect:
+    - modified
+    - missing
+    - added
+  unauthorized_issue:
+    category: unauthorized_change
+    severity: blocker
+
+evidence_missing_routes:
+  generator_omission: GENERATOR
+  evaluator_environment: SYSTEM_OR_USER
+  profile_gap: PLANNER

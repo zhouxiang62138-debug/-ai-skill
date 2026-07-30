@@ -1,0 +1,9 @@
+schema_version: "1.0"
+event_id: "event-<nnn>"
+change_request_id: "CR-<nnnn>"
+from_status: null
+to_status: PROPOSED
+created_at: "<ISO-8601 timestamp>"
+actor: change_request
+reason: "<状态转换原因>"
+artifact: null

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/evidence-manifest-v1.schema.json",
+  "title": "Evidence Manifest v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evaluation_id",
+    "created_at",
+    "environment",
+    "commands",
+    "artifacts",
+    "checks",
+    "gates"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "evaluation_id": {
+      "type": "string",
+      "pattern": "^evaluation-[0-9]{3}$"
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "environment": {
+      "type": "object",
+      "required": ["os", "architecture", "python_version", "working_directory"],
+      "properties": {
+        "os": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1},
+        "python_version": {"type": "string", "minLength": 1},
+        "node_version": {"type": ["string", "null"]},
+        "working_directory": {"$ref": "#/$defs/project_path"}
+      },
+      "additionalProperties": true
+    },
+    "commands": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/command"}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "checks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "gates": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/gate"}
+    }
+  },
+  "$defs": {
+    "project_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "command": {
+      "type": "object",
+      "required": [
+        "command_id",
+        "gate_id",
+        "command",
+        "started_at",
+        "finished_at",
+        "exit_code",
+        "stdout_path",
+        "stderr_path",
+        "status",
+        "executed_by"
+      ],
+      "properties": {
+        "command_id": {"type": "string", "pattern": "^CMD-[0-9]{3}$"},
+        "gate_id": {"type": "string", "pattern": "^GATE-[A-Z_]+$"},
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "exit_code": {"type": ["integer", "null"]},
+        "stdout_path": {"$ref": "#/$defs/project_path"},
+        "stderr_path": {"$ref": "#/$defs/project_path"},
+        "status": {"enum": ["PASSED", "FAILED", "BLOCKED", "TIMED_OUT"]},
+        "executed_by": {"enum": ["EVALUATOR", "GENERATOR_REVIEWED"]}
+        ,
+        "test_metrics": {
+          "type": "object",
+          "required": ["passed", "failed", "skipped", "failed_tests"],
+          "properties": {
+            "passed": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0},
+            "skipped": {"type": "integer", "minimum": 0},
+            "failed_tests": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "type",
+        "path",
+        "linked_issue_ids",
+        "linked_requirement_ids"
+      ],
+      "properties": {
+        "artifact_id": {"type": "string", "pattern": "^ART-[0-9]{3}$"},
+        "type": {
+          "enum": ["log", "screenshot", "report", "snapshot", "test_result", "other"]
+        },
+        "path": {"$ref": "#/$defs/project_path"},
+        "linked_issue_ids": {"type": "array", "items": {"type": "string"}},
+        "linked_requirement_ids": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "check": {
+      "type": "object",
+      "required": [
+        "check_id",
+        "gate_id",
+        "required",
+        "result",
+        "evidence_refs"
+      ],
+      "properties": {
+        "check_id": {"type": "string", "pattern": "^CHECK-[0-9]{3}$"},
+        "gate_id": {"type": "string", "pattern": "^GATE-[A-Z_]+$"},
+        "required": {"type": "boolean"},
+        "result": {
+          "enum": ["PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED"]
+        },
+        "requirement_id": {"type": ["string", "null"]},
+        "acceptance_criterion_id": {"type": ["string", "null"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "gate": {
+      "type": "object",
+      "required": ["gate_id", "required", "result", "evidence_refs"],
+      "properties": {
+        "gate_id": {"type": "string", "pattern": "^GATE-[A-Z_]+$"},
+        "required": {"type": "boolean"},
+        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "skip_reason": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

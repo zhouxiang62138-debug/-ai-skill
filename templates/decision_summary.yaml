@@ -1,0 +1,21 @@
+schema_version: "1.0"
+created_at: <ISO-8601-with-timezone>
+project_id: <project-id>
+iteration_sequence: 1
+current_iteration: 5
+reason: maximum_iterations_reached
+remaining_issues: []
+repeated_issues: []
+resolved_issue_ids: []
+new_regressions: []
+trend_history: []
+generator_fix_history: []
+evaluator_recheck_history: []
+failure_causes: []
+options:
+  - id: revise_plan
+    risk: 需要重新完成正式批准链
+  - id: provide_clarification
+    risk: 保留当前历史计数
+  - id: stop
+    risk: 项目不能认定为 ACCEPTED

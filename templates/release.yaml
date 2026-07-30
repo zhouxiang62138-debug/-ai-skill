@@ -1,0 +1,12 @@
+schema_version: "1.0"
+release_version: "1.1.0"
+previous_release: "1.0.0"
+change_request_id: "CR-<nnnn>"
+plan_version: 2
+evaluation_id: "evaluation-<nnn>"
+created_at: "<ISO-8601 timestamp>"
+status: ACCEPTED
+version_source: minimal_semver
+baseline_manifest: "change_requests/CR-<nnnn>/baseline/manifest.yaml"
+commit_sha: null
+note: "Change Request 与原功能回归均通过后创建"

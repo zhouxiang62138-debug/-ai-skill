@@ -1,0 +1,41 @@
+schema_version: "1.0"
+evaluation_id: evaluation-001
+created_at: <ISO-8601-with-timezone>
+environment:
+  os: <operating-system>
+  architecture: <architecture>
+  python_version: <python-version>
+  node_version: null
+  working_directory: code
+commands:
+  - command_id: CMD-001
+    gate_id: GATE-TESTS
+    command: ["python", "-m", "unittest"]
+    started_at: <ISO-8601-with-timezone>
+    finished_at: <ISO-8601-with-timezone>
+    exit_code: 0
+    stdout_path: evaluation/evidence/evaluation-001/commands/CMD-001.stdout.log
+    stderr_path: evaluation/evidence/evaluation-001/commands/CMD-001.stderr.log
+    status: PASSED
+    executed_by: EVALUATOR
+    test_metrics:
+      passed: 1
+      failed: 0
+      skipped: 0
+      failed_tests: []
+artifacts: []
+checks:
+  - check_id: CHECK-001
+    gate_id: GATE-TESTS
+    required: true
+    requirement_id: null
+    acceptance_criterion_id: null
+    result: PASS
+    evidence_refs: [CMD-001]
+gates:
+  - gate_id: GATE-TESTS
+    required: true
+    result: PASS
+    evidence_refs: [CMD-001]
+    skip_reason: null
+    reason: null

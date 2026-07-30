@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reproducible evidence v2",
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "required": ["repository", "path"],
+      "properties": {
+        "repository": {"enum": ["project", "working_repository", "installed_repository"]},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schema_version", "evidence_id", "captured_at", "evidence_file", "target", "target_sha256", "command", "command_exit_code", "result"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "evidence_id": {"type": "string", "pattern": "^evidence-[0-9]{3}$"},
+    "captured_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "evidence_file": {"$ref": "#/$defs/artifact_ref"},
+    "target": {"$ref": "#/$defs/artifact_ref"},
+    "command": {"type": "string", "minLength": 1},
+    "command_exit_code": {"type": "integer"},
+    "target_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED"]}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/change-evaluation-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "evaluation_id", "change_request_id", "created_at", "change_item_results", "regression_results", "evidence", "baseline_comparison", "result"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "evaluation_id": {"type": "string", "pattern": "^evaluation-[0-9]{3}$"},
+    "change_request_id": {"type": "string", "pattern": "^CR-[0-9]{4}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "change_item_results": {"type": "array", "minItems": 1},
+    "regression_results": {"type": "array", "minItems": 1},
+    "evidence": {"type": "array", "minItems": 1},
+    "baseline_comparison": {"type": "object"},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED", "WAITING_FOR_USER", "PLANNER_ROUTE"]}
+  },
+  "additionalProperties": false
+}

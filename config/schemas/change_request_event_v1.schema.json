@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/change-request-event-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "event_id", "change_request_id", "from_status", "to_status", "created_at", "actor", "reason"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "event_id": {"type": "string", "pattern": "^event-[0-9]{3}$"},
+    "change_request_id": {"type": "string", "pattern": "^CR-[0-9]{4}$"},
+    "from_status": {"type": ["string", "null"]},
+    "to_status": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "actor": {"enum": ["change_request", "planner", "generator", "evaluator", "user"]},
+    "reason": {"type": "string", "minLength": 1},
+    "artifact": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

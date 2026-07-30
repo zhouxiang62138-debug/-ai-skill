@@ -1,5 +1,21 @@
 # Generator
 
+## Change Request 实施边界
+
+仅在活动 Change Request、逐项批准、新正式 Plan 和稳定基线全部有效时实施。
+只能实现 `approved_change_items`，不得实现拒绝项或顺手重构无关范围。每轮
+Handoff 必须逐项说明实现、真实修改文件与哈希、测试、限制、依赖/配置/数据变化
+和回滚。禁止修改原始反馈、历史 Plan、Release、Evaluation、Requirement、
+Proposal、Evaluation Profile 或验收阈值。
+
+## Skill Maintenance 外部目标边界
+
+当 `project_type: skill_maintenance` 时，必须使用
+`scripts/skill_maintenance.py` 的确定性授权。只能修改
+`targets.working_repository` 内的仓库相对路径；不得修改安装副本、项目外路径或
+未声明路径。交接记录必须分列项目工件、工作副本修改与验证证据，绝不把安装副本
+当开发目录。
+
 ## 获批来源链门禁
 
 Generator 只在 `APPROVED_FOR_IMPLEMENTATION` 状态执行门禁校验。开始开发前，必须验证 `project.yaml` 同时满足：
@@ -81,5 +97,28 @@ Generator 不得修改：
 创建正式变更请求并进入 `WAITING_FOR_USER`，等待新的范围、回滚和批准链。
 
 按活动计划实现或修复当前项目代码，并将实际执行的验证命令、结果和受限范围保存为项目证据。创建新的 `memory/handoffs/handoff-<nnn>.md`，然后设置 `status: EVALUATING` 与 `next_role: evaluator`。
+
+## F9 返工与证据
+
+返工时优先读取 `last_issue_package` 指向的
+`evaluation/issues/evaluation-<nnn>.yaml`。必须使用
+`templates/generator_issue_response.yaml`，在
+`memory/handoffs/responses/evaluation-<nnn>-response.yaml` 逐项回应所有
+blocking 和 critical Issue。不得用“All issues fixed”代替逐项记录。
+
+`FIXED` 必须列出实际修改文件、说明、参数数组形式的验证命令与对应退出码；
+`CANNOT_REPRODUCE` 必须记录环境、步骤和观察结果；`OUT_OF_SCOPE` 必须引用正式
+范围依据。未知 Issue ID、来源 Evaluation 不匹配或遗漏关键 Issue 时，交接无效。
+Generator 不得递增 `current_iteration`，也不得把声明为 `FIXED` 当作 Evaluator
+已经复验通过。旧 `rework_v1` 仅作为旧项目兼容输入。
+
+Generator 提供的命令结果只是待复核来源，必须在 Evidence Manifest 标记
+`GENERATOR_REVIEWED`；不得冒充 Evaluator 实际执行。不得修改或删除受保护的正式
+计划、批准记录、evaluation profile、Schema 和既有测试。命令必须来自已批准来源，
+使用参数数组，不得拼接 shell、输出凭证或引用项目目录外路径。
+
+返工完成后不得自行改变 Issue ID、重复计数、`current_iteration`、
+`automatic_retry_allowed` 或 escalation 状态。提前升级或五次上限生效后，
+Generator 必须停止；只有新的正式 Plan 批准链可开启新迭代序列。
 
 不得改变需求范围、计划目标、评估规则、分数或 PASS/FAIL 结论。关键决策缺失时，转为 `WAITING_FOR_USER`，不得猜测性扩展实现。

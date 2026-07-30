@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/project-v6.schema.json",
+  "title": "AI Development Team project state v6",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project_id",
+    "project_type",
+    "status",
+    "current_iteration",
+    "iteration_sequence",
+    "automatic_retry_allowed",
+    "next_role",
+    "requirements_status",
+    "proposal_status",
+    "user_approval_status",
+    "product_spec_status",
+    "plan_status",
+    "plan_approval_status",
+    "exploration_trigger_reasons",
+    "exploration_generation_attempt",
+    "design_feedback_status",
+    "design_feedback_round",
+    "iteration_metrics",
+    "retry_history",
+    "routing_disagreements"
+  ],
+  "properties": {
+    "schema_version": {"const": 6},
+    "project_id": {"type": "string", "minLength": 1},
+    "project_name": {"type": ["string", "null"]},
+    "project_type": {"type": "string", "minLength": 1},
+    "status": {
+      "enum": [
+        "INTAKE",
+        "WAITING_FOR_REQUIREMENTS",
+        "PLANNING",
+        "DESIGN_EXPLORATION",
+        "WAITING_FOR_DESIGN_REVIEW",
+        "WAITING_FOR_PRODUCT_REVIEW",
+        "PLANNING_REVISION",
+        "WAITING_FOR_PLAN_REVIEW",
+        "APPROVED_FOR_IMPLEMENTATION",
+        "IMPLEMENTING",
+        "EVALUATING",
+        "CHANGE_REQUESTED",
+        "WAITING_FOR_CHANGE_APPROVAL",
+        "RELEASE_READY",
+        "WAITING_FOR_USER",
+        "BLOCKED",
+        "ACCEPTED",
+        "ARCHIVED"
+      ]
+    },
+    "current_iteration": {"type": "integer", "minimum": 0, "maximum": 5},
+    "iteration_sequence": {"type": "integer", "minimum": 1},
+    "automatic_retry_allowed": {"type": "boolean"},
+    "next_role": {"enum": [null, "planner", "generator", "evaluator"]},
+    "active_module": {"enum": [null, "first_ask_intake"]},
+    "requirements_status": {
+      "enum": [
+        "draft",
+        "interviewing",
+        "waiting_user",
+        "sufficient_for_planning",
+        "blocked_by_conflict"
+      ]
+    },
+    "proposal_status": {
+      "enum": [
+        "not_started",
+        "draft",
+        "waiting_user_review",
+        "approved",
+        "revision_requested"
+      ]
+    },
+    "user_approval_status": {
+      "enum": [
+        "not_requested",
+        "waiting_explicit_confirmation",
+        "approved",
+        "revoked"
+      ]
+    },
+    "product_spec_status": {
+      "enum": ["not_started", "draft", "finalized", "superseded"]
+    },
+    "plan_status": {
+      "enum": [
+        "not_started",
+        "draft",
+        "waiting_user_review",
+        "revision_requested",
+        "approved",
+        "superseded"
+      ]
+    },
+    "plan_approval_status": {
+      "enum": [
+        "not_requested",
+        "waiting_explicit_confirmation",
+        "approved",
+        "revoked"
+      ]
+    },
+    "active_requirements": {"type": ["string", "null"]},
+    "active_proposal": {"type": ["string", "null"]},
+    "approved_proposal": {"type": ["string", "null"]},
+    "product_approval_record": {"type": ["string", "null"]},
+    "active_product_spec": {"type": ["string", "null"]},
+    "active_plan": {"type": ["string", "null"]},
+    "approved_plan": {"type": ["string", "null"]},
+    "plan_approval_record": {"type": ["string", "null"]},
+    "approval_revocation_record": {"type": ["string", "null"]},
+    "change_request_record": {"type": ["string", "null"]},
+    "design_selection_record": {"type": ["string", "null"]},
+    "design_skip_record": {"type": ["string", "null"]},
+    "exploration_feedback_record": {"type": ["string", "null"]},
+    "exploration_trigger_reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "exploration_generation_attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "design_feedback_status": {"type": "string"},
+    "design_feedback_round": {"type": "integer", "minimum": 0},
+    "last_evaluation": {"type": ["string", "null"]},
+    "last_issue_package": {"type": ["string", "null"]},
+    "last_generator_response": {"type": ["string", "null"]},
+    "evidence_manifest": {"type": ["string", "null"]},
+    "iteration_metrics": {"type": ["object", "null"]},
+    "retry_history": {"type": "array"},
+    "routing_disagreements": {"type": "array"},
+    "escalation_record": {"type": ["object", "null"]},
+    "decision_summary_record": {"type": ["string", "null"]},
+    "active_change_request": {
+      "type": ["string", "null"],
+      "pattern": "^CR-[0-9]{4}$"
+    },
+    "change_cycle": {"type": "integer", "minimum": 0},
+    "change_context": {
+      "type": ["object", "null"],
+      "required": [
+        "previous_project_status",
+        "change_cycle",
+        "evaluation_iteration"
+      ],
+      "properties": {
+        "previous_project_status": {"enum": ["ACCEPTED", "ARCHIVED"]},
+        "change_cycle": {"type": "integer", "minimum": 1},
+        "evaluation_iteration": {"type": "integer", "minimum": 0, "maximum": 5}
+      },
+      "additionalProperties": false
+    },
+    "release_version": {"type": ["string", "null"]},
+    "current_release": {"type": ["string", "null"]},
+    "change_impact_analysis": {"type": ["string", "null"]},
+    "change_approval_record": {"type": ["string", "null"]},
+    "approved_change_items": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^CR-[0-9]{4}-[0-9]{2}$"}
+    },
+    "change_baseline": {"type": ["string", "null"]},
+    "last_release_rollback": {"type": ["string", "null"]},
+    "targets": {
+      "type": ["object", "null"],
+      "properties": {
+        "working_repository": {"$ref": "#/$defs/working_target"},
+        "installed_repository": {"$ref": "#/$defs/installed_target"}
+      },
+      "additionalProperties": false
+    },
+    "sync": {
+      "type": ["object", "null"],
+      "properties": {
+        "exclusions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "required": ["exclusions"],
+      "additionalProperties": true
+    },
+    "final_evaluation_status": {
+      "enum": [null, "PASS", "FAIL", "BLOCKED"]
+    },
+    "required_tests_status": {"enum": [null, "PASS", "FAIL"]},
+    "sync_preflight_diff": {"type": ["array", "null"]},
+    "open_issues": {"type": "array"},
+    "blocked_reason": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "working_target": {
+      "type": "object",
+      "required": ["path", "access"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "access": {"const": "read_write"}
+      },
+      "additionalProperties": false
+    },
+    "installed_target": {
+      "type": "object",
+      "required": ["path", "access"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "access": {"const": "read_only_until_final_sync"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

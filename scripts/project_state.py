@@ -19,7 +19,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = REPO_ROOT / "config" / "schemas"
-SUPPORTED_SCHEMA_VERSIONS = (3, 4)
+SUPPORTED_SCHEMA_VERSIONS = (3, 4, 5, 6)
 
 
 class ProjectStateError(ValueError):
@@ -351,9 +351,9 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         if state.get("next_role") != "generator":
             errors.append("$.next_role 在 v3 实施批准状态中必须是 generator")
 
-    if version == 4:
+    if version in {4, 5, 6}:
         if status in {"DESIGN_REVIEW", "PRODUCT_REVIEW", "PLANNING_COMPLETE"}:
-            errors.append("v4 新项目不得写入旧状态别名")
+            errors.append("v4/v5/v6 新项目不得写入旧状态别名")
         if status == "DESIGN_EXPLORATION":
             for field in ("active_requirements", "active_proposal"):
                 _require(state, field, errors)
@@ -482,6 +482,83 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 errors.append("approved_plan 必须与 active_plan 指向同一正式计划")
             if state.get("next_role") != "generator":
                 errors.append("进入实施批准状态后 next_role 必须是 generator")
+        if status in {
+            "CHANGE_REQUESTED",
+            "WAITING_FOR_CHANGE_APPROVAL",
+            "RELEASE_READY",
+        }:
+            _require(state, "active_change_request", errors)
+            if not isinstance(state.get("change_context"), dict):
+                errors.append("活动 Change Request 状态必须声明 change_context")
+            if status in {"CHANGE_REQUESTED", "WAITING_FOR_CHANGE_APPROVAL"}:
+                if state.get("next_role") != "planner":
+                    errors.append(f"{status} 的 next_role 必须是 planner")
+            if status == "RELEASE_READY" and state.get("next_role") != "evaluator":
+                errors.append("RELEASE_READY 的 next_role 必须是 evaluator")
+        if state.get("active_change_request") is not None:
+            if not isinstance(state.get("change_context"), dict):
+                errors.append("active_change_request 必须配套 change_context")
+            else:
+                iteration = state["change_context"].get("evaluation_iteration")
+                if iteration != state.get("current_iteration"):
+                    errors.append(
+                        "Change Request evaluation_iteration 必须与 current_iteration 一致"
+                    )
+        elif state.get("change_context") is not None:
+            errors.append("没有 active_change_request 时 change_context 必须是 null")
+    if version in {5, 6} and state.get("project_type") == "skill_maintenance":
+        targets = state.get("targets")
+        if not isinstance(targets, dict):
+            errors.append("skill_maintenance 必须声明 targets")
+        else:
+            expected = {
+                "working_repository": "read_write",
+                "installed_repository": "read_only_until_final_sync",
+            }
+            normalized: list[Path] = []
+            for name, access in expected.items():
+                target = targets.get(name)
+                if not isinstance(target, dict) or target.get("access") != access:
+                    errors.append(f"targets.{name} 必须声明 access={access}")
+                    continue
+                raw_path = target.get("path")
+                if not isinstance(raw_path, str) or not raw_path:
+                    errors.append(f"targets.{name}.path 必须是非空绝对路径")
+                    continue
+                candidate = Path(raw_path)
+                if not candidate.is_absolute() or ".." in candidate.parts:
+                    errors.append(f"targets.{name}.path 必须是无路径穿越的绝对路径")
+                    continue
+                normalized.append(candidate.resolve())
+            if len(normalized) == 2:
+                working, installed = normalized
+                if working == installed:
+                    errors.append("工作副本和安装副本不得指向同一目录")
+                else:
+                    try:
+                        installed.relative_to(working)
+                        errors.append("安装副本不得位于工作副本内部")
+                    except ValueError:
+                        pass
+                    try:
+                        working.relative_to(installed)
+                        errors.append("工作副本不得位于安装副本内部")
+                    except ValueError:
+                        pass
+        sync = state.get("sync")
+        if not isinstance(sync, dict) or not isinstance(sync.get("exclusions"), list):
+            errors.append("skill_maintenance 必须声明 sync.exclusions")
+    if version == 6:
+        if not isinstance(state.get("iteration_sequence"), int) or state["iteration_sequence"] < 1:
+            errors.append("v6 iteration_sequence 必须是正整数")
+        if not isinstance(state.get("automatic_retry_allowed"), bool):
+            errors.append("v6 automatic_retry_allowed 必须是布尔值")
+        if state.get("current_iteration") == 5 and state.get("automatic_retry_allowed") is not False:
+            errors.append("达到最大迭代后 automatic_retry_allowed 必须为 false")
+        if state.get("automatic_retry_allowed") is False and status == "IMPLEMENTING":
+            errors.append("禁止自动重试时不得进入 IMPLEMENTING")
+        if state.get("escalation_record") is not None and state.get("automatic_retry_allowed") is not False:
+            errors.append("存在升级记录时必须停止自动重试")
     return errors
 
 
@@ -490,11 +567,26 @@ def validate_project_state(
 ) -> list[str]:
     version = state.get("schema_version")
     if version not in SUPPORTED_SCHEMA_VERSIONS:
-        return [f"不支持 schema_version={version!r}，仅支持 3 和 4"]
+        return [f"不支持 schema_version={version!r}，仅支持 3、4、5 和 6"]
     errors = _validate_schema_node(state, _load_schema(version), "$")
     errors.extend(_validate_semantics(state))
     if project_root is not None:
         root = Path(project_root).resolve()
+        if state.get("schema_version") in {5, 6} and state.get("project_type") == "skill_maintenance":
+            for name, target in (state.get("targets") or {}).items():
+                if not isinstance(target, dict) or not isinstance(target.get("path"), str):
+                    continue
+                resolved_target = Path(target["path"]).resolve()
+                try:
+                    resolved_target.relative_to(root)
+                    errors.append(f"$.targets.{name} 不得位于项目目录内部")
+                except ValueError:
+                    pass
+                try:
+                    root.relative_to(resolved_target)
+                    errors.append(f"项目目录不得位于 $.targets.{name} 内部")
+                except ValueError:
+                    pass
         for field in (
             "active_requirements",
             "active_proposal",
@@ -511,6 +603,17 @@ def validate_project_state(
             "exploration_error_record",
             "approval_revocation_record",
             "change_request_record",
+            "change_impact_analysis",
+            "change_approval_record",
+            "change_baseline",
+            "current_release",
+            "last_release_rollback",
+            "last_evaluation",
+            "last_issue_package",
+            "last_generator_response",
+            "evidence_manifest",
+            "decision_summary_record",
+            "schema_migration_record",
         ):
             reference = state.get(field)
             if not reference:

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/project-v5.schema.json",
+  "title": "AI Development Team project state v5",
+  "type": "object",
+  "required": ["schema_version", "project_id", "project_type", "status", "current_iteration", "next_role", "requirements_status", "proposal_status", "user_approval_status", "product_spec_status", "plan_status", "plan_approval_status", "exploration_trigger_reasons", "exploration_generation_attempt", "design_feedback_status", "design_feedback_round"],
+  "properties": {
+    "schema_version": {"const": 5},
+    "project_id": {"type": "string", "minLength": 1},
+    "project_type": {"enum": ["application", "skill_maintenance"]},
+    "status": {"type": "string"},
+    "current_iteration": {"type": "integer", "minimum": 0, "maximum": 5},
+    "next_role": {"enum": [null, "planner", "generator", "evaluator"]},
+    "targets": {
+      "type": ["object", "null"],
+      "properties": {
+        "working_repository": {"$ref": "#/$defs/working_target"},
+        "installed_repository": {"$ref": "#/$defs/installed_target"}
+      },
+      "additionalProperties": false
+    },
+    "sync": {
+      "type": ["object", "null"],
+      "properties": {
+        "exclusions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "required": ["exclusions"],
+      "additionalProperties": true
+    },
+    "final_evaluation_status": {"enum": [null, "PASS", "FAIL", "BLOCKED"]},
+    "last_evaluation": {"type": ["string", "null"]},
+    "required_tests_status": {"enum": [null, "PASS", "FAIL"]},
+    "sync_preflight_diff": {"type": ["array", "null"]},
+    "open_issues": {"type": "array"},
+    "blocked_reason": {"type": ["string", "null"]},
+    "active_change_request": {
+      "type": ["string", "null"],
+      "pattern": "^CR-[0-9]{4}$"
+    },
+    "change_cycle": {"type": "integer", "minimum": 0},
+    "change_context": {
+      "type": ["object", "null"],
+      "required": [
+        "previous_project_status",
+        "change_cycle",
+        "evaluation_iteration"
+      ],
+      "properties": {
+        "previous_project_status": {"enum": ["ACCEPTED", "ARCHIVED"]},
+        "change_cycle": {"type": "integer", "minimum": 1},
+        "evaluation_iteration": {"type": "integer", "minimum": 0, "maximum": 5}
+      },
+      "additionalProperties": false
+    },
+    "release_version": {"type": ["string", "null"]},
+    "current_release": {"type": ["string", "null"]},
+    "change_impact_analysis": {"type": ["string", "null"]},
+    "change_approval_record": {"type": ["string", "null"]},
+    "approved_change_items": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^CR-[0-9]{4}-[0-9]{2}$"}
+    },
+    "change_baseline": {"type": ["string", "null"]},
+    "last_release_rollback": {"type": ["string", "null"]},
+    "blocked_context": {
+      "type": ["object", "null"],
+      "properties": {
+        "category": {"type": "string"},
+        "resume_status": {"const": "EVALUATING"},
+        "resume_next_role": {"const": "evaluator"},
+        "required_checks": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "working_target": {
+      "type": "object",
+      "required": ["path", "access"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "access": {"const": "read_write"}
+      },
+      "additionalProperties": false
+    },
+    "installed_target": {
+      "type": "object",
+      "required": ["path", "access"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "access": {"const": "read_only_until_final_sync"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"project_type": {"const": "skill_maintenance"}},
+        "required": ["project_type"]
+      },
+      "then": {
+        "required": ["targets", "sync"],
+        "properties": {
+          "targets": {
+            "required": ["working_repository", "installed_repository"]
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

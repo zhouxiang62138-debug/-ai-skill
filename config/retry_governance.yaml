@@ -1,0 +1,79 @@
+version: 1
+metrics_schema: config/schemas/iteration_metrics_v1.schema.json
+decision_summary_schema: config/schemas/decision_summary_v1.schema.json
+
+targeted_recheck:
+  include_issue_statuses:
+    - OPEN
+    - REOPENED
+  include_generator_response_statuses:
+    - FIXED
+    - PARTIALLY_FIXED
+    - CANNOT_REPRODUCE
+  include_changed_file_acceptance_criteria: true
+  include_changed_file_tests: true
+
+mandatory_regression:
+  profile_field: evaluation.mandatory_regression_suite
+  may_be_skipped: false
+
+progress_statuses:
+  - IMPROVING
+  - STABLE
+  - REGRESSING
+  - STALLED
+  - UNKNOWN
+
+issue_identity:
+  stable_across_evaluations: true
+  signature_fields:
+    - requirement_id
+    - acceptance_criterion_id
+    - root_cause_key
+  resolved_recurrence_status: REOPENED
+
+early_escalation_rules:
+  repeated_same_issue: 2
+  repeated_failed_fix_claim: 2
+  consecutive_regression_rounds: 2
+  routing_disagreement_rounds: 2
+  no_progress_rounds: 2
+
+early_escalation_routes:
+  routing_disagreement_threshold:
+    target: PLANNER
+    status: PLANNING
+  repeated_same_issue_threshold:
+    target: USER
+    status: WAITING_FOR_USER
+  repeated_failed_fix_claim_threshold:
+    target: USER
+    status: WAITING_FOR_USER
+  consecutive_regression_threshold:
+    target: USER
+    status: WAITING_FOR_USER
+  no_progress_threshold:
+    target: USER
+    status: WAITING_FOR_USER
+
+iteration:
+  maximum_automatic_iterations: 5
+  increment_only_when:
+    evaluation_result: FAIL
+    return_to: GENERATOR
+  does_not_increment:
+    - BLOCKED
+    - WAITING_FOR_USER
+    - PLANNER_ROUTE
+  reset_only_when:
+    - new_approved_plan
+    - new_plan_approval_record
+  preserve_history_across_reset: true
+  exhausted_status: WAITING_FOR_USER
+  exhausted_next_role: null
+
+decision_summary:
+  directory: evaluation/decisions
+  append_only: true
+  required_at_iteration_limit: true
+  required_at_early_escalation: true

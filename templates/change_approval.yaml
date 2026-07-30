@@ -1,0 +1,9 @@
+schema_version: "1.0"
+approval_id: "approval-<nnn>"
+change_request_id: "CR-<nnnn>"
+created_at: "<ISO-8601 timestamp>"
+decision: APPROVED
+item_decisions:
+  - change_item_id: "CR-<nnnn>-01"
+    decision: APPROVED
+source_text: "<逐字保存用户决定>"

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/decision-summary-v1.schema.json",
+  "title": "Controlled Retry Decision Summary v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "created_at",
+    "project_id",
+    "iteration_sequence",
+    "current_iteration",
+    "reason",
+    "remaining_issues",
+    "repeated_issues",
+    "resolved_issue_ids",
+    "new_regressions",
+    "trend_history",
+    "generator_fix_history",
+    "evaluator_recheck_history",
+    "failure_causes",
+    "options"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "project_id": {"type": "string", "minLength": 1},
+    "iteration_sequence": {"type": "integer", "minimum": 1},
+    "current_iteration": {"type": "integer", "minimum": 0, "maximum": 5},
+    "reason": {"type": "string", "minLength": 1},
+    "remaining_issues": {"type": "array"},
+    "repeated_issues": {"type": "array"},
+    "resolved_issue_ids": {"type": "array", "items": {"type": "string"}},
+    "new_regressions": {"type": "array"},
+    "trend_history": {"type": "array"},
+    "generator_fix_history": {"type": "array"},
+    "evaluator_recheck_history": {"type": "array"},
+    "failure_causes": {"type": "array", "items": {"type": "string"}},
+    "options": {"type": "array", "minItems": 1}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,16 @@
+schema_version: "1.0"
+source_evaluation: evaluation-001
+generator_handoff_id: handoff-002
+response_reference: memory/handoffs/responses/evaluation-001-response.yaml
+created_at: <ISO-8601-with-timezone>
+issue_responses:
+  - issue_id: EVAL-001-001
+    status: FIXED
+    changed_files:
+      - code/example.py
+    explanation: <实际修复说明>
+    verification_commands:
+      - ["python", "-m", "unittest"]
+    verification_results:
+      - command: ["python", "-m", "unittest"]
+        exit_code: 0

@@ -1,0 +1,9 @@
+schema_version: "1.0"
+change_request_id: "CR-<nnnn>"
+created_at: "<ISO-8601 timestamp>"
+release_version: null
+plan_version: null
+last_evaluation: null
+commit_sha: null
+hash_algorithm: sha256
+files: []

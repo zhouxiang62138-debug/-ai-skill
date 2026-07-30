@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/handoff-v1.schema.json",
+  "title": "Skill maintenance handoff v1",
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "required": ["repository", "path"],
+      "properties": {
+        "repository": {
+          "enum": ["project", "working_repository", "installed_repository"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "changed_project_artifacts",
+    "changed_target_files",
+    "verification_artifacts"
+  ],
+  "properties": {
+    "changed_project_artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    },
+    "changed_target_files": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    },
+    "verification_artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"}
+    }
+  },
+  "additionalProperties": true
+}

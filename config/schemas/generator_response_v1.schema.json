@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/generator-response-v1.schema.json",
+  "title": "Generator Issue Response v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_evaluation",
+    "generator_handoff_id",
+    "response_reference",
+    "created_at",
+    "issue_responses"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "source_evaluation": {
+      "type": "string",
+      "pattern": "^evaluation-[0-9]{3}$"
+    },
+    "generator_handoff_id": {
+      "type": "string",
+      "pattern": "^handoff-[0-9]{3}$"
+    },
+    "response_reference": {
+      "type": "string",
+      "pattern": "^memory/handoffs/responses/evaluation-[0-9]{3}-response\\.yaml$"
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "issue_responses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "status"],
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "pattern": "^EVAL-[0-9]{3}-[0-9]{3}$"
+          },
+          "status": {
+            "enum": [
+              "FIXED",
+              "PARTIALLY_FIXED",
+              "NOT_FIXED",
+              "CANNOT_REPRODUCE",
+              "NEEDS_CLARIFICATION",
+              "OUT_OF_SCOPE"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

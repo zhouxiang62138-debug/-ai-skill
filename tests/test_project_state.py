@@ -49,9 +49,9 @@ def make_v4_state() -> dict:
 
 
 class ProjectStateParserTests(unittest.TestCase):
-    def test_v4_template_can_be_loaded_and_validated(self) -> None:
+    def test_v6_template_can_be_loaded_and_validated(self) -> None:
         state = load_project_state(REPO_ROOT / "templates" / "project.yaml")
-        self.assertEqual(4, state["schema_version"])
+        self.assertEqual(6, state["schema_version"])
         self.assertEqual([], validate_project_state(state))
 
     def test_nested_data_round_trip(self) -> None:
@@ -265,7 +265,7 @@ class AtomicWriteTests(unittest.TestCase):
 
 class SchemaFileTests(unittest.TestCase):
     def test_schema_files_are_valid_json(self) -> None:
-        for version in (3, 4):
+        for version in (3, 4, 5, 6):
             path = REPO_ROOT / "config" / "schemas" / f"project_v{version}.schema.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(version, data["properties"]["schema_version"]["const"])

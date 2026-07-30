@@ -1,0 +1,113 @@
+version: 1
+
+issue_package:
+  schema: config/schemas/evaluation_issue_v1.schema.json
+  directory: evaluation/issues
+  filename: evaluation-<nnn>.yaml
+  append_only: true
+  markdown_directory: evaluation/reports
+  require_bidirectional_reference: true
+
+issue_categories:
+  implementation_defect:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  test_defect:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  missing_test:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  incomplete_implementation:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  regression:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  plan_gap:
+    target: PLANNER
+    next_status: PLANNING
+  scope_mismatch:
+    target: PLANNER
+    next_status: PLANNING
+  requirement_ambiguity:
+    target: USER
+    next_status: WAITING_FOR_USER
+  environment_blocker:
+    target: SYSTEM_OR_USER
+    next_status: BLOCKED
+  evidence_missing:
+    reason_routes:
+      generator_omission:
+        target: GENERATOR
+        next_status: IMPLEMENTING
+      evaluator_environment:
+        target: SYSTEM_OR_USER
+        next_status: BLOCKED
+      profile_gap:
+        target: PLANNER
+        next_status: PLANNING
+  unauthorized_change:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+    forced_severity: blocker
+
+severity_levels:
+  - blocker
+  - critical
+  - major
+  - minor
+  - observation
+
+traceability_statuses:
+  - MAPPED
+  - PARTIALLY_MAPPED
+  - UNMAPPED
+  - NOT_APPLICABLE
+
+issue_statuses:
+  - OPEN
+  - ACKNOWLEDGED
+  - RESOLVED
+  - REOPENED
+  - DEFERRED
+  - INVALID
+
+route_priority:
+  - SYSTEM_OR_USER
+  - USER
+  - PLANNER
+  - GENERATOR
+  - ACCEPTED
+
+generator_response:
+  schema: config/schemas/generator_response_v1.schema.json
+  directory: memory/handoffs/responses
+  append_only: true
+  statuses:
+    - FIXED
+    - PARTIALLY_FIXED
+    - NOT_FIXED
+    - CANNOT_REPRODUCE
+    - NEEDS_CLARIFICATION
+    - OUT_OF_SCOPE
+
+pass_policy:
+  maximum_allowed:
+    blocker: 0
+    critical: 0
+  required_conditions:
+    - all_required_acceptance_criteria_checked
+    - no_open_blocking_issues
+    - no_open_critical_issues
+    - required_generator_handoff_present
+    - required_evidence_complete
+    - protected_artifacts_unchanged
+    - prior_blocking_issues_answered
+
+transaction:
+  validate_before_write: true
+  temporary_staging: evaluation/.transactions
+  append_only_outputs: true
+  project_state_written_last: true
+  state_failure_status: RECOVERY_REQUIRED

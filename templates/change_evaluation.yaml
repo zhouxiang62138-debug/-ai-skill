@@ -1,0 +1,23 @@
+schema_version: "1.0"
+evaluation_id: "evaluation-<nnn>"
+change_request_id: "CR-<nnnn>"
+created_at: "<ISO-8601 timestamp>"
+change_item_results:
+  - change_item_id: "CR-<nnnn>-01"
+    requirement_id: "REQ-<id>"
+    acceptance_criterion_ids:
+      - "AC-<id>"
+    evidence_ids:
+      - "EVID-<id>"
+    status: PASS
+regression_results:
+  - regression_id: "REG-001"
+    evidence_ids:
+      - "EVID-<id>"
+    status: PASS
+evidence:
+  - "EVID-<id>"
+baseline_comparison:
+  baseline_manifest: "change_requests/CR-<nnnn>/baseline/manifest.yaml"
+  generator_handoff_verified: true
+result: PASS

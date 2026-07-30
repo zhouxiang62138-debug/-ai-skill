@@ -1,0 +1,10 @@
+evidence_file:
+  repository: project
+  path: artifacts/evidence/evidence-001.json
+target:
+  repository: working_repository
+  path: scripts/example.py
+target_sha256: <64-char-lowercase-sha256>
+command: <verification-command>
+result: PASS
+write_intent: false

@@ -1,0 +1,28 @@
+schema_version: "1.0"
+change_request_id: "CR-<nnnn>"
+created_at: "<ISO-8601 timestamp>"
+risk_level: MEDIUM
+scope_change: false
+database_migration_required: false
+new_dependencies_required: false
+backward_compatibility_risk: LOW
+items:
+  - change_item_id: "CR-<nnnn>-01"
+    classification: behavior_change
+    requirement_action: MODIFY
+    affected_requirements: []
+    new_requirement: null
+    affected_acceptance_criteria: []
+    affected_components: []
+    data_model_impact: false
+    api_impact: false
+    compatibility_impact: false
+    new_dependency_required: false
+    regression_areas: []
+    implementation_recommendation: "<实施建议>"
+affected_components: []
+testing_impact:
+  new_tests_required: true
+  regression_required: true
+  regression_areas: []
+approval_questions: []

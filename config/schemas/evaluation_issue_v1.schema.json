@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/evaluation-issue-v1.schema.json",
+  "title": "Evaluation Issue Package v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evaluation_id",
+    "project_id",
+    "result",
+    "created_at",
+    "current_iteration",
+    "return_to",
+    "report_reference",
+    "summary",
+    "issues"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "evaluation_id": {"type": "string", "pattern": "^evaluation-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "current_iteration": {"type": "integer", "minimum": 0, "maximum": 5},
+    "return_to": {
+      "enum": ["ACCEPTED", "GENERATOR", "PLANNER", "USER", "SYSTEM_OR_USER"]
+    },
+    "report_reference": {
+      "type": "string",
+      "pattern": "^evaluation/reports/evaluation-[0-9]{3}\\.md$"
+    },
+    "previous_evaluation": {
+      "type": ["string", "null"],
+      "pattern": "^evaluation-[0-9]{3}$"
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_issues", "blocking_issues", "non_blocking_issues"],
+      "properties": {
+        "total_issues": {"type": "integer", "minimum": 0},
+        "blocking_issues": {"type": "integer", "minimum": 0},
+        "non_blocking_issues": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "issues": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/issue"}
+    }
+  },
+  "$defs": {
+    "project_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "issue": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "category",
+        "severity",
+        "title",
+        "traceability_status",
+        "expected_result",
+        "actual_result",
+        "reproduction_steps",
+        "evidence_refs",
+        "affected_scope",
+        "allowed_scope",
+        "forbidden_changes",
+        "verification_commands",
+        "blocking",
+        "status",
+        "route_to"
+      ],
+      "properties": {
+        "issue_id": {"type": "string", "pattern": "^EVAL-[0-9]{3}-[0-9]{3}$"},
+        "category": {
+          "enum": [
+            "implementation_defect",
+            "test_defect",
+            "missing_test",
+            "incomplete_implementation",
+            "regression",
+            "plan_gap",
+            "scope_mismatch",
+            "requirement_ambiguity",
+            "environment_blocker",
+            "evidence_missing",
+            "unauthorized_change"
+          ]
+        },
+        "severity": {
+          "enum": ["blocker", "critical", "major", "minor", "observation"]
+        },
+        "title": {"type": "string", "minLength": 1},
+        "requirement_id": {"type": ["string", "null"]},
+        "acceptance_criterion_id": {"type": ["string", "null"]},
+        "traceability_status": {
+          "enum": ["MAPPED", "PARTIALLY_MAPPED", "UNMAPPED", "NOT_APPLICABLE"]
+        },
+        "traceability_reason": {"type": ["string", "null"]},
+        "expected_result": {"type": "string", "minLength": 1},
+        "actual_result": {"type": "string", "minLength": 1},
+        "reproduction_steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/project_path"}
+        },
+        "affected_scope": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/project_path"}
+        },
+        "allowed_scope": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/project_path"}
+        },
+        "forbidden_changes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/project_path"}
+        },
+        "verification_commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/command"}
+        },
+        "blocking": {"type": "boolean"},
+        "status": {
+          "enum": ["OPEN", "ACKNOWLEDGED", "RESOLVED", "REOPENED", "DEFERRED", "INVALID"]
+        },
+        "route_to": {
+          "enum": ["GENERATOR", "PLANNER", "USER", "SYSTEM_OR_USER"]
+        },
+        "evidence_missing_reason": {
+          "enum": ["generator_omission", "evaluator_environment", "profile_gap"]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

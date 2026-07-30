@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/change-baseline-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "change_request_id", "created_at", "release_version", "plan_version", "last_evaluation", "commit_sha", "hash_algorithm", "files"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "change_request_id": {"type": "string", "pattern": "^CR-[0-9]{4}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "release_version": {"type": ["string", "null"]},
+    "plan_version": {"type": ["integer", "null"]},
+    "last_evaluation": {"type": ["string", "null"]},
+    "commit_sha": {"type": ["string", "null"]},
+    "hash_algorithm": {"const": "sha256"},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

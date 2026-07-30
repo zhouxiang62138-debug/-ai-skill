@@ -1,0 +1,15 @@
+schema_version: "1.0"
+handoff_id: "handoff-<nnn>"
+change_request_id: "CR-<nnnn>"
+created_at: "<ISO-8601 timestamp>"
+implemented_items:
+  - change_item_id: "CR-<nnnn>-01"
+    implementation: "<实现说明>"
+changed_files:
+  - code/<file>
+changed_file_hashes: []
+verification_results:
+  - command: "<无 shell 拼接的测试命令>"
+    status: PASS
+known_limitations: []
+rollback: "<回滚方式>"

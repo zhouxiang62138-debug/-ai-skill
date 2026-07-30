@@ -222,7 +222,7 @@ class PreviewRoundValidationTests(unittest.TestCase):
         workflow = parse_project_yaml(
             (REPO_ROOT / "config" / "workflow.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(4, workflow["version"])
+        self.assertEqual(6, workflow["version"])
         self.assertEqual(3, workflow["design_exploration"]["required_concept_count"])
         self.assertEqual(
             2, workflow["design_exploration"]["maximum_generation_attempts"]
@@ -230,7 +230,7 @@ class PreviewRoundValidationTests(unittest.TestCase):
         role_policies = parse_project_yaml(
             (REPO_ROOT / "config" / "role_policies.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(4, role_policies["version"])
+        self.assertEqual(6, role_policies["version"])
 
     def test_complete_three_direction_round_is_valid(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_exploration_") as directory:

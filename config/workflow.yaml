@@ -1,6 +1,96 @@
-version: 4
+version: 6
 protocol: file_driven
 maximum_iterations: 5
+
+evaluation_protocol:
+  version: 1
+  rules: config/evaluation_protocol.yaml
+  issue_schema: config/schemas/evaluation_issue_v1.schema.json
+  response_schema: config/schemas/generator_response_v1.schema.json
+  issue_directory: evaluation/issues
+  response_directory: memory/handoffs/responses
+  markdown_reports_preserved: true
+  state_commit_order:
+    - validate_all_outputs
+    - stage_issue_package
+    - stage_markdown_report
+    - commit_artifacts
+    - commit_project_state
+  route_priority:
+    - SYSTEM_OR_USER
+    - USER
+    - PLANNER
+    - GENERATOR
+    - ACCEPTED
+
+evidence_protocol:
+  version: 1
+  rules: config/evaluation_gates.yaml
+  manifest_schema: config/schemas/evidence_manifest_v1.schema.json
+  manifest_directory: evaluation/evidence/evaluation-<nnn>
+  gate_order:
+    - GATE-DELIVERY
+    - GATE-BUILD
+    - GATE-TESTS
+    - GATE-REQUIREMENTS
+    - GATE-REGRESSION
+    - GATE-NON_FUNCTIONAL
+    - GATE-EVIDENCE
+  command_execution:
+    shell: false
+    profile_allowlist_required: true
+    project_cwd_only: true
+    timeout_required: true
+    output_limit_required: true
+  protected_snapshot:
+    algorithm: sha256
+    git_required: false
+  manifest_committed_before_project_state: true
+
+controlled_retry:
+  version: 1
+  rules: config/retry_governance.yaml
+  metrics_schema: config/schemas/iteration_metrics_v1.schema.json
+  decision_summary_schema: config/schemas/decision_summary_v1.schema.json
+  targeted_recheck_required: true
+  mandatory_regression_may_be_skipped: false
+  stable_issue_identity: true
+  progress_statuses:
+    - IMPROVING
+    - STABLE
+    - REGRESSING
+    - STALLED
+    - UNKNOWN
+  maximum_automatic_iterations: 5
+  counter_increment_condition:
+    evaluation_result: FAIL
+    return_to: GENERATOR
+  counter_not_incremented_for:
+    - BLOCKED
+    - WAITING_FOR_USER
+    - PLANNER_ROUTE
+  reset_requires:
+    - new_approved_plan
+    - new_plan_approval_record
+  exhausted_status: WAITING_FOR_USER
+  exhausted_next_role: null
+
+rework_governance:
+  record_schema: config/schemas/rework_v1.schema.json
+  evidence_schema: config/schemas/evidence_v2.schema.json
+  append_only_records: true
+  counter_field: current_iteration
+  counter_increment_event: evaluator_commits_rework_route
+  reject_replayed_record: true
+  maximum_retries: 5
+  exhausted_status: WAITING_FOR_USER
+  exhausted_reason: maximum_iterations_reached
+  deterministic_routes:
+    implementation_issue: generator
+    testing_issue: generator
+    product_scope_issue: planner
+    requirement_issue: first_ask_intake
+  compatibility_status: legacy_v1
 
 design_exploration:
   required_concept_count: 3
@@ -9,6 +99,24 @@ design_exploration:
     - concept.md
     - preview.html
     - preview.css
+
+change_request:
+  version: 1
+  rules: config/change_request.yaml
+  module: change_request
+  request_schema: config/schemas/change_request_v1.schema.json
+  event_schema: config/schemas/change_request_event_v1.schema.json
+  impact_analysis_schema: config/schemas/change_impact_analysis_v1.schema.json
+  approval_schema: config/schemas/change_approval_v1.schema.json
+  baseline_schema: config/schemas/change_baseline_v1.schema.json
+  handoff_schema: config/schemas/change_handoff_v1.schema.json
+  evaluation_schema: config/schemas/change_evaluation_v1.schema.json
+  release_schema: config/schemas/release_v1.schema.json
+  single_active_request: true
+  original_feedback_immutable: true
+  lifecycle_events_append_only: true
+  current_state_source: project.yaml
+  evaluation_iteration_field: change_context.evaluation_iteration
 
 states:
   INTAKE:
@@ -50,6 +158,13 @@ states:
   IMPLEMENTING:
     next_role: generator
   EVALUATING:
+    next_role: evaluator
+  CHANGE_REQUESTED:
+    next_role: planner
+  WAITING_FOR_CHANGE_APPROVAL:
+    next_role: planner
+    wait_for_user: true
+  RELEASE_READY:
     next_role: evaluator
   WAITING_FOR_USER:
     next_role: null
@@ -154,6 +269,36 @@ failure_routing:
   maximum_iterations_reached:
     status: WAITING_FOR_USER
     next_role: null
+  completed_project_change_requested:
+    status: CHANGE_REQUESTED
+    next_role: planner
+  change_impact_analysis_ready:
+    status: WAITING_FOR_CHANGE_APPROVAL
+    next_role: planner
+  change_approved:
+    status: IMPLEMENTING
+    next_role: generator
+  change_evaluation_passed:
+    status: RELEASE_READY
+    next_role: evaluator
+  change_cancelled:
+    restore_previous_project_status: true
+    next_role: null
+
+environment_block_recovery:
+  windows_symlink_privilege_missing:
+    category: acceptance_environment
+    blocked_status: BLOCKED
+    blocked_next_role: null
+    resume_status: EVALUATING
+    resume_next_role: evaluator
+    required_checks:
+      - test_directory_symlink_escape_is_rejected
+      - test_file_symlink_escape_is_rejected
+    resume_requires:
+      - directory_symlink_creation_available
+      - file_symlink_creation_available
+    direct_pass_forbidden: true
 
 legacy_state_aliases:
   DESIGN_REVIEW: WAITING_FOR_DESIGN_REVIEW

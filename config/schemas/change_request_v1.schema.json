@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/change-request-v1.schema.json",
+  "title": "Completed project change request v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "change_request_id",
+    "project_id",
+    "created_at",
+    "created_by",
+    "source",
+    "raw_feedback",
+    "baseline",
+    "requested_changes"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "change_request_id": {"type": "string", "pattern": "^CR-[0-9]{4}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "created_by": {"enum": ["user", "external", "system"]},
+    "source": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": {"enum": ["user_feedback", "external_feedback", "production_incident", "follow_up"]},
+        "description": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "raw_feedback": {"type": "string", "minLength": 1},
+    "baseline": {
+      "type": "object",
+      "required": [
+        "previous_project_status",
+        "plan_version",
+        "release_version",
+        "last_evaluation",
+        "commit_sha"
+      ],
+      "properties": {
+        "previous_project_status": {"enum": ["ACCEPTED", "ARCHIVED"]},
+        "plan_version": {"type": ["integer", "null"], "minimum": 1},
+        "release_version": {"type": ["string", "null"]},
+        "last_evaluation": {"type": ["string", "null"]},
+        "commit_sha": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "requested_changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "change_item_id",
+          "type",
+          "description",
+          "approval_status"
+        ],
+        "properties": {
+          "change_item_id": {"type": "string", "pattern": "^CR-[0-9]{4}-[0-9]{2}$"},
+          "type": {
+            "enum": [
+              "bug_fix",
+              "ui_improvement",
+              "usability_improvement",
+              "content_change",
+              "configuration_change",
+              "new_feature",
+              "behavior_change",
+              "performance_improvement",
+              "security_change",
+              "compatibility_change",
+              "data_migration",
+              "scope_change",
+              "major_change"
+            ]
+          },
+          "description": {"type": "string", "minLength": 1},
+          "approval_status": {"enum": ["PENDING", "APPROVED", "REJECTED"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

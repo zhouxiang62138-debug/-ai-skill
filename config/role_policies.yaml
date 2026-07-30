@@ -1,4 +1,4 @@
-version: 4
+version: 6
 
 policy_precedence:
   write_prohibited_overrides_writes: true
@@ -21,6 +21,28 @@ modules:
       - evaluation/
       - config/
       - prompts/
+  change_request:
+    reads:
+      - project.yaml
+      - change_requests/
+      - releases/
+      - memory/plans/
+      - evaluation/reports/
+      - code/
+      - tests/
+    writes:
+      - change_requests/
+      - memory/migrations/
+      - project.yaml
+    prohibited:
+      - code/
+      - tests/
+      - memory/proposals/
+      - memory/specifications/
+      - memory/plans/
+      - evaluation/reports/
+      - config/
+      - prompts/
 
 roles:
   planner:
@@ -33,6 +55,8 @@ roles:
       - memory/plans/
       - evaluation/reports/
       - artifacts/design_previews/
+      - change_requests/
+      - releases/
     writes:
       - memory/requirements/
       - memory/proposals/
@@ -42,6 +66,7 @@ roles:
       - memory/handoffs/
       - artifacts/design_previews/
       - project.yaml
+      - change_requests/
     prohibited:
       - code/
       - evaluation/reports/
@@ -56,13 +81,18 @@ roles:
       - memory/handoffs/
       - memory/decisions/
       - evaluation/reports/
+      - evaluation/issues/
       - code/
       - artifacts/design_previews/
+      - change_requests/
+      - releases/
     writes:
       - code/
       - artifacts/
       - memory/handoffs/
+      - memory/handoffs/responses/
       - project.yaml
+      - change_requests/
     prohibited:
       - config/evaluation_rules/
       - evaluation/reports/
@@ -80,10 +110,20 @@ roles:
       - code/
       - artifacts/
       - evaluation/reports/
+      - evaluation/issues/
+      - evaluation/evidence/
+      - memory/handoffs/responses/
+      - change_requests/
+      - releases/
     writes:
       - evaluation/reports/
+      - evaluation/issues/
+      - evaluation/evidence/
+      - evaluation/.transactions/
       - memory/handoffs/
       - project.yaml
+      - change_requests/
+      - releases/
     prohibited:
       - code/
       - memory/plans/
@@ -127,6 +167,37 @@ field_ownership:
     - approved_plan
     - plan_approval_status
     - plan_approval_record
+    - change_impact_analysis
+    - change_approval_record
+    - approved_change_items
   evaluator:
     - current_iteration
     - last_evaluation
+    - last_issue_package
+    - iteration_metrics
+    - retry_history
+    - routing_disagreements
+    - escalation_record
+    - automatic_retry_allowed
+    - iteration_sequence
+  generator:
+    - last_generator_response
+
+# F8.5：外部目标只在 schema_version=5、project_type=skill_maintenance 时有效。
+# 实际路径授权由 scripts/skill_maintenance.py 强制执行，不能仅依赖 Prompt。
+skill_maintenance:
+  planner:
+    external_targets:
+      - working_repository
+      - installed_repository
+    external_write_targets: []
+  generator:
+    external_targets:
+      - working_repository
+    external_write_targets:
+      - working_repository
+  evaluator:
+    external_targets:
+      - working_repository
+      - installed_repository
+    external_write_targets: []

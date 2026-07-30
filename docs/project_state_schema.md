@@ -1,8 +1,53 @@
 # 项目状态 Schema 与兼容协议
 
+## Change Request 字段
+
+- `active_change_request`：当前唯一 `CR-<nnnn>`，无活动请求时为 `null`。
+- `change_cycle`：累计外部修改轮次。
+- `change_context.previous_project_status`：取消时恢复的稳定状态。
+- `change_context.evaluation_iteration`：当前请求内返工次数，必须与
+  `current_iteration` 一致。
+- `change_impact_analysis`、`change_approval_record`、`change_baseline`：
+  当前请求来源链。
+- `approved_change_items`：Generator 唯一可实施的 Change Item。
+- `release_version`、`current_release`：当前稳定发布版本及记录。
+
+新增状态为 `CHANGE_REQUESTED`、`WAITING_FOR_CHANGE_APPROVAL` 和
+`RELEASE_READY`。没有活动请求时 `change_context` 必须为 `null`。
+
 ## 当前版本
 
-新项目使用 `schema_version: 4`。v4 扩展项目状态的数据结构和确定性校验，
+## v6：结构化验收与受控循环
+
+新项目使用 `schema_version: 6`。v6 在 v4 产品批准链和 v5 Skill Maintenance
+目标边界上，新增：
+
+- `iteration_sequence`
+- `automatic_retry_allowed`
+- `last_issue_package`
+- `last_generator_response`
+- `evidence_manifest`
+- `iteration_metrics`
+- `retry_history`
+- `routing_disagreements`
+- `escalation_record`
+- `decision_summary_record`
+
+`current_iteration` 达到 5 或存在升级记录时，`automatic_retry_allowed` 必须为
+`false`，状态不得继续进入自动 `IMPLEMENTING`。只有新的正式 Plan 和新的 Plan
+批准记录可以通过确定性治理函数开启新序列并将轮次归零。
+
+## F8.5：Skill Maintenance Project
+
+`schema_version: 5` 新增 `project_type: skill_maintenance`。它只允许项目状态位于
+独立项目目录；`targets.working_repository` 是唯一可写外部目标，
+`targets.installed_repository` 在最终同步前后都不能由 Generator 直接写入。
+`scripts/skill_maintenance.py` 会规范化并检查路径、拒绝未声明目标和路径穿越，
+并以安装副本基线清单识别未知修改。同步要求 `status: ACCEPTED`、
+`final_evaluation_status: PASS`、排除规则和可恢复备份；`.git` 元数据、项目状态、
+memory、evaluation、logs、archive 与缓存不得同步。
+
+旧 `schema_version: 4` 项目仍可读取。v4 扩展项目状态的数据结构和确定性校验，
 并由 F4、F5、F6 工作流分别接入产品探索、反馈处理和双重批准门禁。
 
 v4 新增：
@@ -50,7 +95,24 @@ F6 使用 `scripts/approval.py` 区分产品批准与 Plan 批准。产品批准
 3. 刷新内容后原子替换根级 `project.yaml`。
 4. 校验失败时拒绝写入，不改变原文件。
 
-迁移实现必须另行记录 `schema_migration_record`。当前阶段不执行具体项目迁移。
+迁移必须另行记录 `schema_migration_record`，并使用下述 v6 迁移工具。
+
+## v6 迁移工具
+
+`scripts/project_migration.py` 支持：
+
+```text
+check
+preview
+migrate
+verify
+rollback
+```
+
+迁移前必须指定不存在的备份路径；工具拒绝覆盖现有备份。迁移记录追加写入
+`memory/migrations/`。重复迁移 v6 项目是幂等操作。归档项目保持只读；处于实施、
+验收或已验收状态的 v3 项目要求人工复核来源链。回滚前还会保存当前 v6 状态，
+迁移前后备份均不删除。
 
 ## 校验命令
 
@@ -58,6 +120,14 @@ F6 使用 `scripts/approval.py` 区分产品批准与 Plan 批准。产品批准
 python scripts/project_state.py <项目根目录>\project.yaml
 python scripts/project_state.py <项目根目录>\project.yaml --check-paths
 python scripts/project_state.py <项目根目录>\project.yaml --migration-assessment
+```
+
+```powershell
+python scripts/project_migration.py check <项目根目录>\project.yaml
+python scripts/project_migration.py preview <项目根目录>\project.yaml
+python scripts/project_migration.py migrate <项目根目录>\project.yaml --backup <备份路径>
+python scripts/project_migration.py verify <项目根目录>\project.yaml
+python scripts/project_migration.py rollback <项目根目录>\project.yaml --backup <迁移前备份> --pre-rollback-backup <回滚前备份>
 ```
 
 校验器使用 Python 标准库，不要求 PyYAML 或 jsonschema。它只接受

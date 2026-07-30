@@ -1,0 +1,61 @@
+schema_version: 6
+project_id: <project_id>
+project_name: <project_name>
+project_type: skill_maintenance
+status: PLANNING
+current_iteration: 0
+iteration_sequence: 1
+automatic_retry_allowed: true
+next_role: planner
+active_module: null
+requirements_status: sufficient_for_planning
+requirements_version: 1
+active_requirements: memory/requirements/requirements_v001.yaml
+proposal_status: not_started
+user_approval_status: not_requested
+product_spec_status: not_started
+plan_status: not_started
+plan_approval_status: not_requested
+exploration_trigger_reasons: []
+exploration_generation_attempt: 0
+design_feedback_status: not_started
+design_feedback_round: 0
+targets:
+  working_repository:
+    path: "<absolute-working-repository>"
+    access: read_write
+  installed_repository:
+    path: "<absolute-installed-repository>"
+    access: read_only_until_final_sync
+sync:
+  exclusions:
+    - .git/**
+    - project.yaml
+    - planning/**
+    - implementation/**
+    - evaluation/**
+    - handoffs/**
+    - memory/**
+    - logs/**
+    - archive/**
+    - reports/**
+    - "**/__pycache__/**"
+    - "**/.pytest_cache/**"
+final_evaluation_status: null
+last_evaluation: null
+last_issue_package: null
+last_generator_response: null
+evidence_manifest: null
+iteration_metrics: null
+retry_history: []
+routing_disagreements: []
+escalation_record: null
+decision_summary_record: null
+required_tests_status: null
+sync_preflight_diff: null
+open_issues: []
+active_change_request: null
+change_cycle: 0
+change_context: null
+release_version: null
+current_release: null

@@ -1,5 +1,23 @@
 # Planner
 
+## 已完成项目 Change Request
+
+当 `project.yaml.status` 为 `CHANGE_REQUESTED` 时，读取活动请求、当前正式 Plan、
+最近 Release/Evaluation、代码结构、测试和已有 Requirement/AC，生成结构化影响
+分析和用户可读版本。逐项说明范围、数据/API/兼容性、迁移、依赖、风险和回归。
+新功能必须提出 Requirement 与 Acceptance Criterion；Major Change 必须显式
+标记，不能伪装成小修复。
+
+明确批准前不得修改正式 Plan 或代码。批准后创建追加式新 Plan，并记录
+Change Item → Requirement → Acceptance Criterion。部分批准只写入获批项。
+Change Request 是 Module，不得作为 `next_role`。
+
+## Skill Maintenance 外部目标边界
+
+当项目类型为 `skill_maintenance`，只能在计划中以受控 repository 引用工作副本
+或安装副本；不得引用未声明路径，也不得直接修改外部目标。安装副本仅用于只读
+差异与最终同步规划。
+
 ## Intake 前置门禁
 
 Planner 不是需求采访模块。`INTAKE` 或 `WAITING_FOR_REQUIREMENTS` 状态由 `first_ask_intake` 处理，Planner 不得在这些状态创建产品方案。
@@ -56,6 +74,14 @@ Planner 不得重复询问：
 - 已确认的必须功能。
 - 已说明的数据来源和技术限制。
 - 用户明确提出的风格偏好。
+
+Evaluator 以 `product_scope_issue` 路由返工时，Planner 只处理返工记录明确指向的
+产品范围问题，不递增 `current_iteration`，不得借返工扩大获批范围。
+
+循环治理升级到 Planner 时，只处理结构化 Issue 与路由争议指向的范围/计划缺口。
+修订不能直接清零当前计数；只有用户明确批准新的完整 Plan 并创建新的
+`plan-approval-<nnn>.md` 后，确定性工作流才能开启新的 `iteration_sequence`。
+旧 Issue、Evidence、趋势和决策摘要必须保留。
 
 可逆、低风险的问题应使用默认值，并通过 `templates/planning_decision.md` 创建 `memory/decisions/planning-decision-<nnn>.md`，记录假设、理由、风险和用户可修改方式。
 

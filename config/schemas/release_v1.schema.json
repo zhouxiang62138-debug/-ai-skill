@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/release-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "release_version", "previous_release", "change_request_id", "plan_version", "evaluation_id", "created_at", "status", "version_source", "baseline_manifest", "commit_sha", "note"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "release_version": {"type": "string", "minLength": 1},
+    "previous_release": {"type": ["string", "null"]},
+    "change_request_id": {"type": ["string", "null"], "pattern": "^CR-[0-9]{4}$"},
+    "plan_version": {"type": ["integer", "null"]},
+    "evaluation_id": {"type": ["string", "null"], "pattern": "^evaluation-[0-9]{3}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["BASELINE", "ACCEPTED"]},
+    "version_source": {"enum": ["project_policy", "minimal_semver", "legacy_baseline"]},
+    "baseline_manifest": {"type": ["string", "null"]},
+    "commit_sha": {"type": ["string", "null"]},
+    "note": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

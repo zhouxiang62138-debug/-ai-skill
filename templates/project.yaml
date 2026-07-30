@@ -1,9 +1,11 @@
-schema_version: 4
+schema_version: 6
 project_id: <project_id>
 project_name: <project_name>
 project_type: <project_type>
 status: INTAKE
 current_iteration: 0
+iteration_sequence: 1
+automatic_retry_allowed: true
 next_role: null
 active_module: first_ask_intake
 
@@ -59,11 +61,24 @@ design_feedback_status: not_started
 design_feedback_round: 0
 pending_feedback: null
 last_evaluation: null
+last_issue_package: null
+last_generator_response: null
+evidence_manifest: null
+iteration_metrics: null
+retry_history: []
+routing_disagreements: []
+escalation_record: null
+decision_summary_record: null
 evaluation_profile: default
 blocked_reason: null
 # 旧 schema 兼容字段：新项目使用 active_requirements
 requirement_source: null
 latest_handoff: null
 schema_migration_record: null
+active_change_request: null
+change_cycle: 0
+change_context: null
+release_version: null
+current_release: null
 created_at: <ISO-8601 timestamp>
 updated_at: <ISO-8601 timestamp>

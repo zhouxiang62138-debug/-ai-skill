@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/evidence-v1.schema.json",
+  "title": "Skill maintenance evidence v1",
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "required": ["repository", "path"],
+      "properties": {
+        "repository": {
+          "enum": ["project", "working_repository", "installed_repository"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "evidence_file",
+    "target",
+    "target_sha256",
+    "command",
+    "result"
+  ],
+  "properties": {
+    "evidence_file": {"$ref": "#/$defs/artifact_ref"},
+    "target": {"$ref": "#/$defs/artifact_ref"},
+    "target_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "command": {"type": "string", "minLength": 1},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "write_intent": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

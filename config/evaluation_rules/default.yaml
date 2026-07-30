@@ -1,4 +1,5 @@
 profile: default
+schema_version: 2
 evaluation:
   scale:
     minimum: 0
@@ -21,4 +22,36 @@ evaluation:
       weight: 0.25
       minimum_score: 8.0
   evidence_required_for_required_checks: true
-
+  pass_policy:
+    maximum_allowed:
+      blocker: 0
+      critical: 0
+  gates:
+    GATE-DELIVERY:
+      required: true
+    GATE-BUILD:
+      required: false
+    GATE-TESTS:
+      required: true
+    GATE-REQUIREMENTS:
+      required: true
+    GATE-REGRESSION:
+      required: true
+    GATE-NON_FUNCTIONAL:
+      required: false
+    GATE-EVIDENCE:
+      required: true
+  allowed_commands:
+    - ["python", "-m", "unittest"]
+  mandatory_regression_suite:
+    - core_unit_tests
+    - critical_acceptance_criteria
+    - previously_passed_critical_requirements
+  protected_paths:
+    - memory/plans
+    - memory/specifications
+    - memory/decisions
+    - config/evaluation_rules
+    - config/schemas
+    - tests
+    - project.yaml
