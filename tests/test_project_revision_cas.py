@@ -1,8 +1,9 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from runtime.errors import RuntimeValidationError, StateConflictError
+from runtime.errors import LeaseError, RuntimeValidationError, StateConflictError
 from runtime.leases import LeaseManager
 from runtime.project_revision import ProjectStateCAS
 from runtime.session_store import SessionStore
@@ -103,6 +104,26 @@ class ProjectRevisionCASTests(unittest.TestCase):
                     actor_role="planner", lease_version=lease.lease_version,
                     lease_token=lease.lease_token or "", expected_revision=0,
                     idempotency_key="unowned",
+                )
+
+    def test_old_worker_cannot_replace_after_takeover(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_cas_takeover_") as directory:
+            root = Path(directory)
+            store = SessionStore(root / "sessions.sqlite3")
+            session = store.create_session("test_migration", root, idempotency_key="takeover")
+            project = root / "project.yaml"
+            state = preview_runtime_migration(v4_state(), project_root=root, session_id=session.session_id)
+            project.write_text(serialize_project_state(state), encoding="utf-8")
+            manager = LeaseManager(store)
+            started = datetime.now(timezone.utc)
+            old = manager.acquire(session.session_id, "worker-old", ttl_seconds=1, now=started)
+            manager.steal_expired(session.session_id, "worker-new", ttl_seconds=30, now=started + timedelta(seconds=2))
+            with self.assertRaises(LeaseError):
+                ProjectStateCAS(store, manager).commit(
+                    project, state, session_id=session.session_id, worker_id="worker-old",
+                    actor_role="planner", lease_version=old.lease_version,
+                    lease_token=old.lease_token or "", expected_revision=0,
+                    idempotency_key="old-worker-commit",
                 )
 
 
