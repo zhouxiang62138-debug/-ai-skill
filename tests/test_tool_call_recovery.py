@@ -89,3 +89,20 @@ def test_tool_timeout_is_not_succeeded(tmp_path: Path) -> None:
     ).fetchone()
     assert row["status"] == "TIMED_OUT"
     assert store.completed_tool_calls(session.session_id) == []
+
+
+def test_tool_failure_is_persisted(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    session = store.create_session("demo", tmp_path, idempotency_key="session")
+    call = store.request_tool_call(session.session_id, tool_name="test", arguments={}, idempotency_key="failure")
+    attempt = store.start_tool_call(session.session_id, call)
+    reference, digest = store.write_tool_result(call, {"stdout": "", "stderr": "failed", "exit_code": 1})
+    store.complete_tool_call(
+        session.session_id, call, result_reference=reference, result_hash=digest,
+        status="FAILED", attempt_id=attempt,
+    )
+
+    row = store.raw_connection().execute(
+        "SELECT status, result_reference, result_hash FROM tool_calls WHERE tool_call_id=?", (call,)
+    ).fetchone()
+    assert dict(row) == {"status": "FAILED", "result_reference": reference, "result_hash": digest}
