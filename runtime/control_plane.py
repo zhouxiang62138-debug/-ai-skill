@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import RuntimeStorageError
+from .event_types import ActorType, EventType
 from .runtime_config import load_runtime_config
 from .session_store import SessionStore, utc_now
 
@@ -85,5 +86,35 @@ def apply_rebind(store: SessionStore, session_id: str, project_root: str | Path)
             "UPDATE sessions SET project_root=?, updated_at=? WHERE session_id=?",
             (inspection["requested_project_root"], utc_now(), session_id),
         )
+    store.append_event(
+        session_id,
+        EventType.PROJECT_ROOT_REBOUND,
+        ActorType.ORCHESTRATOR,
+        "orchestrator",
+        idempotency_key=(
+            f"project-root-rebound:{hashlib.sha256((inspection['current_project_root'] + '|' + inspection['requested_project_root']).encode('utf-8')).hexdigest()}"
+        ),
+        correlation_id=session_id,
+        payload={
+            "previous_project_root": inspection["current_project_root"],
+            "project_root": inspection["requested_project_root"],
+        },
+    )
     inspection["status"] = "REBOUND"
     return inspection
+
+
+def verify_rebind(store: SessionStore, session_id: str, project_root: str | Path) -> dict[str, Any]:
+    """验证显式重绑定已持久化，绝不触发自动修复。"""
+
+    inspection = inspect_rebind(store, session_id, project_root)
+    inspection["status"] = "VERIFIED" if inspection["status"] == "CURRENT" else "VERIFY_FAILED"
+    return inspection
+
+
+def rollback_rebind(store: SessionStore, session_id: str, previous_project_root: str | Path) -> dict[str, Any]:
+    """以新的审计事件显式恢复先前路径。"""
+
+    result = apply_rebind(store, session_id, previous_project_root)
+    result["status"] = "ROLLED_BACK" if result["status"] in {"REBOUND", "CURRENT"} else result["status"]
+    return result
