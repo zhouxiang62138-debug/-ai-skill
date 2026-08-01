@@ -217,8 +217,22 @@ def migrate_project_to_v7(
             "reason": "already_v7",
             "project_yaml": str(path),
         }
+    reusable_backup = False
     if backup.exists():
-        raise ProjectStateError("迁移备份路径已存在，禁止覆盖")
+        records_dir = path.parent / "memory" / "migrations"
+        for candidate in records_dir.glob("migration-*.json") if records_dir.is_dir() else ():
+            try:
+                previous = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                previous.get("backup_path") == str(backup)
+                and previous.get("status") == "RECOVERY_REQUIRED"
+            ):
+                reusable_backup = True
+                break
+        if not reusable_backup:
+            raise ProjectStateError("迁移备份路径已存在，禁止覆盖")
     preview = preview_runtime_migration(
         state, project_root=path.parent, session_id=session_id
     )
@@ -235,8 +249,9 @@ def migrate_project_to_v7(
     }
     _write_migration_record(record_path, record)
     try:
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup)
+        if not reusable_backup:
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, backup)
         record["status"] = "BACKUP_CREATED"
         _write_migration_record(record_path, record)
     # 先建立独立 Session Store，再提交 YAML 投影；若中断，遗留 DB 可由

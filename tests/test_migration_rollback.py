@@ -31,6 +31,9 @@ class RuntimeMigrationRollbackTests(unittest.TestCase):
             records = sorted((root / "memory" / "migrations").glob("migration-*.json"))
             self.assertEqual(1, len(records))
             self.assertEqual("RECOVERY_REQUIRED", json.loads(records[0].read_text(encoding="utf-8"))["status"])
+            retried = migrate_project_to_v7(project, backup, control_plane_home=root / "control-home")
+            self.assertTrue(retried["changed"])
+            self.assertEqual(7, load_project_state(project)["schema_version"])
 
     def test_migration_failure_after_control_plane_is_recoverable(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_v7_migration_session_failure_") as directory:
