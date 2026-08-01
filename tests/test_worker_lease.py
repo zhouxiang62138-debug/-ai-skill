@@ -82,6 +82,26 @@ class WorkerLeaseTests(unittest.TestCase):
             with self.assertRaises(LeaseError):
                 manager.get(session_id)
 
+    def test_heartbeat_keeps_active_lease(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_lease_heartbeat_") as directory:
+            store, session_id = make_store(directory)
+            manager = LeaseManager(store)
+            start = datetime.now(timezone.utc)
+            lease = manager.acquire(session_id, "worker-a", ttl_seconds=2, now=start)
+            renewed = manager.renew(
+                session_id,
+                "worker-a",
+                lease.lease_version,
+                lease.lease_token or "",
+                ttl_seconds=10,
+                now=start + timedelta(seconds=1),
+            )
+            self.assertEqual([], manager.detect_expired(now=start + timedelta(seconds=3)))
+            manager.assert_valid(
+                session_id, "worker-a", renewed.lease_version,
+                renewed.lease_token or "", now=start + timedelta(seconds=3)
+            )
+
     def test_default_workers_receive_unique_ids(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_worker_identity_") as directory:
             root, _ = make_runtime_project(directory)
