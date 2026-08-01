@@ -14,10 +14,13 @@ class SessionRecoveryTests(unittest.TestCase):
             first = Orchestrator(root, control_plane_home=control_home)
             first.start()
             first.pause(session_id)
+            with self.assertRaises(Exception):
+                first.leases.get(session_id)
             second = Orchestrator(root, control_plane_home=control_home)
             inspected = second.resume(session_id)
-            self.assertEqual("ACTIVE", inspected["session"].status)
+            self.assertEqual("ACTIVE", second.inspect(session_id)["session"].status)
             self.assertEqual("planner", inspected["selection"].target)
+            self.assertIsNotNone(inspected["lease_token"])
 
 
 if __name__ == "__main__":

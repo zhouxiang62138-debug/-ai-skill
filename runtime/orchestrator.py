@@ -153,6 +153,7 @@ class Orchestrator:
         """暂停 Session，不改变业务状态。"""
 
         self.store.set_session_status(session_id, "PAUSED")
+        self.leases.revoke_for_lifecycle(session_id, reason="session-paused")
         self.store.append_event(
             session_id,
             EventType.SESSION_PAUSED,
@@ -163,7 +164,7 @@ class Orchestrator:
             payload={},
         )
 
-    def resume(self, session_id: str) -> dict[str, Any]:
+    def resume(self, session_id: str, *, worker_id: str | None = None) -> dict[str, Any]:
         """恢复 Session 并重新从持久化状态选角。"""
 
         self.store.set_session_status(session_id, "ACTIVE")
@@ -176,7 +177,7 @@ class Orchestrator:
             correlation_id=session_id,
             payload={},
         )
-        return self.inspect(session_id)
+        return self.start(worker_id=worker_id)
 
     def recover_session(
         self, session_id: str, *, worker_id: str | None = None
@@ -215,9 +216,12 @@ class Orchestrator:
                 root, evaluation_id, state_writer=writer
             )
 
-        return self.recovery.recover(
-            session_id, evaluation_recoverer=recover_evaluation
-        )
+        try:
+            return self.recovery.recover(
+                session_id, evaluation_recoverer=recover_evaluation
+            )
+        finally:
+            self.leases.revoke_for_lifecycle(session_id, reason="recovery-finished")
 
     def _validated_state(self) -> dict[str, Any]:
         state = load_project_state(self.project_yaml)

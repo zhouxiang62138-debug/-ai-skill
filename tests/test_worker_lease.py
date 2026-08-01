@@ -64,9 +64,8 @@ class WorkerLeaseTests(unittest.TestCase):
                 started["lease_token"],
             )
             orchestrator.recover_session(session_id)
-            recovered = orchestrator.leases.get(session_id)
-            self.assertNotEqual("worker-recovery", recovered.worker_id)
-            self.assertGreater(recovered.lease_version, started["lease_version"])
+            with self.assertRaises(LeaseError):
+                orchestrator.leases.get(session_id)
 
 
 if __name__ == "__main__":

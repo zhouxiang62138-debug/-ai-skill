@@ -181,6 +181,33 @@ class LeaseManager:
             payload={"lease_version": lease_version},
         )
 
+    def revoke_for_lifecycle(self, session_id: str, *, reason: str) -> bool:
+        """由 Orchestrator 在暂停/恢复完成后撤销 Lease，避免无主长期占用。"""
+
+        with self.store.transaction(immediate=True) as connection:
+            current = connection.execute(
+                "SELECT worker_id, lease_version FROM leases WHERE session_id=?", (session_id,)
+            ).fetchone()
+            if current is None:
+                return False
+            connection.execute("DELETE FROM leases WHERE session_id=?", (session_id,))
+            connection.execute(
+                "UPDATE sessions SET active_worker_id=NULL, updated_at=? WHERE session_id=?",
+                (utc_now(), session_id),
+            )
+            worker_id = str(current["worker_id"])
+            version = int(current["lease_version"])
+        self.store.append_event(
+            session_id,
+            EventType.LEASE_RELEASED,
+            ActorType.ORCHESTRATOR,
+            "orchestrator",
+            idempotency_key=f"lease-revoked:{reason}:{version}",
+            correlation_id=session_id,
+            payload={"lease_version": version, "reason": reason, "worker_id": worker_id},
+        )
+        return True
+
     def assert_valid(
         self,
         session_id: str,
