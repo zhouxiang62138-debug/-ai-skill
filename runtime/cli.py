@@ -19,7 +19,7 @@ def _json_default(value: Any) -> Any:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AI Development Team Durable Runtime")
-    parser.add_argument("action", choices=("begin-step", "commit-step", "start", "resume", "inspect", "pause", "recover"))
+    parser.add_argument("action", choices=("begin-step", "commit-step", "fail-step", "start", "resume", "inspect", "pause", "recover"))
     parser.add_argument("target", help="start 时为项目根目录，其余为 Session ID")
     parser.add_argument("--project-root", type=Path)
     parser.add_argument("--worker-id")
@@ -37,6 +37,11 @@ def main() -> int:
         if args.run_id is None or args.lease_token is None or args.result is None:
             parser.error("commit-step 必须提供 --run-id、--lease-token 和 --result")
         result = orchestrator.commit_step(args.target, args.run_id, args.lease_token, json.loads(args.result.read_text(encoding="utf-8")))
+    elif args.action == "fail-step":
+        if args.run_id is None or args.result is None:
+            parser.error("fail-step 必须提供 --run-id 和 --result")
+        orchestrator.fail_step(args.target, args.run_id, json.loads(args.result.read_text(encoding="utf-8")))
+        result = {"result": "FAILED", "run_id": args.run_id}
     elif args.action == "resume":
         result = orchestrator.resume(args.target)
     elif args.action == "inspect":

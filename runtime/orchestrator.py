@@ -142,6 +142,11 @@ class Orchestrator:
         self.leases.release(session_id, str(run["worker_id"]), lease.lease_version, lease_token)
         return committed
 
+    def fail_step(self, session_id: str, run_id: str, reason: dict[str, Any]) -> None:
+        """持久化失败 Run；不提交候选 project state。"""
+
+        self.store.fail_role_run(session_id, run_id, reason)
+
     def pause(self, session_id: str) -> None:
         """暂停 Session，不改变业务状态。"""
 
