@@ -17,6 +17,14 @@ Planner / Generator / Evaluator
 F10 只实现前三层的耐久控制骨架，不实现 Docker、凭据代理、通用执行环境、
 Context Builder 或多 Worker 并行。
 
+## Session Control Plane
+
+正式 Session Store 位于项目目录之外：
+`~/.ai-development-team/runtime/<control_plane_id>/sessions.sqlite3`，同级保存
+`tool-results/`、`checkpoints/` 与 `locks/`。`project.yaml.runtime` 仅保存
+`session_id`、`control_plane_id` 与业务 revision；缺失外部 Session Store 时必须
+以 `RUNTIME_HISTORY_MISSING` 阻断，不得静默重建历史。
+
 ## 权威来源
 
 - `project.yaml`：业务当前状态的权威投影。
