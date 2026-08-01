@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import multiprocessing
 from datetime import datetime, timedelta, timezone
 
 from runtime.errors import LeaseError
@@ -8,6 +9,20 @@ from tests.runtime_test_support import make_store
 from runtime.orchestrator import Orchestrator
 from tests.runtime_test_support import make_runtime_project
 from pathlib import Path
+
+
+def _attempt_second_process_lease(database: str, session_id: str, queue: multiprocessing.Queue) -> None:
+    """子进程独立连接 SQLite，验证不能共享有效 Lease。"""
+
+    from runtime.session_store import SessionStore
+
+    manager = LeaseManager(SessionStore(database))
+    try:
+        manager.acquire(session_id, "worker-child")
+    except LeaseError:
+        queue.put("REJECTED")
+    else:  # pragma: no cover - 表示 fencing 失效
+        queue.put("ACQUIRED")
 
 
 class WorkerLeaseTests(unittest.TestCase):
@@ -23,6 +38,22 @@ class WorkerLeaseTests(unittest.TestCase):
             with self.assertRaises(LeaseError):
                 manager.release(session_id, "worker-a", lease.lease_version + 1, lease.lease_token or "")
             manager.release(session_id, "worker-a", lease.lease_version, lease.lease_token or "")
+
+    def test_two_processes_cannot_share_same_lease(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_lease_process_") as directory:
+            store, session_id = make_store(directory)
+            manager = LeaseManager(store)
+            lease = manager.acquire(session_id, "worker-parent")
+            queue: multiprocessing.Queue = multiprocessing.Queue()
+            process = multiprocessing.Process(
+                target=_attempt_second_process_lease,
+                args=(str(store.path), session_id, queue),
+            )
+            process.start()
+            process.join(timeout=10)
+            self.assertFalse(process.is_alive())
+            self.assertEqual("REJECTED", queue.get(timeout=2))
+            manager.release(session_id, "worker-parent", lease.lease_version, lease.lease_token or "")
 
     def test_lease_token_is_hashed_and_required(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_worker_token_") as directory:
