@@ -24,9 +24,8 @@ v7 在完整 v6 业务契约上新增：
 ```yaml
 runtime:
   session_id: session-<24 hex>
+  control_plane_id: runtime-<24 hex>
   revision: 0
-  last_event_sequence: 0
-  last_checkpoint_id: null
 ```
 
 完整 Session、Event、Lease、Checkpoint、Tool Call 和 State Revision 位于
@@ -36,7 +35,7 @@ SQLite，不进入 YAML。`revision` 由 Runtime CAS 递增；未持有有效 Le
 
 ## v6：结构化验收与受控循环
 
-新项目使用 `schema_version: 6`。v6 在 v4 产品批准链和 v5 Skill Maintenance
+普通新项目使用 `schema_version: 7`。v6 在 v4 产品批准链和 v5 Skill Maintenance
 目标边界上，新增：
 
 - `iteration_sequence`
