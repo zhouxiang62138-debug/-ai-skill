@@ -77,6 +77,15 @@ class ProjectRevisionCASTests(unittest.TestCase):
             with self.assertRaises(ProjectStateError):
                 write_project_state_atomic(project, state)
 
+    def test_runtime_authorized_boolean_bypass_removed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_v7_bypass_removed_") as directory:
+            root = Path(directory)
+            project = root / "project.yaml"
+            state = preview_runtime_migration(v4_state(), project_root=root)
+            project.write_text(serialize_project_state(state), encoding="utf-8")
+            with self.assertRaises(TypeError):
+                write_project_state_atomic(project, state, runtime_authorized=True)
+
     def test_cas_rejects_role_unowned_field(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_cas_ownership_") as directory:
             root = Path(directory)
