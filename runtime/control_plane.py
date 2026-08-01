@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import RuntimeStorageError
+from .runtime_config import load_runtime_config
 from .session_store import SessionStore, utc_now
 
 
@@ -25,8 +26,9 @@ def control_plane_root(
 ) -> Path:
     """返回用户目录下的控制平面路径，不创建任何文件。"""
 
-    base = Path(home).expanduser() if home is not None else Path.home()
-    return (base / ".ai-development-team" / "runtime" / control_plane_id(project_id)).resolve()
+    configured_root = Path(load_runtime_config()["control_plane_root"]).expanduser()
+    base = Path(home).expanduser() if home is not None else configured_root
+    return (base / control_plane_id(project_id)).resolve()
 
 
 def session_database_path(

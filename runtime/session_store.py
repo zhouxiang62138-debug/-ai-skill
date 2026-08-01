@@ -15,6 +15,7 @@ from typing import Any, Iterator
 from .errors import RuntimeStorageError, RuntimeValidationError
 from .event_types import ActorType, EventType, MAX_EVENT_PAYLOAD_BYTES
 from .models import Checkpoint, Event, Lease, Session
+from .runtime_config import load_runtime_config
 
 
 RUNTIME_SCHEMA_VERSION = 1
@@ -59,7 +60,7 @@ class SessionStore:
         connection = sqlite3.connect(self.path, timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute(f"PRAGMA busy_timeout = {load_runtime_config()['busy_timeout_ms']}")
         connection.execute("PRAGMA journal_mode = WAL")
         return connection
 
