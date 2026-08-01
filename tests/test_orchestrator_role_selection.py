@@ -4,6 +4,7 @@ from pathlib import Path
 
 from runtime.orchestrator import Orchestrator
 from scripts.project_state import load_project_state
+from scripts.project_state import serialize_project_state
 from tests.runtime_test_support import make_runtime_project
 
 
@@ -47,6 +48,20 @@ class OrchestratorRoleSelectionTests(unittest.TestCase):
             self.assertEqual("FAILED", orchestrator.store.get_role_run(session_id, started["run_id"])["status"])
             with self.assertRaises(Exception):
                 orchestrator.leases.get(session_id)
+
+    def test_wait_state_does_not_hold_lease(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_orchestrator_wait_") as directory:
+            root, session_id = make_runtime_project(directory)
+            state = load_project_state(root / "project.yaml")
+            state["status"] = "WAITING_FOR_USER"
+            state["next_role"] = None
+            (root / "project.yaml").write_text(serialize_project_state(state), encoding="utf-8")
+            home = Path((root / ".test-control-plane-home").read_text())
+            result = Orchestrator(root, control_plane_home=home).start()
+            self.assertEqual("WAIT", result["selection"].kind)
+            self.assertIsNone(result["lease_token"])
+            with self.assertRaises(Exception):
+                Orchestrator(root, control_plane_home=home).leases.get(session_id)
 
 
 if __name__ == "__main__":

@@ -58,8 +58,19 @@ class Orchestrator:
             idempotency_key=f"project-runtime:{projection['session_id']}",
             session_id=str(projection["session_id"]),
         )
-        lease = self.leases.acquire(session.session_id, worker_id)
         selection = select_role(state)
+        if selection.kind == "WAIT":
+            return {
+                "session_id": session.session_id,
+                "worker_id": None,
+                "lease_version": None,
+                "lease_token": None,
+                "selection": selection,
+                "event_id": None,
+                "checkpoint_id": None,
+                "run_id": None,
+            }
+        lease = self.leases.acquire(session.session_id, worker_id)
         event = self.store.append_event(
             session.session_id,
             EventType.ROLE_SELECTED,
