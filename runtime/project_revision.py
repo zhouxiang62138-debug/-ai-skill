@@ -247,25 +247,37 @@ class ProjectStateCAS:
             rows = connection.execute(
                 """
                 SELECT * FROM state_revisions
-                WHERE session_id=? AND status='PENDING'
+                WHERE session_id=? AND status IN ('PENDING', 'COMMITTED')
                 ORDER BY new_revision
                 """,
                 (session_id,),
             ).fetchall()
             for row in rows:
+                committed_now = row["status"] == "COMMITTED"
                 if (
                     row["new_revision"] == current_revision
                     and row["after_hash"] == current_hash
                 ):
-                    connection.execute(
-                        """
-                        UPDATE state_revisions
-                        SET status='COMMITTED', committed_at=?
-                        WHERE revision_id=?
-                        """,
-                        (utc_now(), row["revision_id"]),
+                    if not committed_now:
+                        connection.execute(
+                            """UPDATE state_revisions SET status='COMMITTED', committed_at=?
+                            WHERE revision_id=?""",
+                            (utc_now(), row["revision_id"]),
+                        )
+                        actions.append(f"committed:{row['revision_id']}")
+                    event_key = f"{row['idempotency_key']}:committed"
+                    self.store._append_event_in_transaction(
+                        connection,
+                        session_id,
+                        EventType.PROJECT_STATE_COMMITTED,
+                        ActorType.ORCHESTRATOR,
+                        "recovery",
+                        idempotency_key=event_key,
+                        correlation_id=str(row["idempotency_key"]),
+                        payload={"revision": row["new_revision"], "state_hash": row["after_hash"]},
                     )
-                    actions.append(f"committed:{row['revision_id']}")
+                    if committed_now:
+                        actions.append(f"event-reconciled:{row['revision_id']}")
                 elif (
                     row["expected_revision"] == current_revision
                     and row["before_hash"] == current_hash
@@ -275,7 +287,7 @@ class ProjectStateCAS:
                         (row["revision_id"],),
                     )
                     actions.append(f"aborted:{row['revision_id']}")
-                else:
+                elif not committed_now:
                     raise RecoveryError("pending revision 与项目状态无法自动对齐")
         for action in actions:
             self.store.append_event(
