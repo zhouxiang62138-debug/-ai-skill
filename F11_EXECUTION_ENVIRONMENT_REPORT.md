@@ -1,4 +1,4 @@
-# F11 实施与自审报告
+# F11 EXPERIMENTAL PROTOTYPE：执行环境报告
 
 已实现 `ExecutionEnvironment`、`LocalWorkspaceEnvironment` 和 Docker 可用性适配器。
 本地环境只执行用户确认的白名单参数数组，强制 `shell=False`、项目内 cwd、路径/符号

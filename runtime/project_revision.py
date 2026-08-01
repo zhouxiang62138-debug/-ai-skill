@@ -18,6 +18,7 @@ from scripts.project_state import (
 from .errors import RecoveryError, StateConflictError
 from .event_types import ActorType, EventType
 from .leases import LeaseManager
+from .policy import assert_field_ownership
 from .session_store import SessionStore, stable_id, utc_now
 
 
@@ -50,7 +51,9 @@ class ProjectStateCAS:
         *,
         session_id: str,
         worker_id: str,
+        actor_role: str,
         lease_version: int,
+        lease_token: str,
         expected_revision: int,
         idempotency_key: str,
         fail_at: str | None = None,
@@ -58,10 +61,25 @@ class ProjectStateCAS:
         """提交一个 revision；失败注入仅供恢复测试使用。"""
 
         path = Path(project_yaml).resolve()
-        self.leases.assert_valid(session_id, worker_id, lease_version)
         current = load_project_state(path)
         current_runtime = runtime_projection(current)
         before_hash = project_state_hash(current)
+        connection = self.store.raw_connection()
+        try:
+            existing = connection.execute(
+                "SELECT * FROM state_revisions WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+        finally:
+            connection.close()
+        if existing is not None and existing["status"] == "COMMITTED":
+            if (
+                int(existing["new_revision"]) != int(current_runtime["revision"])
+                or str(existing["after_hash"]) != before_hash
+            ):
+                raise StateConflictError("幂等提交与当前 project.yaml 不一致")
+            return {"result": "IDEMPOTENT", "revision": existing["new_revision"], "state_hash": existing["after_hash"]}
+        self.leases.assert_valid(session_id, worker_id, lease_version, lease_token)
         if (
             current_runtime["session_id"] != session_id
             or current_runtime["revision"] != expected_revision
@@ -85,8 +103,9 @@ class ProjectStateCAS:
         prepared = copy.deepcopy(next_state)
         prepared["schema_version"] = 7
         prepared["runtime"] = copy.deepcopy(current_runtime)
+        # 角色只提交其声明字段；Runtime 投影由 Commit Coordinator 独占。
+        assert_field_ownership(actor_role, current, prepared)
         prepared["runtime"]["revision"] = expected_revision + 1
-        prepared["runtime"]["last_event_sequence"] = request.sequence + 1
         after_hash = project_state_hash(prepared)
         revision_id = stable_id("revision", session_id, expected_revision + 1)
         with self.store.transaction(immediate=True) as connection:
@@ -115,12 +134,6 @@ class ProjectStateCAS:
                         utc_now(),
                     ),
                 )
-            elif existing["status"] == "COMMITTED":
-                return {
-                    "result": "IDEMPOTENT",
-                    "revision": existing["new_revision"],
-                    "state_hash": existing["after_hash"],
-                }
             elif (
                 existing["before_hash"] != before_hash
                 or existing["after_hash"] != after_hash
@@ -139,6 +152,8 @@ class ProjectStateCAS:
                 runtime_projection(reloaded)["revision"],
             )
             raise StateConflictError("写入前复核发现 project.yaml 已变化")
+        # 在最后一次原子替换前重新 fencing，防止 Lease 在计算候选状态后失效。
+        self.leases.assert_valid(session_id, worker_id, lease_version, lease_token)
         errors = validate_project_state(prepared, path.parent)
         if errors:
             raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))

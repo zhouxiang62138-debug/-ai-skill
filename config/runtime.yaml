@@ -1,6 +1,8 @@
 version: 1
 database:
-  relative_path: .runtime/sessions.sqlite3
+  control_plane_root: ~/.ai-development-team/runtime
+  session_database: sessions.sqlite3
+  project_runtime_history_forbidden: true
   foreign_keys: true
   journal_mode: WAL
   busy_timeout_ms: 5000

@@ -24,7 +24,7 @@ class ExpiredLeaseRecoveryTests(unittest.TestCase):
             self.assertGreater(new.lease_version, old.lease_version)
             with self.assertRaises(LeaseError):
                 manager.assert_valid(
-                    session_id, "worker-old", old.lease_version, now=now
+                    session_id, "worker-old", old.lease_version, old.lease_token or "", now=now
                 )
 
 

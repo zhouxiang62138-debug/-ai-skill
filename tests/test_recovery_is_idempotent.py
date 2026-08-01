@@ -4,15 +4,14 @@ import unittest
 from runtime.leases import LeaseManager
 from runtime.project_revision import ProjectStateCAS
 from runtime.recovery import RecoveryManager
-from runtime.session_store import SessionStore
-from tests.runtime_test_support import make_runtime_project
+from tests.runtime_test_support import make_runtime_project, open_runtime_store
 
 
 class RecoveryIdempotencyTests(unittest.TestCase):
     def test_repeated_recovery_does_not_duplicate_actions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_recovery_idempotent_") as directory:
             root, session_id = make_runtime_project(directory)
-            store = SessionStore(root / ".runtime" / "sessions.sqlite3")
+            store = open_runtime_store(root)
             manager = RecoveryManager(
                 store, ProjectStateCAS(store, LeaseManager(store))
             )

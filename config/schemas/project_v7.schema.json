@@ -5,15 +5,11 @@
   "inherits": "project_v6.schema.json",
   "runtimeExtension": {
     "type": "object",
-    "required": ["session_id", "revision", "last_event_sequence", "last_checkpoint_id"],
+    "required": ["session_id", "control_plane_id", "revision"],
     "properties": {
       "session_id": {"type": "string", "pattern": "^session-[a-f0-9]{24}$"},
-      "revision": {"type": "integer", "minimum": 0},
-      "last_event_sequence": {"type": "integer", "minimum": 0},
-      "last_checkpoint_id": {
-        "type": ["string", "null"],
-        "pattern": "^checkpoint-[a-f0-9]{24}$"
-      }
+      "control_plane_id": {"type": "string", "pattern": "^runtime-[a-f0-9]{24}$"},
+      "revision": {"type": "integer", "minimum": 0}
     },
     "additionalProperties": false
   }

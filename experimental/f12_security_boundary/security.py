@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-from .errors import RuntimeValidationError
+from runtime.errors import RuntimeValidationError
 
 
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|secret|password|private[_-]?key)\s*[:=]")

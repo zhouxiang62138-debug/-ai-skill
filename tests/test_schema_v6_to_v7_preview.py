@@ -11,6 +11,8 @@ class V6ToV7PreviewTests(unittest.TestCase):
         preview = preview_runtime_migration(state)
         self.assertEqual(state["iteration_sequence"], preview["iteration_sequence"])
         self.assertEqual(7, preview["schema_version"])
+        self.assertIn("control_plane_id", preview["runtime"])
+        self.assertNotIn("last_event_sequence", preview["runtime"])
         self.assertEqual([], validate_project_state(preview))
 
 

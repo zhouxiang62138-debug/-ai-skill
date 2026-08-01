@@ -130,6 +130,12 @@ def _runtime_session_id(state: dict[str, Any], project_root: str | Path | None) 
     return f"session-{hashlib.sha256(raw).hexdigest()[:24]}"
 
 
+def _control_plane_id(project_id: str) -> str:
+    """运行时绑定只保存稳定标识，不保存控制平面历史或绝对路径。"""
+
+    return f"runtime-{hashlib.sha256(project_id.encode('utf-8')).hexdigest()[:24]}"
+
+
 def preview_runtime_migration(
     state: dict[str, Any],
     *,
@@ -161,9 +167,8 @@ def preview_runtime_migration(
     migrated["runtime"] = {
         "session_id": session_id
         or _runtime_session_id(state, project_root),
+        "control_plane_id": _control_plane_id(str(state["project_id"])),
         "revision": 0,
-        "last_event_sequence": 0,
-        "last_checkpoint_id": None,
     }
     migrated["schema_migration"] = {
         "from_version": version,
@@ -196,6 +201,7 @@ def migrate_project_to_v7(
     backup_path: str | Path,
     *,
     session_id: str | None = None,
+    control_plane_home: str | Path | None = None,
 ) -> dict[str, Any]:
     """创建备份和追加迁移记录后显式迁移到 v7。"""
 
@@ -239,15 +245,18 @@ def migrate_project_to_v7(
     if str(repository_root) not in sys.path:
         sys.path.insert(0, str(repository_root))
     from runtime.session_store import SessionStore
+    from runtime.control_plane import initialize_control_plane
 
-    store = SessionStore(path.parent / ".runtime" / "sessions.sqlite3")
+    control_plane = initialize_control_plane(
+        str(state["project_id"]), home=control_plane_home
+    )
+    store = SessionStore(control_plane / "sessions.sqlite3")
     session = store.create_session(
         str(state["project_id"]),
         path.parent,
         idempotency_key=f"runtime-migration:{preview['runtime']['session_id']}",
         session_id=str(preview["runtime"]["session_id"]),
     )
-    preview["runtime"]["last_event_sequence"] = session.last_event_sequence
     preview["schema_migration"]["preview_only"] = False
     preview["schema_migration_record"] = record_path.relative_to(path.parent).as_posix()
     write_project_state_atomic(path, preview, runtime_authorized=True)
@@ -332,6 +341,8 @@ def rollback_project_file(
     project_yaml: str | Path,
     migration_backup: str | Path,
     pre_rollback_backup: str | Path,
+    *,
+    control_plane_home: str | Path | None = None,
 ) -> dict[str, Any]:
     """回滚前再保存当前 v6；所有备份都保留，不静默删除。"""
     path = Path(project_yaml).resolve()
@@ -341,6 +352,7 @@ def rollback_project_file(
         raise ProjectStateError("迁移备份不存在")
     if rollback_backup.exists():
         raise ProjectStateError("回滚前备份已存在，禁止覆盖")
+    current_state = load_project_state(path)
     old_state = parse_project_yaml(source.read_text(encoding="utf-8"))
     old_errors = validate_project_state(old_state)
     if old_errors:
@@ -348,12 +360,21 @@ def rollback_project_file(
     rollback_backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, rollback_backup)
     write_project_state_atomic(path, old_state, runtime_authorized=True)
+    if current_state.get("schema_version") == RUNTIME_SCHEMA_VERSION:
+        from runtime.control_plane import session_database_path
+        from runtime.session_store import SessionStore
+
+        database = session_database_path(str(current_state["project_id"]), home=control_plane_home)
+        if database.is_file():
+            store = SessionStore(database)
+            store.set_session_status(str(current_state["runtime"]["session_id"]), "DETACHED")
     restored = load_project_state(path)
     return {
         "result": "PASS",
         "restored_schema_version": restored["schema_version"],
         "migration_backup": str(source),
         "pre_rollback_backup": str(rollback_backup),
+        "detached_session_id": (current_state.get("runtime") or {}).get("session_id"),
     }
 
 

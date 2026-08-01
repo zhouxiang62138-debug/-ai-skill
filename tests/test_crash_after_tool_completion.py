@@ -2,14 +2,14 @@ import tempfile
 import unittest
 
 from runtime.session_store import SessionStore
-from tests.runtime_test_support import make_runtime_project
+from tests.runtime_test_support import make_runtime_project, open_runtime_store
 
 
 class CrashAfterToolCompletionTests(unittest.TestCase):
     def test_completed_tool_result_reference_survives_restart(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_crash_after_tool_") as directory:
             root, session_id = make_runtime_project(directory)
-            store = SessionStore(root / ".runtime" / "sessions.sqlite3")
+            store = open_runtime_store(root)
             tool_call = store.request_tool_call(
                 session_id,
                 tool_name="test_runner",

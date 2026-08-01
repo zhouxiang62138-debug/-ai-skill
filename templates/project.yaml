@@ -86,6 +86,5 @@ updated_at: <ISO-8601 timestamp>
 # F10 Runtime 只保存当前投影；完整事件位于独立 SQLite Session Store。
 runtime:
   session_id: session-000000000000000000000000
+  control_plane_id: runtime-000000000000000000000000
   revision: 0
-  last_event_sequence: 0
-  last_checkpoint_id: null

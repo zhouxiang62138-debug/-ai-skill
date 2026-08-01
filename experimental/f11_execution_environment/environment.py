@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .errors import RuntimeValidationError
-from .event_types import ActorType, EventType
-from .session_store import SessionStore, stable_id
+from runtime.errors import RuntimeValidationError
+from runtime.event_types import ActorType, EventType
+from runtime.session_store import SessionStore, stable_id
 
 
 @dataclass(frozen=True)

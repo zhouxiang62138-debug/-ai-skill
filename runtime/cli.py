@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument("action", choices=("start", "resume", "inspect", "pause", "recover"))
     parser.add_argument("target", help="start 时为项目根目录，其余为 Session ID")
     parser.add_argument("--project-root", type=Path)
-    parser.add_argument("--worker-id", default="worker-main")
+    parser.add_argument("--worker-id")
     args = parser.parse_args()
     root = Path(args.target) if args.action == "start" else args.project_root
     if root is None:

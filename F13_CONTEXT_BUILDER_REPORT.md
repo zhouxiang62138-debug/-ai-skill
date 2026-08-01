@@ -1,4 +1,4 @@
-# F13 实施与自审报告
+# F13 EXPERIMENTAL PROTOTYPE：上下文构建报告
 
 已实现 `build_context(session_id, role, checkpoint_id, relevant_artifacts, relevant_issue_ids, token_budget)`。
 它按角色、路径和预算读取原始工件片段，保留截断标记与 Event hash 引用；Generator 被

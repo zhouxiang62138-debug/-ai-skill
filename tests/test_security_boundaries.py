@@ -1,7 +1,7 @@
 import unittest
 
 from runtime.errors import RuntimeValidationError
-from runtime.security import CapabilityPolicy, CredentialProxy, reject_prompt_injection, sanitize_environment
+from experimental.f12_security_boundary.security import CapabilityPolicy, CredentialProxy, reject_prompt_injection, sanitize_environment
 
 
 class SecurityBoundaryTests(unittest.TestCase):

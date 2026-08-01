@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 
 from .errors import LeaseError, RuntimeStorageError
 from .event_types import ActorType, EventType
@@ -47,9 +49,11 @@ class LeaseManager:
             ).fetchone()
             if current is not None and _parse(current["expires_at"]) > instant:
                 if current["worker_id"] == worker_id:
-                    return Lease(**dict(current))
+                    raise LeaseError("同一 Worker 必须持有原 Lease Token")
                 raise LeaseError("Session 已被其他 Worker 持有")
             version = int(current["lease_version"]) + 1 if current else 1
+            token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
             values = (
                 session_id,
                 worker_id,
@@ -57,16 +61,18 @@ class LeaseManager:
                 expires.isoformat(),
                 instant.isoformat(),
                 version,
+                token_hash,
             )
             connection.execute(
                 """
-                INSERT INTO leases VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO leases VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     worker_id=excluded.worker_id,
                     acquired_at=excluded.acquired_at,
                     expires_at=excluded.expires_at,
                     heartbeat_at=excluded.heartbeat_at,
-                    lease_version=excluded.lease_version
+                    lease_version=excluded.lease_version,
+                    lease_token_hash=excluded.lease_token_hash
                 """,
                 values,
             )
@@ -84,13 +90,14 @@ class LeaseManager:
             correlation_id=session_id,
             payload={"lease_version": version, "expires_at": expires.isoformat()},
         )
-        return lease
+        return Lease(**{**lease.__dict__, "lease_token": token})
 
     def renew(
         self,
         session_id: str,
         worker_id: str,
         lease_version: int,
+        lease_token: str,
         *,
         ttl_seconds: float = 30.0,
         now: datetime | None = None,
@@ -107,6 +114,10 @@ class LeaseManager:
                 current is None
                 or current["worker_id"] != worker_id
                 or current["lease_version"] != lease_version
+                or not secrets.compare_digest(
+                    str(current["lease_token_hash"]),
+                    hashlib.sha256(lease_token.encode("utf-8")).hexdigest(),
+                )
                 or _parse(current["expires_at"]) <= instant
             ):
                 raise LeaseError("Lease 已过期、换主或版本不匹配")
@@ -126,9 +137,10 @@ class LeaseManager:
             correlation_id=session_id,
             payload={"lease_version": lease_version, "expires_at": expires.isoformat()},
         )
-        return self.get(session_id)
+        lease = self.get(session_id)
+        return Lease(**{**lease.__dict__, "lease_token": lease_token})
 
-    def release(self, session_id: str, worker_id: str, lease_version: int) -> None:
+    def release(self, session_id: str, worker_id: str, lease_version: int, lease_token: str) -> None:
         """只允许当前版本的持有者释放 Lease。"""
 
         with self.store.transaction(immediate=True) as connection:
@@ -139,6 +151,7 @@ class LeaseManager:
                 current is None
                 or current["worker_id"] != worker_id
                 or current["lease_version"] != lease_version
+                or not secrets.compare_digest(str(current["lease_token_hash"]), hashlib.sha256(lease_token.encode("utf-8")).hexdigest())
             ):
                 raise LeaseError("Worker 或 Lease 版本不匹配")
             connection.execute("DELETE FROM leases WHERE session_id = ?", (session_id,))
@@ -161,20 +174,35 @@ class LeaseManager:
         session_id: str,
         worker_id: str,
         lease_version: int,
+        lease_token: str,
         *,
         now: datetime | None = None,
     ) -> Lease:
         """在每次状态提交前执行 Lease fencing 校验。"""
 
         lease = self.get(session_id)
+        session = self.store.get_session(session_id)
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         if (
+            session.status != "ACTIVE"
+            or
             lease.worker_id != worker_id
             or lease.lease_version != lease_version
+            or not secrets.compare_digest(
+                self._token_hash(session_id), hashlib.sha256(lease_token.encode("utf-8")).hexdigest()
+            )
             or _parse(lease.expires_at) <= instant
         ):
             raise LeaseError("无有效 Lease，禁止提交业务状态")
         return lease
+
+    def _token_hash(self, session_id: str) -> str:
+        connection = self.store.raw_connection()
+        try:
+            row = connection.execute("SELECT lease_token_hash FROM leases WHERE session_id=?", (session_id,)).fetchone()
+        finally:
+            connection.close()
+        return "" if row is None else str(row["lease_token_hash"])
 
     def detect_expired(
         self, *, now: datetime | None = None
@@ -187,7 +215,7 @@ class LeaseManager:
             rows = connection.execute("SELECT * FROM leases").fetchall()
         finally:
             connection.close()
-        return [Lease(**dict(row)) for row in rows if _parse(row["expires_at"]) <= instant]
+        return [self._lease_from_row(row) for row in rows if _parse(row["expires_at"]) <= instant]
 
     def steal_expired(
         self,
@@ -215,4 +243,10 @@ class LeaseManager:
             connection.close()
         if row is None:
             raise LeaseError(f"Session 没有 Lease：{session_id}")
-        return Lease(**dict(row))
+        return self._lease_from_row(row)
+
+    @staticmethod
+    def _lease_from_row(row: object) -> Lease:
+        value = dict(row)  # type: ignore[arg-type]
+        value.pop("lease_token_hash", None)
+        return Lease(**value)

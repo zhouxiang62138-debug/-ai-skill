@@ -1,4 +1,4 @@
-# F12 实施与自审报告
+# F12 EXPERIMENTAL PROTOTYPE：安全边界报告
 
 已实现角色到工具/域名的最小能力策略、受控 Credential Proxy、敏感环境变量剥离、疑似
 凭据字段扫描与 Prompt Injection 拒绝。凭据不进入执行环境、Event Payload 或代理结果。

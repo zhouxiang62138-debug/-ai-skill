@@ -3,16 +3,15 @@ import unittest
 
 from runtime.leases import LeaseManager
 from runtime.project_revision import ProjectStateCAS
-from runtime.session_store import SessionStore
 from scripts.project_state import load_project_state
-from tests.runtime_test_support import make_runtime_project
+from tests.runtime_test_support import make_runtime_project, open_runtime_store
 
 
 class CrashBeforeProjectStateCommitTests(unittest.TestCase):
     def test_recovery_aborts_pending_without_changing_revision(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_crash_before_state_") as directory:
             root, session_id = make_runtime_project(directory)
-            store = SessionStore(root / ".runtime" / "sessions.sqlite3")
+            store = open_runtime_store(root)
             leases = LeaseManager(store)
             lease = leases.acquire(session_id, "worker-a")
             cas = ProjectStateCAS(store, leases)
@@ -23,7 +22,9 @@ class CrashBeforeProjectStateCommitTests(unittest.TestCase):
                     state,
                     session_id=session_id,
                     worker_id="worker-a",
+                    actor_role="runtime_orchestrator",
                     lease_version=lease.lease_version,
+                    lease_token=lease.lease_token or "",
                     expected_revision=0,
                     idempotency_key="crash-before",
                     fail_at="before_project_state_commit",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from scripts.project_state import (
     ProjectStateError,
@@ -13,6 +14,7 @@ from scripts.project_state import (
 from scripts.evaluation_protocol import recover_evaluation_transaction
 
 from .errors import RuntimeValidationError
+from .control_plane import require_session_database, control_plane_id
 from .event_types import ActorType, EventType
 from .leases import LeaseManager
 from .project_revision import ProjectStateCAS, project_state_hash, runtime_projection
@@ -24,20 +26,31 @@ from .session_store import SessionStore
 class Orchestrator:
     """定位项目、管理 Lease、选角、Checkpoint 和恢复。"""
 
-    def __init__(self, project_root: str | Path) -> None:
+    def __init__(
+        self, project_root: str | Path, *, control_plane_home: str | Path | None = None
+    ) -> None:
         self.root = Path(project_root).resolve()
         self.project_yaml = self.root / "project.yaml"
         if not self.project_yaml.is_file():
             raise ProjectStateError("项目根目录缺少 project.yaml")
-        self.store = SessionStore(self.root / ".runtime" / "sessions.sqlite3")
+        state = load_project_state(self.project_yaml)
+        projection = runtime_projection(state)
+        project_id = str(state["project_id"])
+        if projection.get("control_plane_id") != control_plane_id(project_id):
+            raise RuntimeValidationError("RUNTIME_BINDING_MISMATCH")
+        # v7 已绑定项目只能打开既有控制平面历史；构造器绝不创建新 DB。
+        self.store = SessionStore(
+            require_session_database(project_id, home=control_plane_home)
+        )
         self.leases = LeaseManager(self.store)
         self.cas = ProjectStateCAS(self.store, self.leases)
         self.recovery = RecoveryManager(self.store, self.cas)
 
-    def start(self, *, worker_id: str = "worker-main") -> dict[str, Any]:
+    def start(self, *, worker_id: str | None = None) -> dict[str, Any]:
         """注册/恢复 v7 Session 并返回确定性角色运行请求。"""
 
         state = self._validated_state()
+        worker_id = worker_id or f"worker-{uuid4()}"
         projection = runtime_projection(state)
         session = self.store.create_session(
             str(state["project_id"]),
@@ -73,6 +86,11 @@ class Orchestrator:
             next_role=state.get("next_role"),
             open_transaction_ids=[],
         )
+        run_id = (
+            self.store.create_role_run(session.session_id, worker_id, selection.target)
+            if selection.kind == "ROLE" and selection.target is not None
+            else None
+        )
         return {
             "session_id": session.session_id,
             "worker_id": worker_id,
@@ -80,6 +98,7 @@ class Orchestrator:
             "selection": selection,
             "event_id": event.event_id,
             "checkpoint_id": checkpoint.checkpoint_id,
+            "run_id": run_id,
         }
 
     def inspect(self, session_id: str) -> dict[str, Any]:
@@ -153,7 +172,9 @@ class Orchestrator:
                     candidate,
                     session_id=session_id,
                     worker_id=worker_id,
+                    actor_role="evaluator",
                     lease_version=lease.lease_version,
+                    lease_token=lease.lease_token or "",
                     expected_revision=expected,
                     idempotency_key=f"evaluation-recovery:{evaluation_id}",
                 )

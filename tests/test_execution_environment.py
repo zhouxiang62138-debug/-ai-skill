@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from runtime.environment import LocalWorkspaceEnvironment
+from experimental.f11_execution_environment.environment import LocalWorkspaceEnvironment
 from runtime.session_store import SessionStore
 
 

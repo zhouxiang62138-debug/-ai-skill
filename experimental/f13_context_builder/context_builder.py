@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from .errors import RuntimeValidationError
-from .session_store import SessionStore
+from runtime.errors import RuntimeValidationError
+from runtime.session_store import SessionStore
 
 
 _FORBIDDEN_FOR_GENERATOR = ("memory/proposals/", "artifacts/design_previews/")

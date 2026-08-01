@@ -43,6 +43,8 @@ class Lease:
     expires_at: str
     heartbeat_at: str
     lease_version: int
+    # 仅在 acquire/renew 的返回值中出现；数据库永不保存明文。
+    lease_token: str | None = None
 
 
 @dataclass(frozen=True)

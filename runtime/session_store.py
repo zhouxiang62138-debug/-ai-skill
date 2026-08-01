@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,7 +135,8 @@ class SessionStore:
             acquired_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             heartbeat_at TEXT NOT NULL,
-            lease_version INTEGER NOT NULL CHECK(lease_version > 0)
+            lease_version INTEGER NOT NULL CHECK(lease_version > 0),
+            lease_token_hash TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS tool_calls (
             tool_call_id TEXT PRIMARY KEY,
@@ -142,9 +144,11 @@ class SessionStore:
             idempotency_key TEXT NOT NULL,
             status TEXT NOT NULL,
             requested_at TEXT NOT NULL,
+            started_at TEXT,
             completed_at TEXT,
             request_json TEXT NOT NULL,
             result_reference TEXT,
+            result_hash TEXT,
             payload_hash TEXT NOT NULL,
             UNIQUE(session_id, idempotency_key)
         );
@@ -163,10 +167,31 @@ class SessionStore:
             UNIQUE(session_id, new_revision),
             UNIQUE(session_id, idempotency_key)
         );
+        CREATE TABLE IF NOT EXISTS role_runs (
+            run_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            worker_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            result_json TEXT
+        );
         """
         connection = self._connect()
         try:
             connection.executescript(ddl)
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(leases)")
+            }
+            if "lease_token_hash" not in columns:
+                connection.execute(
+                    "ALTER TABLE leases ADD COLUMN lease_token_hash TEXT NOT NULL DEFAULT ''"
+                )
+            tool_columns = {row["name"] for row in connection.execute("PRAGMA table_info(tool_calls)")}
+            for name in ("started_at", "result_hash"):
+                if name not in tool_columns:
+                    connection.execute(f"ALTER TABLE tool_calls ADD COLUMN {name} TEXT")
             connection.execute(
                 "INSERT OR IGNORE INTO runtime_schema(version, applied_at) VALUES (?, ?)",
                 (RUNTIME_SCHEMA_VERSION, utc_now()),
@@ -454,8 +479,10 @@ class SessionStore:
                 return str(existing["tool_call_id"])
             connection.execute(
                 """
-                INSERT INTO tool_calls VALUES
-                (?, ?, ?, 'REQUESTED', ?, NULL, ?, NULL, ?)
+                INSERT INTO tool_calls(
+                    tool_call_id, session_id, idempotency_key, status, requested_at,
+                    completed_at, request_json, result_reference, payload_hash
+                ) VALUES (?, ?, ?, 'REQUESTED', ?, NULL, ?, NULL, ?)
                 """,
                 (
                     tool_call_id,
@@ -477,12 +504,28 @@ class SessionStore:
         )
         return tool_call_id
 
+    def start_tool_call(self, session_id: str, tool_call_id: str) -> None:
+        """将 REQUESTED 原子推进为 STARTED，并在同一事务追加 Event。"""
+
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute("SELECT status FROM tool_calls WHERE tool_call_id=? AND session_id=?", (tool_call_id, session_id)).fetchone()
+            if row is None:
+                raise RuntimeStorageError(f"Tool Call 不存在：{tool_call_id}")
+            if row["status"] == "STARTED":
+                return
+            if row["status"] != "REQUESTED":
+                raise RuntimeValidationError("TOOL_CALL_INVALID_TRANSITION")
+            connection.execute("UPDATE tool_calls SET status='STARTED', started_at=? WHERE tool_call_id=?", (utc_now(), tool_call_id))
+        self.append_event(session_id, EventType.TOOL_CALL_STARTED, ActorType.TOOL, "tool-runtime", idempotency_key=f"tool-started:{tool_call_id}", correlation_id=tool_call_id, payload={"tool_call_id": tool_call_id})
+
     def complete_tool_call(
         self,
         session_id: str,
         tool_call_id: str,
         *,
         result_reference: str,
+        status: str = "SUCCEEDED",
+        result_hash: str | None = None,
     ) -> None:
         """幂等记录工具完成；结果正文保存在外部受控引用中。"""
 
@@ -493,28 +536,30 @@ class SessionStore:
             ).fetchone()
             if row is None:
                 raise RuntimeStorageError(f"Tool Call 不存在：{tool_call_id}")
-            if row["status"] == "COMPLETED":
-                if row["result_reference"] != result_reference:
+            if row["status"] in {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"}:
+                if row["result_reference"] != result_reference or row["status"] != status:
                     raise RuntimeValidationError("工具完成重放的结果引用不一致")
                 return
+            if status not in {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"}:
+                raise RuntimeValidationError("TOOL_CALL_INVALID_TERMINAL_STATUS")
             connection.execute(
                 """
                 UPDATE tool_calls
-                SET status='COMPLETED', completed_at=?, result_reference=?
+                SET status=?, completed_at=?, result_reference=?, result_hash=?
                 WHERE tool_call_id=?
                 """,
-                (utc_now(), result_reference, tool_call_id),
+                (status, utc_now(), result_reference, result_hash, tool_call_id),
             )
         self.append_event(
             session_id,
-            EventType.TOOL_CALL_COMPLETED,
+            EventType.TOOL_CALL_COMPLETED if status == "SUCCEEDED" else EventType.TOOL_CALL_FAILED,
             ActorType.TOOL,
             "tool-runtime",
             idempotency_key=f"tool-completed:{tool_call_id}",
             correlation_id=tool_call_id,
             payload={
                 "tool_call_id": tool_call_id,
-                "result_reference": result_reference,
+                "result_reference": result_reference, "status": status, "result_hash": result_hash,
             },
         )
 
@@ -526,7 +571,7 @@ class SessionStore:
             rows = connection.execute(
                 """
                 SELECT * FROM tool_calls
-                WHERE session_id=? AND status='COMPLETED'
+                WHERE session_id=? AND status='SUCCEEDED'
                 ORDER BY requested_at
                 """,
                 (session_id,),
@@ -534,3 +579,84 @@ class SessionStore:
         finally:
             connection.close()
         return [dict(row) for row in rows]
+
+    def create_role_run(self, session_id: str, worker_id: str, role: str) -> str:
+        """创建一次可审计角色运行，并记录 ROLE_STARTED。"""
+
+        run_id = f"run-{uuid.uuid4().hex}"
+        with self.transaction(immediate=True) as connection:
+            connection.execute(
+                "INSERT INTO role_runs(run_id, session_id, worker_id, role, status, created_at) VALUES (?, ?, ?, ?, 'STARTED', ?)",
+                (run_id, session_id, worker_id, role, utc_now()),
+            )
+        self.append_event(session_id, EventType.ROLE_STARTED, ActorType.WORKER, worker_id, idempotency_key=f"role-started:{run_id}", correlation_id=run_id, payload={"run_id": run_id, "role": role})
+        return run_id
+
+    def complete_role_run(self, session_id: str, run_id: str, result: dict[str, Any]) -> None:
+        """不可重复地完成 Role Run 并追加 ROLE_COMPLETED。"""
+
+        text = canonical_json(result)
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute("SELECT status FROM role_runs WHERE run_id=? AND session_id=?", (run_id, session_id)).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_RUN_MISSING")
+            if row["status"] == "COMPLETED":
+                return
+            if row["status"] != "STARTED":
+                raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
+            connection.execute("UPDATE role_runs SET status='COMPLETED', completed_at=?, result_json=? WHERE run_id=?", (utc_now(), text, run_id))
+        self.append_event(session_id, EventType.ROLE_COMPLETED, ActorType.WORKER, "worker", idempotency_key=f"role-completed:{run_id}", correlation_id=run_id, payload={"run_id": run_id})
+
+    def recover_interrupted_tool_calls(self, session_id: str) -> list[str]:
+        """将进程崩溃时未完成的 STARTED 调用显式标为未知，供人工或安全重放决策。"""
+
+        with self.transaction(immediate=True) as connection:
+            rows = connection.execute(
+                "SELECT tool_call_id FROM tool_calls WHERE session_id=? AND status='STARTED'",
+                (session_id,),
+            ).fetchall()
+            ids = [str(row["tool_call_id"]) for row in rows]
+            for tool_call_id in ids:
+                connection.execute(
+                    "UPDATE tool_calls SET status='UNKNOWN_AFTER_CRASH', completed_at=? WHERE tool_call_id=?",
+                    (utc_now(), tool_call_id),
+                )
+        for tool_call_id in ids:
+            self.append_event(
+                session_id, EventType.TOOL_CALL_FAILED, ActorType.TOOL, "tool-runtime",
+                idempotency_key=f"tool-unknown-after-crash:{tool_call_id}",
+                correlation_id=tool_call_id,
+                payload={"tool_call_id": tool_call_id, "status": "UNKNOWN_AFTER_CRASH"},
+            )
+        return ids
+
+    def write_tool_result(self, tool_call_id: str, result: dict[str, Any]) -> tuple[str, str]:
+        """将结果以独占文件写入 Control Plane，返回相对引用和 SHA-256。"""
+
+        payload = canonical_json(result).encode("utf-8")
+        digest = hashlib.sha256(payload).hexdigest()
+        directory = self.path.parent / "tool-results" / tool_call_id
+        directory.mkdir(parents=True, exist_ok=True)
+        filename = f"attempt-{uuid.uuid4().hex}.json"
+        target = directory / filename
+        try:
+            with target.open("xb") as handle:
+                handle.write(payload)
+        except FileExistsError as exc:  # pragma: no cover - uuid 冲突防御
+            raise RuntimeStorageError("TOOL_RESULT_PATH_COLLISION") from exc
+        return str(target.relative_to(self.path.parent).as_posix()), digest
+
+    def read_tool_result(self, reference: str, expected_hash: str) -> dict[str, Any]:
+        """读取并校验不可变结果；篡改即阻止恢复。"""
+
+        candidate = (self.path.parent / reference).resolve()
+        root = (self.path.parent / "tool-results").resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeStorageError("TOOL_RESULT_REFERENCE_INVALID") from exc
+        raw = candidate.read_bytes()
+        actual = hashlib.sha256(raw).hexdigest()
+        if actual != expected_hash:
+            raise RuntimeStorageError("TOOL_RESULT_HASH_MISMATCH")
+        return json.loads(raw.decode("utf-8"))
