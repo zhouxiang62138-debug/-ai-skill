@@ -125,14 +125,16 @@ class Orchestrator:
         run = self.store.get_role_run(session_id, run_id)
         if run["status"] != "STARTED":
             raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
-        required = {"next_state", "expected_revision", "idempotency_key"}
-        if set(result) != required or not isinstance(result["next_state"], dict):
+        required = {"source_status", "target_status", "changed_fields", "expected_revision", "idempotency_key"}
+        if set(result) != required or not isinstance(result["changed_fields"], dict):
             raise RuntimeValidationError("STEP_RESULT_INVALID")
         lease = self.leases.get(session_id)
         if lease.worker_id != run["worker_id"]:
             raise RuntimeValidationError("ROLE_RUN_WORKER_MISMATCH")
-        committed = self.cas.commit(
-            self.project_yaml, result["next_state"], session_id=session_id,
+        committed = self.cas.commit_patch(
+            self.project_yaml, result["changed_fields"],
+            source_status=str(result["source_status"]), target_status=str(result["target_status"]),
+            session_id=session_id,
             worker_id=str(run["worker_id"]), actor_role=str(run["role"]),
             lease_version=lease.lease_version, lease_token=lease_token,
             expected_revision=int(result["expected_revision"]),

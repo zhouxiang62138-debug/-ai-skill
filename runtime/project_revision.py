@@ -18,7 +18,7 @@ from scripts.project_state import (
 from .errors import RecoveryError, StateConflictError
 from .event_types import ActorType, EventType
 from .leases import LeaseManager
-from .policy import assert_field_ownership
+from .policy import assert_field_ownership, assert_state_transition
 from .session_store import SessionStore, stable_id, utc_now
 
 
@@ -188,6 +188,32 @@ class ProjectStateCAS:
             "state_hash": after_hash,
             "event_id": committed.event_id,
         }
+
+    def commit_patch(
+        self,
+        project_yaml: str | Path,
+        changed_fields: dict[str, Any],
+        *,
+        source_status: str,
+        target_status: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """从当前状态构造受限 Patch，禁止 Worker 提交完整状态快照。"""
+
+        if not isinstance(changed_fields, dict):
+            raise StateConflictError("COMMIT_PATCH_INVALID")
+        current = load_project_state(Path(project_yaml).resolve())
+        if current.get("status") != source_status:
+            raise StateConflictError("COMMIT_SOURCE_STATUS_CONFLICT")
+        if "runtime" in changed_fields or "schema_version" in changed_fields:
+            raise StateConflictError("COMMIT_PATCH_RUNTIME_FORBIDDEN")
+        if changed_fields.get("status", target_status) != target_status:
+            raise StateConflictError("COMMIT_PATCH_TARGET_STATUS_CONFLICT")
+        assert_state_transition(source_status, target_status)
+        candidate = copy.deepcopy(current)
+        candidate.update(copy.deepcopy(changed_fields))
+        candidate["status"] = target_status
+        return self.commit(project_yaml, candidate, **kwargs)
 
     def _conflict(
         self,

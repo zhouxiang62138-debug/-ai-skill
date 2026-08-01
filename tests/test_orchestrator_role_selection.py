@@ -27,7 +27,13 @@ class OrchestratorRoleSelectionTests(unittest.TestCase):
             state = load_project_state(root / "project.yaml")
             result = orchestrator.commit_step(
                 session_id, started["run_id"], started["lease_token"] or "",
-                {"next_state": state, "expected_revision": 0, "idempotency_key": "commit-step"},
+                {
+                    "source_status": state["status"],
+                    "target_status": state["status"],
+                    "changed_fields": {},
+                    "expected_revision": 0,
+                    "idempotency_key": "commit-step",
+                },
             )
             self.assertEqual("COMMITTED", result["result"])
 

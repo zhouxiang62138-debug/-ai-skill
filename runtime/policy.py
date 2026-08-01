@@ -59,6 +59,26 @@ def load_runtime_routes() -> dict[str, dict[str, Any]]:
     return routes
 
 
+def assert_state_transition(source_status: str, target_status: str) -> None:
+    """按 workflow.yaml 的唯一迁移表拒绝非法状态变化。"""
+
+    document = parse_project_yaml(
+        (_ROOT / "config" / "workflow.yaml").read_text(encoding="utf-8")
+    )
+    transitions = document.get("state_transitions")
+    if not isinstance(transitions, dict):
+        raise RuntimeValidationError("WORKFLOW_TRANSITION_CONFIG_INVALID")
+    allowed = transitions.get(source_status)
+    if not isinstance(allowed, list) or not all(isinstance(item, str) for item in allowed):
+        raise RuntimeValidationError("WORKFLOW_TRANSITION_CONFIG_INVALID")
+    if source_status == target_status:
+        return
+    if target_status not in allowed:
+        raise RuntimeValidationError(
+            f"ILLEGAL_STATE_TRANSITION:{source_status}->{target_status}"
+        )
+
+
 def changed_top_level_fields(before: dict[str, Any], after: dict[str, Any]) -> frozenset[str]:
     """计算完整候选状态的显式顶层 diff。"""
 
