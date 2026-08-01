@@ -44,10 +44,13 @@ class LeaseManager:
             raise LeaseError("Lease TTL 和 worker_id 无效")
         expires = instant + timedelta(seconds=ttl_seconds)
         with self.store.transaction(immediate=True) as connection:
-            if connection.execute(
-                "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
-            ).fetchone() is None:
+            session = connection.execute(
+                "SELECT status FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+            if session is None:
                 raise RuntimeStorageError(f"Session 不存在：{session_id}")
+            if session["status"] != "ACTIVE":
+                raise LeaseError("Session is not ACTIVE; lease acquisition is forbidden")
             current = connection.execute(
                 "SELECT * FROM leases WHERE session_id = ?", (session_id,)
             ).fetchone()

@@ -1,5 +1,16 @@
 # F10R 测试报告（进行中）
 
+## 2026-08-01 最终回归记录
+
+- 命令：`python -m pytest -q`
+- 工作目录：`C:\Users\28388\Desktop\ai-development-team-skill`
+- Python：`3.11.15`
+- 结束时间：`2026-08-01T16:56:04+08:00`
+- 退出码：`0`
+- 结果：`409 passed, 104 subtests passed, 0 failed, 0 errors, 0 skipped`
+- 本轮新增故障注入：v7 YAML 绑定失败后保持 `RECOVERY_REQUIRED` 且可重试；回滚后的
+  `DETACHED` Session 无法再取得 Lease；旧 Worker 在 Lease 被接管后无法提交。
+
 最近完整命令：`python -m pytest -q`  
 工作目录：`C:\Users\28388\Desktop\ai-development-team-skill`  
 结果：381 passed，104 subtests passed，0 failed，0 error，0 skipped。
