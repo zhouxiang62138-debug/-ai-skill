@@ -32,6 +32,20 @@ class RuntimeMigrationRollbackTests(unittest.TestCase):
             self.assertEqual(1, len(records))
             self.assertEqual("RECOVERY_REQUIRED", json.loads(records[0].read_text(encoding="utf-8"))["status"])
 
+    def test_migration_failure_after_control_plane_is_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_v7_migration_session_failure_") as directory:
+            root = Path(directory)
+            project = root / "project.yaml"
+            project.write_text(serialize_project_state(v4_state()), encoding="utf-8")
+            backup = root / "backups" / "project-v4.yaml"
+            with patch("runtime.session_store.SessionStore.create_session", side_effect=OSError("session initialization failed")):
+                with self.assertRaisesRegex(OSError, "session initialization failed"):
+                    migrate_project_to_v7(project, backup, control_plane_home=root / "control-home")
+            self.assertEqual(4, load_project_state(project)["schema_version"])
+            record = json.loads(next((root / "memory" / "migrations").glob("migration-*.json")).read_text(encoding="utf-8"))
+            self.assertEqual("RECOVERY_REQUIRED", record["status"])
+            self.assertTrue((root / "control-home").exists())
+
     def test_v7_migration_can_restore_original_v4(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_v7_rollback_") as directory:
             root = Path(directory)
