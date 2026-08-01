@@ -16,14 +16,18 @@ class CrashAfterToolCompletionTests(unittest.TestCase):
                 arguments={"suite": "unit"},
                 idempotency_key="tool-1",
             )
+            store.start_tool_call(session_id, tool_call)
+            reference, digest = store.write_tool_result(
+                tool_call, {"stdout": "ok", "stderr": "", "exit_code": 0}
+            )
             store.complete_tool_call(
-                session_id, tool_call, result_reference="artifacts/test-result.json"
+                session_id, tool_call, result_reference=reference, result_hash=digest
             )
             reopened = SessionStore(store.path)
             completed = reopened.completed_tool_calls(session_id)
             self.assertEqual(tool_call, completed[0]["tool_call_id"])
             self.assertEqual(
-                "artifacts/test-result.json", completed[0]["result_reference"]
+                reference, completed[0]["result_reference"]
             )
 
 

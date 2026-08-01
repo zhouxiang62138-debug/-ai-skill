@@ -46,7 +46,8 @@ def test_same_command_after_code_change_creates_new_attempt(tmp_path: Path) -> N
     session = store.create_session("demo", tmp_path, idempotency_key="session")
     call = store.request_tool_call(session.session_id, tool_name="test", arguments={}, idempotency_key="one")
     first = store.start_tool_call(session.session_id, call, code_snapshot_hash="code-a", environment_hash="env-a")
-    store.complete_tool_call(session.session_id, call, result_reference="tool-results/a.json", result_hash="a")
+    reference, digest = store.write_tool_result(call, {"stdout": "ok", "stderr": "", "exit_code": 0})
+    store.complete_tool_call(session.session_id, call, result_reference=reference, result_hash=digest)
     second = store.start_tool_call(session.session_id, call, code_snapshot_hash="code-b", environment_hash="env-a")
 
     assert first != second
@@ -61,11 +62,12 @@ def test_tool_timeout_is_not_succeeded(tmp_path: Path) -> None:
     session = store.create_session("demo", tmp_path, idempotency_key="session")
     call = store.request_tool_call(session.session_id, tool_name="test", arguments={}, idempotency_key="timeout")
     attempt = store.start_tool_call(session.session_id, call)
+    reference, digest = store.write_tool_result(call, {"stdout": "", "stderr": "timeout", "exit_code": None})
     store.complete_tool_call(
         session.session_id,
         call,
-        result_reference="tool-results/timeout.json",
-        result_hash="timeout-hash",
+        result_reference=reference,
+        result_hash=digest,
         status="TIMED_OUT",
         attempt_id=attempt,
     )

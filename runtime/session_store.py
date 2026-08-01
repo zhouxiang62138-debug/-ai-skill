@@ -580,6 +580,15 @@ class SessionStore:
     ) -> None:
         """幂等记录工具完成；结果正文保存在外部受控引用中。"""
 
+        if status not in {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"}:
+            raise RuntimeValidationError("TOOL_CALL_INVALID_TERMINAL_STATUS")
+        if not result_hash:
+            raise RuntimeValidationError("TOOL_RESULT_HASH_REQUIRED")
+        try:
+            self.read_tool_result(result_reference, result_hash)
+        except Exception as exc:
+            raise RuntimeValidationError("TOOL_RESULT_UNVERIFIABLE") from exc
+
         with self.transaction(immediate=True) as connection:
             row = connection.execute(
                 "SELECT * FROM tool_calls WHERE tool_call_id=? AND session_id=?",
@@ -591,8 +600,8 @@ class SessionStore:
                 if row["result_reference"] != result_reference or row["status"] != status:
                     raise RuntimeValidationError("工具完成重放的结果引用不一致")
                 return
-            if status not in {"SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"}:
-                raise RuntimeValidationError("TOOL_CALL_INVALID_TERMINAL_STATUS")
+            if row["status"] != "STARTED":
+                raise RuntimeValidationError("TOOL_CALL_INVALID_TRANSITION")
             connection.execute(
                 """
                 UPDATE tool_calls
