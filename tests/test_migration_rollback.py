@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from scripts.project_migration import (
@@ -29,6 +30,8 @@ class RuntimeMigrationRollbackTests(unittest.TestCase):
             )
             self.assertEqual(7, load_project_state(project)["schema_version"])
             self.assertTrue(result["verification"]["valid"])
+            record = json.loads(Path(result["record_path"]).read_text(encoding="utf-8"))
+            self.assertEqual("COMMITTED", record["status"])
             before_rollback = root / "backups" / "project-v7.yaml"
             rollback = rollback_project_file(
                 project, backup, before_rollback, control_plane_home=root / "control-home"

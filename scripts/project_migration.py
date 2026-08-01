@@ -222,8 +222,6 @@ def migrate_project_to_v7(
     preview = preview_runtime_migration(
         state, project_root=path.parent, session_id=session_id
     )
-    backup.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(path, backup)
     record_path = _next_record_path(path.parent)
     record = {
         "schema_version": "1.0",
@@ -233,40 +231,47 @@ def migrate_project_to_v7(
         "project_yaml": "project.yaml",
         "backup_path": str(backup),
         "session_id": preview["runtime"]["session_id"],
-        "status": "MIGRATED",
+        "status": "PREPARING",
     }
-    record_temp = record_path.with_suffix(".json.tmp")
-    record_temp.write_text(
-        json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    record_temp.replace(record_path)
+    _write_migration_record(record_path, record)
+    try:
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup)
+        record["status"] = "BACKUP_CREATED"
+        _write_migration_record(record_path, record)
     # 先建立独立 Session Store，再提交 YAML 投影；若中断，遗留 DB 可由
     # inspect/recover 发现，绝不把 Session 历史塞回 project.yaml。
-    repository_root = Path(__file__).resolve().parents[1]
-    if str(repository_root) not in sys.path:
-        sys.path.insert(0, str(repository_root))
-    from runtime.session_store import SessionStore
-    from runtime.control_plane import initialize_control_plane
+        repository_root = Path(__file__).resolve().parents[1]
+        if str(repository_root) not in sys.path:
+            sys.path.insert(0, str(repository_root))
+        from runtime.session_store import SessionStore
+        from runtime.control_plane import initialize_control_plane
 
-    control_plane = initialize_control_plane(
-        str(state["project_id"]), home=control_plane_home
-    )
-    store = SessionStore(control_plane / "sessions.sqlite3")
-    session = store.create_session(
-        str(state["project_id"]),
-        path.parent,
-        idempotency_key=f"runtime-migration:{preview['runtime']['session_id']}",
-        session_id=str(preview["runtime"]["session_id"]),
-    )
-    preview["schema_migration"]["preview_only"] = False
-    preview["schema_migration_record"] = record_path.relative_to(path.parent).as_posix()
-    _write_runtime_project_state_atomic(path, preview)
-    verification = verify_runtime_migration(path)
-    if not verification["valid"]:
-        raise ProjectStateError(
-            "迁移后 v7 验证失败：" + "; ".join(verification["errors"])
+        control_plane = initialize_control_plane(
+            str(state["project_id"]), home=control_plane_home
         )
+        record["status"] = "CONTROL_PLANE_CREATED"
+        _write_migration_record(record_path, record)
+        store = SessionStore(control_plane / "sessions.sqlite3")
+        store.create_session(
+            str(state["project_id"]), path.parent,
+            idempotency_key=f"runtime-migration:{preview['runtime']['session_id']}",
+            session_id=str(preview["runtime"]["session_id"]),
+        )
+        preview["schema_migration"]["preview_only"] = False
+        preview["schema_migration_record"] = record_path.relative_to(path.parent).as_posix()
+        _write_runtime_project_state_atomic(path, preview)
+        record["status"] = "PROJECT_BOUND"
+        _write_migration_record(record_path, record)
+        verification = verify_runtime_migration(path)
+        if not verification["valid"]:
+            raise ProjectStateError("迁移后 v7 验证失败：" + "; ".join(verification["errors"]))
+        record["status"] = "COMMITTED"
+        _write_migration_record(record_path, record)
+    except Exception:
+        record["status"] = "RECOVERY_REQUIRED"
+        _write_migration_record(record_path, record)
+        raise
     return {
         "result": "PASS",
         "changed": True,
@@ -282,6 +287,17 @@ def _next_record_path(project_root: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     number = len(list(directory.glob("migration-*.json"))) + 1
     return directory / f"migration-{number:03d}.json"
+
+
+def _write_migration_record(path: Path, record: dict[str, Any]) -> None:
+    """原子更新迁移生命周期记录；成功状态只能在验证后写入。"""
+
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
 
 
 def migrate_project_file(
