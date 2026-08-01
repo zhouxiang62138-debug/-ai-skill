@@ -37,6 +37,17 @@ class OrchestratorRoleSelectionTests(unittest.TestCase):
             )
             self.assertEqual("COMMITTED", result["result"])
 
+    def test_fail_step_releases_lease(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_orchestrator_fail_") as directory:
+            root, session_id = make_runtime_project(directory)
+            home = Path((root / ".test-control-plane-home").read_text())
+            orchestrator = Orchestrator(root, control_plane_home=home)
+            started = orchestrator.start()
+            orchestrator.fail_step(session_id, started["run_id"], {"reason": "test"})
+            self.assertEqual("FAILED", orchestrator.store.get_role_run(session_id, started["run_id"])["status"])
+            with self.assertRaises(Exception):
+                orchestrator.leases.get(session_id)
+
 
 if __name__ == "__main__":
     unittest.main()

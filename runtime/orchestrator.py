@@ -148,6 +148,7 @@ class Orchestrator:
         """持久化失败 Run；不提交候选 project state。"""
 
         self.store.fail_role_run(session_id, run_id, reason)
+        self.leases.revoke_for_lifecycle(session_id, reason="role-run-failed")
 
     def pause(self, session_id: str) -> None:
         """暂停 Session，不改变业务状态。"""
