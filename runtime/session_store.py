@@ -607,6 +607,22 @@ class SessionStore:
             connection.execute("UPDATE role_runs SET status='COMPLETED', completed_at=?, result_json=? WHERE run_id=?", (utc_now(), text, run_id))
         self.append_event(session_id, EventType.ROLE_COMPLETED, ActorType.WORKER, "worker", idempotency_key=f"role-completed:{run_id}", correlation_id=run_id, payload={"run_id": run_id})
 
+    def fail_role_run(self, session_id: str, run_id: str, reason: dict[str, Any]) -> None:
+        """持久化角色失败；失败路径绝不写入完成状态。"""
+
+        text = canonical_json(reason)
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute("SELECT status, worker_id FROM role_runs WHERE run_id=? AND session_id=?", (run_id, session_id)).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_RUN_MISSING")
+            if row["status"] == "FAILED":
+                return
+            if row["status"] != "STARTED":
+                raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
+            connection.execute("UPDATE role_runs SET status='FAILED', completed_at=?, result_json=? WHERE run_id=?", (utc_now(), text, run_id))
+            worker_id = str(row["worker_id"])
+        self.append_event(session_id, EventType.ROLE_FAILED, ActorType.WORKER, worker_id, idempotency_key=f"role-failed:{run_id}", correlation_id=run_id, payload={"run_id": run_id})
+
     def recover_interrupted_tool_calls(self, session_id: str) -> list[str]:
         """将进程崩溃时未完成的 STARTED 调用显式标为未知，供人工或安全重放决策。"""
 
