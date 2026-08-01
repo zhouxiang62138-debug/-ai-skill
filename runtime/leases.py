@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
+from contextlib import contextmanager
+from typing import Iterator
 
 from .errors import LeaseError, RuntimeStorageError
 from .event_types import ActorType, EventType
@@ -103,6 +105,31 @@ class LeaseManager:
             payload={"lease_version": version, "expires_at": expires.isoformat()},
         )
         return Lease(**{**lease.__dict__, "lease_token": token})
+
+    @contextmanager
+    def hold(
+        self,
+        session_id: str,
+        worker_id: str,
+        *,
+        ttl_seconds: float = 30.0,
+    ) -> Iterator[Lease]:
+        """受控 Lease 上下文：正常或异常离开时都尽力释放当前 Token。"""
+
+        lease = self.acquire(session_id, worker_id, ttl_seconds=ttl_seconds)
+        try:
+            yield lease
+        finally:
+            try:
+                self.release(
+                    session_id,
+                    worker_id,
+                    lease.lease_version,
+                    lease.lease_token or "",
+                )
+            except LeaseError:
+                # 已过期或已被接管时不能释放新 Lease，保留实际 fencing 结果。
+                pass
 
     def renew(
         self,

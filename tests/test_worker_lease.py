@@ -41,6 +41,16 @@ class WorkerLeaseTests(unittest.TestCase):
             with self.assertRaises(LeaseError):
                 manager.assert_valid(session_id, "worker-a", lease.lease_version, "wrong-token")
 
+    def test_hold_releases_lease_after_exception(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_lease_hold_") as directory:
+            store, session_id = make_store(directory)
+            manager = LeaseManager(store)
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                with manager.hold(session_id, "worker-a"):
+                    raise RuntimeError("boom")
+            with self.assertRaises(LeaseError):
+                manager.get(session_id)
+
     def test_default_workers_receive_unique_ids(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_worker_identity_") as directory:
             root, _ = make_runtime_project(directory)
