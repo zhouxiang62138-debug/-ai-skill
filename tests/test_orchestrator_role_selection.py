@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from runtime.orchestrator import Orchestrator
+from scripts.project_state import load_project_state
 from tests.runtime_test_support import make_runtime_project
 
 
@@ -16,6 +17,19 @@ class OrchestratorRoleSelectionTests(unittest.TestCase):
             self.assertEqual("ROLE", result["selection"].kind)
             self.assertEqual("planner", result["selection"].target)
             self.assertTrue(result["run_id"])
+
+    def test_commit_step_commits_run_and_releases_lease(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_orchestrator_commit_") as directory:
+            root, session_id = make_runtime_project(directory)
+            home = Path((root / ".test-control-plane-home").read_text())
+            orchestrator = Orchestrator(root, control_plane_home=home)
+            started = orchestrator.start()
+            state = load_project_state(root / "project.yaml")
+            result = orchestrator.commit_step(
+                session_id, started["run_id"], started["lease_token"] or "",
+                {"next_state": state, "expected_revision": 0, "idempotency_key": "commit-step"},
+            )
+            self.assertEqual("COMMITTED", result["result"])
 
 
 if __name__ == "__main__":

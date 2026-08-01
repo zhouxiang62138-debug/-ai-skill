@@ -95,6 +95,7 @@ class Orchestrator:
             "session_id": session.session_id,
             "worker_id": worker_id,
             "lease_version": lease.lease_version,
+            "lease_token": lease.lease_token,
             "selection": selection,
             "event_id": event.event_id,
             "checkpoint_id": checkpoint.checkpoint_id,
@@ -117,6 +118,29 @@ class Orchestrator:
             "project_runtime": runtime_projection(state),
             "selection": select_role(state),
         }
+
+    def commit_step(self, session_id: str, run_id: str, lease_token: str, result: dict[str, Any]) -> dict[str, Any]:
+        """校验持久化 Run、Lease 与结构化结果后通过 CAS 提交角色步骤。"""
+
+        run = self.store.get_role_run(session_id, run_id)
+        if run["status"] != "STARTED":
+            raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
+        required = {"next_state", "expected_revision", "idempotency_key"}
+        if set(result) != required or not isinstance(result["next_state"], dict):
+            raise RuntimeValidationError("STEP_RESULT_INVALID")
+        lease = self.leases.get(session_id)
+        if lease.worker_id != run["worker_id"]:
+            raise RuntimeValidationError("ROLE_RUN_WORKER_MISMATCH")
+        committed = self.cas.commit(
+            self.project_yaml, result["next_state"], session_id=session_id,
+            worker_id=str(run["worker_id"]), actor_role=str(run["role"]),
+            lease_version=lease.lease_version, lease_token=lease_token,
+            expected_revision=int(result["expected_revision"]),
+            idempotency_key=str(result["idempotency_key"]),
+        )
+        self.store.complete_role_run(session_id, run_id, committed)
+        self.leases.release(session_id, str(run["worker_id"]), lease.lease_version, lease_token)
+        return committed
 
     def pause(self, session_id: str) -> None:
         """暂停 Session，不改变业务状态。"""

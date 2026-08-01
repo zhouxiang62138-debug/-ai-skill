@@ -592,6 +592,20 @@ class SessionStore:
         self.append_event(session_id, EventType.ROLE_STARTED, ActorType.WORKER, worker_id, idempotency_key=f"role-started:{run_id}", correlation_id=run_id, payload={"run_id": run_id, "role": role})
         return run_id
 
+    def get_role_run(self, session_id: str, run_id: str) -> dict[str, Any]:
+        """读取单个 Role Run；不存在时不允许猜测或新建。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM role_runs WHERE run_id=? AND session_id=?", (run_id, session_id)
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise RuntimeStorageError("ROLE_RUN_MISSING")
+        return dict(row)
+
     def complete_role_run(self, session_id: str, run_id: str, result: dict[str, Any]) -> None:
         """不可重复地完成 Role Run 并追加 ROLE_COMPLETED。"""
 

@@ -19,10 +19,13 @@ def _json_default(value: Any) -> Any:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AI Development Team Durable Runtime")
-    parser.add_argument("action", choices=("begin-step", "start", "resume", "inspect", "pause", "recover"))
+    parser.add_argument("action", choices=("begin-step", "commit-step", "start", "resume", "inspect", "pause", "recover"))
     parser.add_argument("target", help="start 时为项目根目录，其余为 Session ID")
     parser.add_argument("--project-root", type=Path)
     parser.add_argument("--worker-id")
+    parser.add_argument("--run-id")
+    parser.add_argument("--lease-token")
+    parser.add_argument("--result", type=Path)
     args = parser.parse_args()
     root = Path(args.target) if args.action in {"start", "begin-step"} else args.project_root
     if root is None:
@@ -30,6 +33,10 @@ def main() -> int:
     orchestrator = Orchestrator(root)
     if args.action in {"start", "begin-step"}:
         result = orchestrator.start(worker_id=args.worker_id)
+    elif args.action == "commit-step":
+        if args.run_id is None or args.lease_token is None or args.result is None:
+            parser.error("commit-step 必须提供 --run-id、--lease-token 和 --result")
+        result = orchestrator.commit_step(args.target, args.run_id, args.lease_token, json.loads(args.result.read_text(encoding="utf-8")))
     elif args.action == "resume":
         result = orchestrator.resume(args.target)
     elif args.action == "inspect":
