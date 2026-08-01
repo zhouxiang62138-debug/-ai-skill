@@ -118,6 +118,7 @@ class LocalWorkspaceEnvironment(ExecutionEnvironment):
         key = hashlib.sha256(("\x1f".join(argv) + "|" + cwd).encode()).hexdigest()[:24]
         call_id = self.store.request_tool_call(self.session_id, tool_name=Path(argv[0]).name,
             arguments={"argv": list(argv), "cwd": cwd, "timeout": timeout}, idempotency_key=f"environment:{key}")
+        attempt_id = self.store.start_tool_call(self.session_id, call_id)
         clean_env = {"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")}
         clean_env.update(dict(env_policy or {}))
         try:
@@ -127,15 +128,14 @@ class LocalWorkspaceEnvironment(ExecutionEnvironment):
         except subprocess.TimeoutExpired as exc:
             stdout, a = self._clip(exc.stdout or ""); stderr, b = self._clip((exc.stderr or "") + "\n命令超时。")
             code, timed_out = None, True
-        output_dir = self.root / ".runtime" / "tool_outputs"; output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"{call_id}.json"
-        output_path.write_text(json.dumps({"argv": list(argv), "cwd": cwd, "exit_code": code, "timed_out": timed_out,
-            "stdout": stdout, "stderr": stderr, "output_truncated": a or b}, ensure_ascii=False), encoding="utf-8")
-        reference = output_path.relative_to(self.root).as_posix()
-        self.store.complete_tool_call(self.session_id, call_id, result_reference=reference)
+        reference, digest = self.store.write_tool_result(call_id, {"argv": list(argv), "cwd": cwd, "exit_code": code, "timed_out": timed_out,
+            "stdout": stdout, "stderr": stderr, "output_truncated": a or b})
+        status = "TIMED_OUT" if timed_out else ("SUCCEEDED" if code == 0 else "FAILED")
+        self.store.complete_tool_call(self.session_id, call_id, result_reference=reference,
+            result_hash=digest, status=status, attempt_id=attempt_id)
         self.store.append_event(self.session_id, EventType.TOOL_CALL_TIMED_OUT if timed_out else EventType.TOOL_CALL_COMPLETED,
             ActorType.TOOL, "local_workspace", idempotency_key=f"environment-result:{call_id}", correlation_id=call_id,
-            payload={"result_reference": reference, "exit_code": code})
+            payload={"result_reference": reference, "exit_code": code, "result_hash": digest})
         return ExecutionResult(call_id, tuple(argv), cwd, code, timed_out, stdout, stderr, a or b, reference)
 
     def read_file(self, path: str) -> str:

@@ -19,7 +19,7 @@ class ExecutionEnvironmentTests(unittest.TestCase):
             with self.assertRaises(Exception): env.write_file("../escape.txt", "no")
             result = env.execute([sys.executable, "-c", "print('ok')"])
             self.assertEqual(0, result.exit_code); self.assertIn("ok", result.stdout)
-            self.assertTrue((root / result.result_reference).is_file())
+            self.assertTrue((store.path.parent / result.result_reference).is_file())
             with self.assertRaises(Exception): env.execute(["not-allowed-command"])
 
 
