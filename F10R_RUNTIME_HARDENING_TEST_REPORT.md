@@ -21,3 +21,10 @@
 - 工作目录：`C:\Users\28388\Desktop\ai-development-team-skill`
 - 结果：394 passed，104 subtests passed，0 failed，0 error，0 skipped
 - 新增证据：真实多进程 Lease fencing 与 Tool `TIMED_OUT` 非成功终态。
+
+## 2026-08-01 最终回归更新（等待状态与结果完整性）
+
+- 命令：`python -m pytest -q`
+- 工作目录：`C:\Users\28388\Desktop\ai-development-team-skill`
+- 结果：398 passed，104 subtests passed，0 failed，0 error，0 skipped
+- 新增证据：WAIT 状态不持有 Lease、`fail-step` 释放 Lease、Tool Result 提交前 Hash 验证。
