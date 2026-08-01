@@ -32,6 +32,33 @@ def load_field_ownership() -> dict[str, frozenset[str]]:
     return result
 
 
+def load_runtime_routes() -> dict[str, dict[str, Any]]:
+    """读取唯一工作流配置中的状态路由，配置损坏时拒绝启动。"""
+
+    document = parse_project_yaml(
+        (_ROOT / "config" / "workflow.yaml").read_text(encoding="utf-8")
+    )
+    states = document.get("states")
+    if not isinstance(states, dict):
+        raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
+    routes: dict[str, dict[str, Any]] = {}
+    for status, route in states.items():
+        if not isinstance(status, str) or not isinstance(route, dict):
+            raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
+        next_role = route.get("next_role")
+        active_module = route.get("active_module")
+        if next_role is not None and not isinstance(next_role, str):
+            raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
+        if active_module is not None and not isinstance(active_module, str):
+            raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
+        routes[status] = {
+            "next_role": next_role,
+            "active_module": active_module,
+            "wait_for_user": bool(route.get("wait_for_user", False)),
+        }
+    return routes
+
+
 def changed_top_level_fields(before: dict[str, Any], after: dict[str, Any]) -> frozenset[str]:
     """计算完整候选状态的显式顶层 diff。"""
 

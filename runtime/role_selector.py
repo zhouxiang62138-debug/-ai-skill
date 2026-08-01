@@ -6,29 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .errors import RuntimeValidationError
-
-
-WAIT_STATUSES = {
-    "WAITING_FOR_REQUIREMENTS",
-    "WAITING_FOR_DESIGN_REVIEW",
-    "WAITING_FOR_PRODUCT_REVIEW",
-    "WAITING_FOR_PLAN_REVIEW",
-    "WAITING_FOR_CHANGE_APPROVAL",
-    "WAITING_FOR_USER",
-    "BLOCKED",
-    "ACCEPTED",
-    "ARCHIVED",
-}
-ROLE_BY_STATUS = {
-    "PLANNING": "planner",
-    "DESIGN_EXPLORATION": "planner",
-    "PLANNING_REVISION": "planner",
-    "APPROVED_FOR_IMPLEMENTATION": "generator",
-    "IMPLEMENTING": "generator",
-    "EVALUATING": "evaluator",
-    "CHANGE_REQUESTED": "planner",
-    "RELEASE_READY": "evaluator",
-}
+from .policy import load_runtime_routes
 
 
 @dataclass(frozen=True)
@@ -44,15 +22,23 @@ def select_role(state: dict[str, Any]) -> Selection:
     status = state.get("status")
     module = state.get("active_module")
     next_role = state.get("next_role")
-    if status in WAIT_STATUSES:
+    routes = load_runtime_routes()
+    route = routes.get(str(status))
+    if route is None:
+        raise RuntimeValidationError(f"状态没有配置 Runtime 路由：{status}")
+    if route["wait_for_user"] or (
+        route["next_role"] is None and route["active_module"] is None
+    ):
         return Selection("WAIT", None, f"status:{status}")
-    if module == "first_ask_intake":
+    if route["active_module"] is not None:
+        if module != route["active_module"]:
+            raise RuntimeValidationError(
+                f"状态 {status} 要求 active_module={route['active_module']}，实际为 {module}"
+            )
         if next_role is not None:
             raise RuntimeValidationError("First-Ask Module 不得同时声明 next_role")
-        return Selection("MODULE", "first_ask_intake", "active_module")
-    expected = ROLE_BY_STATUS.get(str(status))
-    if expected is None:
-        raise RuntimeValidationError(f"状态没有确定性 Runtime 路由：{status}")
+        return Selection("MODULE", str(route["active_module"]), "configured_active_module")
+    expected = route["next_role"]
     if next_role != expected:
         raise RuntimeValidationError(
             f"状态 {status} 要求 next_role={expected}，实际为 {next_role}"
