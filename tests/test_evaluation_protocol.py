@@ -503,6 +503,26 @@ class EvaluationTransactionTests(unittest.TestCase):
             )
             self.assertEqual("RECOVERY_REQUIRED", journal["status"])
 
+    def test_real_state_writer_exception_marks_recovery_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "project.yaml").write_text("status: OLD\n", encoding="utf-8")
+
+            def failing_writer(_path, _state):
+                raise OSError("disk write failed")
+
+            with self.assertRaisesRegex(OSError, "disk write failed"):
+                commit_evaluation_transaction(
+                    root,
+                    make_package(make_issue()),
+                    {"status": "IMPLEMENTING"},
+                    state_writer=failing_writer,
+                )
+            journal = json.loads(
+                (root / "evaluation/.transactions/evaluation-003/journal.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("RECOVERY_REQUIRED", journal["status"])
+
     def test_recovery_required_transaction_is_idempotently_replayed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

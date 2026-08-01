@@ -706,7 +706,15 @@ def commit_evaluation_transaction(
             encoding="utf-8",
         )
         raise OSError("注入状态写入失败")
-    state_writer(root / "project.yaml", state_payload)
+    try:
+        state_writer(root / "project.yaml", state_payload)
+    except Exception:
+        journal["status"] = "RECOVERY_REQUIRED"
+        journal_path.write_text(
+            json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        raise
     journal["status"] = "COMMITTED"
     journal_path.write_text(
         json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
