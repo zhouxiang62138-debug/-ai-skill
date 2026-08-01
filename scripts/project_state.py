@@ -245,13 +245,12 @@ def serialize_project_state(state: dict[str, Any]) -> str:
 def write_project_state_atomic(
     path: str | Path,
     state: dict[str, Any],
-    *,
-    runtime_authorized: bool = False,
 ) -> None:
     """校验通过后原子写入。
 
-    一旦目标或候选状态为 v7，只有 Runtime CAS/显式迁移与回滚适配器可以设置
-    ``runtime_authorized``。因此遗留 writer 无法绕过 revision 和 Lease 直接覆盖。
+    一旦目标或候选状态为 v7，普通 writer 一律拒绝；Runtime CAS 与显式迁移/回滚
+    只能通过本模块的私有适配器写入。因此遗留 writer 无法用公开参数绕过 revision
+    和 Lease 直接覆盖。
     """
 
     errors = validate_project_state(state)
@@ -260,13 +259,26 @@ def write_project_state_atomic(
     target = Path(path).resolve()
     if target.is_file():
         current = load_project_state(target)
-        if (
-            current.get("schema_version") == 7
-            or state.get("schema_version") == 7
-        ) and not runtime_authorized:
+        if current.get("schema_version") == 7 or state.get("schema_version") == 7:
             raise ProjectStateError(
                 "schema v7 状态必须通过 Runtime CAS 或显式迁移/回滚写入"
             )
+    _write_project_state_atomic_unchecked(target, state)
+
+
+def _write_runtime_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
+    """仅供 Runtime CAS 与迁移适配器使用的受控写入通道。"""
+
+    target = Path(path).resolve()
+    errors = validate_project_state(state)
+    if errors:
+        raise ProjectStateError("拒绝写入无效状态：" + "; ".join(errors))
+    _write_project_state_atomic_unchecked(target, state)
+
+
+def _write_project_state_atomic_unchecked(target: Path, state: dict[str, Any]) -> None:
+    """执行原子替换；调用方必须先完成写入权限和状态校验。"""
+
     target.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(
         prefix=".project-state-", suffix=".tmp", dir=target.parent

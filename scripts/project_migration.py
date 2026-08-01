@@ -25,6 +25,7 @@ try:
         validate_project_state,
         v3_compatibility_view,
         write_project_state_atomic,
+        _write_runtime_project_state_atomic,
     )
 except ImportError:  # 兼容直接执行 python scripts/project_migration.py
     from project_state import (
@@ -35,6 +36,7 @@ except ImportError:  # 兼容直接执行 python scripts/project_migration.py
         validate_project_state,
         v3_compatibility_view,
         write_project_state_atomic,
+        _write_runtime_project_state_atomic,
     )
 
 
@@ -259,7 +261,7 @@ def migrate_project_to_v7(
     )
     preview["schema_migration"]["preview_only"] = False
     preview["schema_migration_record"] = record_path.relative_to(path.parent).as_posix()
-    write_project_state_atomic(path, preview, runtime_authorized=True)
+    _write_runtime_project_state_atomic(path, preview)
     verification = verify_runtime_migration(path)
     if not verification["valid"]:
         raise ProjectStateError(
@@ -359,7 +361,10 @@ def rollback_project_file(
         raise ProjectStateError("迁移备份无效：" + "; ".join(old_errors))
     rollback_backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, rollback_backup)
-    write_project_state_atomic(path, old_state, runtime_authorized=True)
+    if current_state.get("schema_version") == RUNTIME_SCHEMA_VERSION:
+        _write_runtime_project_state_atomic(path, old_state)
+    else:
+        write_project_state_atomic(path, old_state)
     if current_state.get("schema_version") == RUNTIME_SCHEMA_VERSION:
         from runtime.control_plane import session_database_path
         from runtime.session_store import SessionStore

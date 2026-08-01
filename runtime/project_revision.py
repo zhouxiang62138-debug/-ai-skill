@@ -12,7 +12,7 @@ from scripts.project_state import (
     load_project_state,
     serialize_project_state,
     validate_project_state,
-    write_project_state_atomic,
+    _write_runtime_project_state_atomic,
 )
 
 from .errors import RecoveryError, StateConflictError
@@ -157,7 +157,7 @@ class ProjectStateCAS:
         errors = validate_project_state(prepared, path.parent)
         if errors:
             raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))
-        write_project_state_atomic(path, prepared, runtime_authorized=True)
+        _write_runtime_project_state_atomic(path, prepared)
         if fail_at == "after_project_state_commit":
             raise OSError("注入 project.yaml 提交后崩溃")
         committed = self.store.append_event(
