@@ -19,7 +19,7 @@ def _json_default(value: Any) -> Any:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AI Development Team Durable Runtime")
-    parser.add_argument("action", choices=("begin-step", "commit-step", "fail-step", "start", "resume", "inspect", "pause", "recover"))
+    parser.add_argument("action", choices=("begin-step", "commit-step", "fail-step", "start", "resume", "inspect", "inspect-step", "pause", "recover"))
     parser.add_argument("target", help="start 时为项目根目录，其余为 Session ID")
     parser.add_argument("--project-root", type=Path)
     parser.add_argument("--worker-id")
@@ -44,7 +44,7 @@ def main() -> int:
         result = {"result": "FAILED", "run_id": args.run_id}
     elif args.action == "resume":
         result = orchestrator.resume(args.target)
-    elif args.action == "inspect":
+    elif args.action in {"inspect", "inspect-step"}:
         result = orchestrator.inspect(args.target)
     elif args.action == "pause":
         orchestrator.pause(args.target)
