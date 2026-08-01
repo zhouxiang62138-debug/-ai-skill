@@ -39,3 +39,18 @@ def test_tool_request_and_event_roll_back_together(tmp_path: Path, monkeypatch) 
         "SELECT 1 FROM tool_calls WHERE session_id=?", (session.session_id,)
     ).fetchone()
     assert row is None
+
+
+def test_same_command_after_code_change_creates_new_attempt(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    session = store.create_session("demo", tmp_path, idempotency_key="session")
+    call = store.request_tool_call(session.session_id, tool_name="test", arguments={}, idempotency_key="one")
+    first = store.start_tool_call(session.session_id, call, code_snapshot_hash="code-a", environment_hash="env-a")
+    store.complete_tool_call(session.session_id, call, result_reference="tool-results/a.json", result_hash="a")
+    second = store.start_tool_call(session.session_id, call, code_snapshot_hash="code-b", environment_hash="env-a")
+
+    assert first != second
+    rows = store.raw_connection().execute(
+        "SELECT attempt_id FROM tool_attempts WHERE tool_call_id=?", (call,)
+    ).fetchall()
+    assert len(rows) == 2

@@ -157,6 +157,19 @@ class SessionStore:
             payload_hash TEXT NOT NULL,
             UNIQUE(session_id, idempotency_key)
         );
+        CREATE TABLE IF NOT EXISTS tool_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            tool_call_id TEXT NOT NULL REFERENCES tool_calls(tool_call_id),
+            input_hash TEXT NOT NULL,
+            code_snapshot_hash TEXT NOT NULL,
+            environment_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            result_reference TEXT,
+            result_hash TEXT,
+            UNIQUE(tool_call_id, input_hash, code_snapshot_hash, environment_hash)
+        );
         CREATE TABLE IF NOT EXISTS state_revisions (
             revision_id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -511,23 +524,49 @@ class SessionStore:
             )
         return tool_call_id
 
-    def start_tool_call(self, session_id: str, tool_call_id: str) -> None:
+    def start_tool_call(
+        self,
+        session_id: str,
+        tool_call_id: str,
+        *,
+        code_snapshot_hash: str = "unknown",
+        environment_hash: str = "unknown",
+    ) -> str:
         """将 REQUESTED 原子推进为 STARTED，并在同一事务追加 Event。"""
 
         with self.transaction(immediate=True) as connection:
             row = connection.execute("SELECT status FROM tool_calls WHERE tool_call_id=? AND session_id=?", (tool_call_id, session_id)).fetchone()
             if row is None:
                 raise RuntimeStorageError(f"Tool Call 不存在：{tool_call_id}")
+            input_hash = connection.execute(
+                "SELECT payload_hash FROM tool_calls WHERE tool_call_id=?", (tool_call_id,)
+            ).fetchone()["payload_hash"]
+            attempt_id = stable_id(
+                "attempt", tool_call_id, input_hash, code_snapshot_hash, environment_hash
+            )
+            existing = connection.execute(
+                "SELECT status FROM tool_attempts WHERE attempt_id=?", (attempt_id,)
+            ).fetchone()
+            if existing is not None:
+                return attempt_id
             if row["status"] == "STARTED":
-                return
-            if row["status"] != "REQUESTED":
+                raise RuntimeValidationError("TOOL_CALL_ALREADY_STARTED")
+            if row["status"] not in {"REQUESTED", "SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"}:
                 raise RuntimeValidationError("TOOL_CALL_INVALID_TRANSITION")
             connection.execute("UPDATE tool_calls SET status='STARTED', started_at=? WHERE tool_call_id=?", (utc_now(), tool_call_id))
+            connection.execute(
+                """INSERT INTO tool_attempts(
+                    attempt_id, tool_call_id, input_hash, code_snapshot_hash,
+                    environment_hash, status, started_at
+                ) VALUES (?, ?, ?, ?, ?, 'STARTED', ?)""",
+                (attempt_id, tool_call_id, input_hash, code_snapshot_hash, environment_hash, utc_now()),
+            )
             self._append_event_in_transaction(
                 connection, session_id, EventType.TOOL_CALL_STARTED, ActorType.TOOL, "tool-runtime",
-                idempotency_key=f"tool-started:{tool_call_id}", correlation_id=tool_call_id,
-                payload={"tool_call_id": tool_call_id},
+                idempotency_key=f"tool-started:{attempt_id}", correlation_id=tool_call_id,
+                payload={"tool_call_id": tool_call_id, "attempt_id": attempt_id},
             )
+        return attempt_id
 
     def complete_tool_call(
         self,
@@ -537,6 +576,7 @@ class SessionStore:
         result_reference: str,
         status: str = "SUCCEEDED",
         result_hash: str | None = None,
+        attempt_id: str | None = None,
     ) -> None:
         """幂等记录工具完成；结果正文保存在外部受控引用中。"""
 
@@ -561,15 +601,33 @@ class SessionStore:
                 """,
                 (status, utc_now(), result_reference, result_hash, tool_call_id),
             )
+            resolved_attempt = attempt_id or connection.execute(
+                "SELECT attempt_id FROM tool_attempts WHERE tool_call_id=? AND status='STARTED'",
+                (tool_call_id,),
+            ).fetchone()
+            if resolved_attempt is not None:
+                value = resolved_attempt if isinstance(resolved_attempt, str) else resolved_attempt["attempt_id"]
+                connection.execute(
+                    """UPDATE tool_attempts SET status=?, finished_at=?, result_reference=?, result_hash=?
+                    WHERE attempt_id=?""",
+                    (status, utc_now(), result_reference, result_hash, value),
+                )
+            event_attempt_id = attempt_id
+            if event_attempt_id is None:
+                attempt_row = connection.execute(
+                    "SELECT attempt_id FROM tool_attempts WHERE tool_call_id=? ORDER BY started_at DESC LIMIT 1",
+                    (tool_call_id,),
+                ).fetchone()
+                event_attempt_id = None if attempt_row is None else str(attempt_row["attempt_id"])
             self._append_event_in_transaction(
                 connection,
                 session_id,
                 EventType.TOOL_CALL_COMPLETED if status == "SUCCEEDED" else EventType.TOOL_CALL_FAILED,
                 ActorType.TOOL,
                 "tool-runtime",
-                idempotency_key=f"tool-completed:{tool_call_id}", correlation_id=tool_call_id,
+                idempotency_key=f"tool-completed:{event_attempt_id or tool_call_id}", correlation_id=tool_call_id,
                 payload={"tool_call_id": tool_call_id, "result_reference": result_reference,
-                         "status": status, "result_hash": result_hash},
+                         "status": status, "result_hash": result_hash, "attempt_id": attempt_id},
             )
 
     def completed_tool_calls(self, session_id: str) -> list[dict[str, Any]]:
