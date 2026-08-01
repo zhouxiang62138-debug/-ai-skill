@@ -48,13 +48,16 @@ class RecoveryManager:
         )
         revision_actions = self.cas.recover_pending(project_yaml, session_id)
         interrupted_tools = self.store.recover_interrupted_tool_calls(session_id)
-        completed_tools = [
-            {
-                "tool_call_id": row["tool_call_id"],
-                "result_reference": row["result_reference"],
-            }
-            for row in self.store.completed_tool_calls(session_id)
-        ]
+        completed_tools = []
+        for row in self.store.completed_tool_calls(session_id):
+            reference, digest = row["result_reference"], row["result_hash"]
+            if not reference or not digest:
+                raise RecoveryError("TOOL_RESULT_MISSING_OR_UNVERIFIABLE")
+            try:
+                self.store.read_tool_result(str(reference), str(digest))
+            except Exception as exc:
+                raise RecoveryError("TOOL_RESULT_BLOCKED") from exc
+            completed_tools.append({"tool_call_id": row["tool_call_id"], "result_reference": reference})
         recovered_evaluations: list[str] = []
         transaction_root = root / "evaluation" / ".transactions"
         if transaction_root.is_dir():
