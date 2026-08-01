@@ -15,6 +15,18 @@ def test_recover_started_tool_marks_unknown_after_crash(tmp_path: Path) -> None:
     assert row["status"] == "UNKNOWN_AFTER_CRASH"
 
 
+def test_recover_requested_tool_keeps_safe_replay_candidate(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    session = store.create_session("demo", tmp_path, idempotency_key="session")
+    call = store.request_tool_call(session.session_id, tool_name="test", arguments={}, idempotency_key="requested")
+
+    assert store.recover_requested_tool_calls(session.session_id) == [call]
+    row = store.raw_connection().execute(
+        "SELECT status FROM tool_calls WHERE tool_call_id=?", (call,)
+    ).fetchone()
+    assert row["status"] == "REQUESTED"
+
+
 def test_tool_request_and_event_roll_back_together(tmp_path: Path, monkeypatch) -> None:
     store = SessionStore(tmp_path / "sessions.sqlite3")
     session = store.create_session("demo", tmp_path, idempotency_key="session")

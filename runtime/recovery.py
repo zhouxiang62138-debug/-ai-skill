@@ -47,6 +47,7 @@ class RecoveryManager:
             payload={"project_revision": runtime_projection(state)["revision"]},
         )
         revision_actions = self.cas.recover_pending(project_yaml, session_id)
+        requested_tools = self.store.recover_requested_tool_calls(session_id)
         interrupted_tools = self.store.recover_interrupted_tool_calls(session_id)
         completed_tools = []
         for row in self.store.completed_tool_calls(session_id):
@@ -75,6 +76,7 @@ class RecoveryManager:
             "revision_actions": revision_actions,
             "completed_tool_calls": completed_tools,
             "interrupted_tool_calls": interrupted_tools,
+            "requested_tool_calls": requested_tools,
             "evaluation_transactions": recovered_evaluations,
         }
         self.store.append_event(
@@ -91,6 +93,7 @@ class RecoveryManager:
                 "revision_action_count": len(revision_actions),
                 "tool_call_count": len(completed_tools),
                 "interrupted_tool_call_count": len(interrupted_tools),
+                "requested_tool_call_count": len(requested_tools),
                 "evaluation_transaction_count": len(recovered_evaluations),
             },
         )

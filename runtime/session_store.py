@@ -735,6 +735,19 @@ class SessionStore:
             )
         return ids
 
+    def recover_requested_tool_calls(self, session_id: str) -> list[str]:
+        """列出尚未开始的持久化请求；调用方可安全重放同一请求。"""
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT tool_call_id FROM tool_calls WHERE session_id=? AND status='REQUESTED' ORDER BY requested_at",
+                (session_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [str(row["tool_call_id"]) for row in rows]
+
     def write_tool_result(self, tool_call_id: str, result: dict[str, Any]) -> tuple[str, str]:
         """将结果以独占文件写入 Control Plane，返回相对引用和 SHA-256。"""
 
