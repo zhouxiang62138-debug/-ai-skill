@@ -18,6 +18,7 @@ def test_runtime_routes_are_loaded_from_workflow_config() -> None:
 def test_runtime_database_config_is_loaded() -> None:
     config = load_runtime_config()
     assert config["busy_timeout_ms"] == 5000
+    assert config["payload_limit_bytes"] == 65536
     assert config["control_plane_root"].endswith(".ai-development-team/runtime")
 
 

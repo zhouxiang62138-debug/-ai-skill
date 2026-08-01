@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import RuntimeStorageError, RuntimeValidationError
-from .event_types import ActorType, EventType, MAX_EVENT_PAYLOAD_BYTES
+from .event_types import ActorType, EventType
 from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
@@ -335,7 +335,7 @@ class SessionStore:
         if not actor_id or not idempotency_key or not correlation_id:
             raise RuntimeValidationError("事件 actor、幂等键和 correlation_id 不能为空")
         payload_text = canonical_json(payload)
-        if len(payload_text.encode("utf-8")) > MAX_EVENT_PAYLOAD_BYTES:
+        if len(payload_text.encode("utf-8")) > load_runtime_config()["payload_limit_bytes"]:
             raise RuntimeValidationError("事件 Payload 超过大小上限")
         if _SECRET_PATTERN.search(payload_text):
             raise RuntimeValidationError("事件 Payload 包含疑似敏感字段")

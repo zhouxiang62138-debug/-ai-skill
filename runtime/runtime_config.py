@@ -20,10 +20,20 @@ def load_runtime_config() -> dict[str, Any]:
         (_ROOT / "config" / "runtime.yaml").read_text(encoding="utf-8")
     )
     database = document.get("database")
-    if not isinstance(database, dict):
+    events = document.get("events")
+    if not isinstance(database, dict) or not isinstance(events, dict):
         raise RuntimeValidationError("RUNTIME_CONFIG_INVALID")
     root = database.get("control_plane_root")
     busy_timeout = database.get("busy_timeout_ms")
-    if not isinstance(root, str) or not root or not isinstance(busy_timeout, int) or busy_timeout <= 0:
+    payload_limit = events.get("payload_limit_bytes")
+    if (
+        not isinstance(root, str) or not root
+        or not isinstance(busy_timeout, int) or busy_timeout <= 0
+        or not isinstance(payload_limit, int) or payload_limit <= 0
+    ):
         raise RuntimeValidationError("RUNTIME_CONFIG_INVALID")
-    return {"control_plane_root": root, "busy_timeout_ms": busy_timeout}
+    return {
+        "control_plane_root": root,
+        "busy_timeout_ms": busy_timeout,
+        "payload_limit_bytes": payload_limit,
+    }
