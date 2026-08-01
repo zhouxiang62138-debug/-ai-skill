@@ -49,9 +49,9 @@ def make_v4_state() -> dict:
 
 
 class ProjectStateParserTests(unittest.TestCase):
-    def test_v6_template_can_be_loaded_and_validated(self) -> None:
+    def test_v7_template_can_be_loaded_and_validated(self) -> None:
         state = load_project_state(REPO_ROOT / "templates" / "project.yaml")
-        self.assertEqual(6, state["schema_version"])
+        self.assertEqual(7, state["schema_version"])
         self.assertEqual([], validate_project_state(state))
 
     def test_nested_data_round_trip(self) -> None:

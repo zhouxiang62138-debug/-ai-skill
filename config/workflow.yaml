@@ -1,6 +1,23 @@
-version: 6
-protocol: file_driven
+version: 7
+protocol: file_driven_with_durable_runtime
 maximum_iterations: 5
+
+runtime:
+  version: 1
+  rules: config/runtime.yaml
+  session_store: sqlite3
+  orchestrator_is_agent: false
+  core_roles:
+    - planner
+    - generator
+    - evaluator
+  project_state_projection_schema: 7
+  legacy_first_read_is_read_only: true
+  state_commit_requires:
+    - valid_worker_lease
+    - expected_revision
+    - compare_and_swap
+  wait_states_never_launch_role: true
 
 evaluation_protocol:
   version: 1

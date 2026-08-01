@@ -1,9 +1,28 @@
-version: 6
+version: 7
 
 policy_precedence:
   write_prohibited_overrides_writes: true
 
 modules:
+  runtime_orchestrator:
+    reads:
+      - project.yaml
+      - .runtime/
+      - evaluation/.transactions/
+    writes:
+      - .runtime/
+      - project.yaml
+      - evaluation/.transactions/
+    prohibited:
+      - code/
+      - memory/requirements/
+      - memory/proposals/
+      - memory/specifications/
+      - memory/plans/
+      - artifacts/design_previews/
+      - evaluation/reports/
+      - evaluation/issues/
+      - releases/
   first_ask_intake:
     reads:
       - project.yaml
@@ -130,6 +149,8 @@ roles:
       - config/evaluation_rules/
 
 field_ownership:
+  runtime_orchestrator:
+    - runtime
   first_ask_intake:
     - requirements_status
     - requirements_version

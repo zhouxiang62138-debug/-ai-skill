@@ -18,6 +18,25 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 这是文件驱动协议，不是自行执行的控制程序。`project.yaml` 的 `current_iteration` 达到 5 后，必须进入 `WAITING_FOR_USER`，不得自动继续修改。
 
+## F10 持久化运行时
+
+schema v7 项目在原文件驱动业务协议外围增加 `.runtime/sessions.sqlite3`。
+Runtime 通过确定性 Orchestrator 管理 Session、追加 Event、Worker Lease、
+revision/CAS、Checkpoint 和崩溃恢复；它不是 Agent，也不能做产品决策、写业务
+代码或替代 Evaluator 判定结果。`project.yaml` 仍是业务当前状态的权威投影，
+完整运行历史不写入 YAML。
+
+旧 schema v3-v6 首次读取保持只读。使用
+`scripts/project_migration.py runtime-preview/runtime-migrate/runtime-verify`
+显式预览、备份、迁移和验证；回滚前保留 v7 状态。v7 状态只能由持有有效
+Worker Lease 的 Runtime CAS 提交。Runtime CLI 见 `python -m runtime.cli --help`，
+完整协议见 `docs/MANAGED_RUNTIME_ARCHITECTURE.md`。
+
+F11 使用 `runtime.environment` 的白名单参数数组执行环境；F12 使用
+`runtime.security` 的能力策略和 Credential Proxy；F13 使用
+`runtime.context_builder.build_context` 最小化角色上下文。三者均为基础设施，不新增
+Agent，且不得绕过产品/Plan 批准链。
+
 ## 角色选择
 
 - `first_ask_intake`：读取 `intake/first_ask.md`；它是 Planner 前置模块，不是 Agent，只收集事实、目标和约束并写入当前项目 `memory/requirements/`。

@@ -19,7 +19,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = REPO_ROOT / "config" / "schemas"
-SUPPORTED_SCHEMA_VERSIONS = (3, 4, 5, 6)
+SUPPORTED_SCHEMA_VERSIONS = (3, 4, 5, 6, 7)
 
 
 class ProjectStateError(ValueError):
@@ -242,13 +242,31 @@ def serialize_project_state(state: dict[str, Any]) -> str:
     return "\n".join(output) + "\n"
 
 
-def write_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
-    """校验通过后原子写入；不会在校验失败时破坏原状态文件。"""
+def write_project_state_atomic(
+    path: str | Path,
+    state: dict[str, Any],
+    *,
+    runtime_authorized: bool = False,
+) -> None:
+    """校验通过后原子写入。
+
+    一旦目标或候选状态为 v7，只有 Runtime CAS/显式迁移与回滚适配器可以设置
+    ``runtime_authorized``。因此遗留 writer 无法绕过 revision 和 Lease 直接覆盖。
+    """
 
     errors = validate_project_state(state)
     if errors:
         raise ProjectStateError("拒绝写入无效状态：" + "; ".join(errors))
     target = Path(path).resolve()
+    if target.is_file():
+        current = load_project_state(target)
+        if (
+            current.get("schema_version") == 7
+            or state.get("schema_version") == 7
+        ) and not runtime_authorized:
+            raise ProjectStateError(
+                "schema v7 状态必须通过 Runtime CAS 或显式迁移/回滚写入"
+            )
     target.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(
         prefix=".project-state-", suffix=".tmp", dir=target.parent
@@ -259,6 +277,12 @@ def write_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
             temporary.flush()
             os.fsync(temporary.fileno())
         os.replace(temporary_name, target)
+        if os.name != "nt":
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
@@ -318,7 +342,20 @@ def _validate_schema_node(value: Any, schema: dict[str, Any], path: str) -> list
 
 def _load_schema(version: int) -> dict[str, Any]:
     schema_path = SCHEMA_DIR / f"project_v{version}.schema.json"
-    return json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    if version != 7:
+        return schema
+    # v7 是对完整 v6 业务契约的纯追加 Runtime 扩展。自定义验证器在这里
+    # 确定性合并，避免复制两百余行后发生业务 Schema 漂移。
+    base = json.loads(
+        (SCHEMA_DIR / "project_v6.schema.json").read_text(encoding="utf-8")
+    )
+    base["$id"] = schema["$id"]
+    base["title"] = schema["title"]
+    base["properties"]["schema_version"] = {"const": 7}
+    base["properties"]["runtime"] = schema["runtimeExtension"]
+    base["required"] = [*base["required"], "runtime"]
+    return base
 
 
 def _require(state: dict[str, Any], field: str, errors: list[str]) -> None:
@@ -351,7 +388,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         if state.get("next_role") != "generator":
             errors.append("$.next_role 在 v3 实施批准状态中必须是 generator")
 
-    if version in {4, 5, 6}:
+    if version in {4, 5, 6, 7}:
         if status in {"DESIGN_REVIEW", "PRODUCT_REVIEW", "PLANNING_COMPLETE"}:
             errors.append("v4/v5/v6 新项目不得写入旧状态别名")
         if status == "DESIGN_EXPLORATION":
@@ -506,7 +543,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                     )
         elif state.get("change_context") is not None:
             errors.append("没有 active_change_request 时 change_context 必须是 null")
-    if version in {5, 6} and state.get("project_type") == "skill_maintenance":
+    if version in {5, 6, 7} and state.get("project_type") == "skill_maintenance":
         targets = state.get("targets")
         if not isinstance(targets, dict):
             errors.append("skill_maintenance 必须声明 targets")
@@ -548,7 +585,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         sync = state.get("sync")
         if not isinstance(sync, dict) or not isinstance(sync.get("exclusions"), list):
             errors.append("skill_maintenance 必须声明 sync.exclusions")
-    if version == 6:
+    if version in {6, 7}:
         if not isinstance(state.get("iteration_sequence"), int) or state["iteration_sequence"] < 1:
             errors.append("v6 iteration_sequence 必须是正整数")
         if not isinstance(state.get("automatic_retry_allowed"), bool):
@@ -567,12 +604,12 @@ def validate_project_state(
 ) -> list[str]:
     version = state.get("schema_version")
     if version not in SUPPORTED_SCHEMA_VERSIONS:
-        return [f"不支持 schema_version={version!r}，仅支持 3、4、5 和 6"]
+        return [f"不支持 schema_version={version!r}，仅支持 3、4、5、6 和 7"]
     errors = _validate_schema_node(state, _load_schema(version), "$")
     errors.extend(_validate_semantics(state))
     if project_root is not None:
         root = Path(project_root).resolve()
-        if state.get("schema_version") in {5, 6} and state.get("project_type") == "skill_maintenance":
+        if state.get("schema_version") in {5, 6, 7} and state.get("project_type") == "skill_maintenance":
             for name, target in (state.get("targets") or {}).items():
                 if not isinstance(target, dict) or not isinstance(target.get("path"), str):
                     continue

@@ -1,27 +1,45 @@
-"""project.yaml schema v3/v4/v5 到 v6 的可审计迁移工具。"""
+"""project.yaml schema v3-v6 的可审计迁移工具。
+
+旧入口继续提供 v3-v5 到 v6 的兼容迁移；F10 新入口显式迁移到带 Runtime
+投影的 v7。任何预览操作都不会写回旧项目。
+"""
 
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from project_state import (
-    ProjectStateError,
-    SUPPORTED_SCHEMA_VERSIONS,
-    load_project_state,
-    parse_project_yaml,
-    validate_project_state,
-    v3_compatibility_view,
-    write_project_state_atomic,
-)
+try:
+    from .project_state import (
+        ProjectStateError,
+        SUPPORTED_SCHEMA_VERSIONS,
+        load_project_state,
+        parse_project_yaml,
+        validate_project_state,
+        v3_compatibility_view,
+        write_project_state_atomic,
+    )
+except ImportError:  # 兼容直接执行 python scripts/project_migration.py
+    from project_state import (
+        ProjectStateError,
+        SUPPORTED_SCHEMA_VERSIONS,
+        load_project_state,
+        parse_project_yaml,
+        validate_project_state,
+        v3_compatibility_view,
+        write_project_state_atomic,
+    )
 
 
 TARGET_SCHEMA_VERSION = 6
+RUNTIME_SCHEMA_VERSION = 7
 GOVERNANCE_DEFAULTS: dict[str, Any] = {
     "iteration_sequence": 1,
     "automatic_retry_allowed": True,
@@ -106,6 +124,148 @@ def verify_migration(project_yaml: str | Path) -> dict[str, Any]:
     }
 
 
+def _runtime_session_id(state: dict[str, Any], project_root: str | Path | None) -> str:
+    root = str(Path(project_root).resolve()) if project_root is not None else "<preview>"
+    raw = f"{state.get('project_id')}|{root}|schema-v7".encode("utf-8")
+    return f"session-{hashlib.sha256(raw).hexdigest()[:24]}"
+
+
+def preview_runtime_migration(
+    state: dict[str, Any],
+    *,
+    project_root: str | Path | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """只读预览 v3-v6 到 v7，不修改源对象或项目文件。"""
+
+    version = state.get("schema_version")
+    if version == RUNTIME_SCHEMA_VERSION:
+        return copy.deepcopy(state)
+    if version not in {3, 4, 5, 6}:
+        raise ProjectStateError(f"不支持迁移到 v7 的版本：{version}")
+    if state.get("status") == "ARCHIVED":
+        raise ProjectStateError("归档项目保持只读，不自动迁移到 v7")
+    if version == 3 and state.get("status") in {
+        "APPROVED_FOR_IMPLEMENTATION",
+        "PLANNING_COMPLETE",
+        "IMPLEMENTING",
+        "EVALUATING",
+        "ACCEPTED",
+    }:
+        raise ProjectStateError("活动 v3 项目来源链需要人工复核")
+    if version == 6:
+        migrated = copy.deepcopy(state)
+    else:
+        migrated = preview_migration(state)
+    migrated["schema_version"] = RUNTIME_SCHEMA_VERSION
+    migrated["runtime"] = {
+        "session_id": session_id
+        or _runtime_session_id(state, project_root),
+        "revision": 0,
+        "last_event_sequence": 0,
+        "last_checkpoint_id": None,
+    }
+    migrated["schema_migration"] = {
+        "from_version": version,
+        "to_version": RUNTIME_SCHEMA_VERSION,
+        "preview_only": True,
+    }
+    errors = validate_project_state(migrated)
+    if errors:
+        raise ProjectStateError("迁移预览未通过 v7 校验：" + "; ".join(errors))
+    return migrated
+
+
+def verify_runtime_migration(project_yaml: str | Path) -> dict[str, Any]:
+    """验证 v7 项目投影。"""
+
+    path = Path(project_yaml).resolve()
+    state = load_project_state(path)
+    errors = validate_project_state(state, path.parent)
+    return {
+        "valid": not errors and state.get("schema_version") == RUNTIME_SCHEMA_VERSION,
+        "schema_version": state.get("schema_version"),
+        "runtime": state.get("runtime"),
+        "errors": errors,
+        "migration_record": state.get("schema_migration_record"),
+    }
+
+
+def migrate_project_to_v7(
+    project_yaml: str | Path,
+    backup_path: str | Path,
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """创建备份和追加迁移记录后显式迁移到 v7。"""
+
+    path = Path(project_yaml).resolve()
+    backup = Path(backup_path).resolve()
+    state = load_project_state(path)
+    if state.get("schema_version") == RUNTIME_SCHEMA_VERSION:
+        return {
+            "result": "PASS",
+            "changed": False,
+            "reason": "already_v7",
+            "project_yaml": str(path),
+        }
+    if backup.exists():
+        raise ProjectStateError("迁移备份路径已存在，禁止覆盖")
+    preview = preview_runtime_migration(
+        state, project_root=path.parent, session_id=session_id
+    )
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, backup)
+    record_path = _next_record_path(path.parent)
+    record = {
+        "schema_version": "1.0",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "from_version": state["schema_version"],
+        "to_version": RUNTIME_SCHEMA_VERSION,
+        "project_yaml": "project.yaml",
+        "backup_path": str(backup),
+        "session_id": preview["runtime"]["session_id"],
+        "status": "MIGRATED",
+    }
+    record_temp = record_path.with_suffix(".json.tmp")
+    record_temp.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    record_temp.replace(record_path)
+    # 先建立独立 Session Store，再提交 YAML 投影；若中断，遗留 DB 可由
+    # inspect/recover 发现，绝不把 Session 历史塞回 project.yaml。
+    repository_root = Path(__file__).resolve().parents[1]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
+    from runtime.session_store import SessionStore
+
+    store = SessionStore(path.parent / ".runtime" / "sessions.sqlite3")
+    session = store.create_session(
+        str(state["project_id"]),
+        path.parent,
+        idempotency_key=f"runtime-migration:{preview['runtime']['session_id']}",
+        session_id=str(preview["runtime"]["session_id"]),
+    )
+    preview["runtime"]["last_event_sequence"] = session.last_event_sequence
+    preview["schema_migration"]["preview_only"] = False
+    preview["schema_migration_record"] = record_path.relative_to(path.parent).as_posix()
+    write_project_state_atomic(path, preview, runtime_authorized=True)
+    verification = verify_runtime_migration(path)
+    if not verification["valid"]:
+        raise ProjectStateError(
+            "迁移后 v7 验证失败：" + "; ".join(verification["errors"])
+        )
+    return {
+        "result": "PASS",
+        "changed": True,
+        "project_yaml": str(path),
+        "backup_path": str(backup),
+        "record_path": str(record_path),
+        "verification": verification,
+    }
+
+
 def _next_record_path(project_root: Path) -> Path:
     directory = project_root / "memory" / "migrations"
     directory.mkdir(parents=True, exist_ok=True)
@@ -187,7 +347,7 @@ def rollback_project_file(
         raise ProjectStateError("迁移备份无效：" + "; ".join(old_errors))
     rollback_backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, rollback_backup)
-    write_project_state_atomic(path, old_state)
+    write_project_state_atomic(path, old_state, runtime_authorized=True)
     restored = load_project_state(path)
     return {
         "result": "PASS",
@@ -199,7 +359,13 @@ def rollback_project_file(
 
 def _run_cli() -> int:
     parser = argparse.ArgumentParser(description="AI Development Team project schema 迁移")
-    parser.add_argument("action", choices=("check", "preview", "migrate", "verify", "rollback"))
+    parser.add_argument(
+        "action",
+        choices=(
+            "check", "preview", "migrate", "verify", "rollback",
+            "runtime-preview", "runtime-migrate", "runtime-verify",
+        ),
+    )
     parser.add_argument("project_yaml", type=Path)
     parser.add_argument("--backup", type=Path)
     parser.add_argument("--pre-rollback-backup", type=Path)
@@ -211,6 +377,17 @@ def _run_cli() -> int:
             result = preview_migration(load_project_state(args.project_yaml))
         elif args.action == "verify":
             result = verify_migration(args.project_yaml)
+        elif args.action == "runtime-preview":
+            result = preview_runtime_migration(
+                load_project_state(args.project_yaml),
+                project_root=args.project_yaml.parent,
+            )
+        elif args.action == "runtime-verify":
+            result = verify_runtime_migration(args.project_yaml)
+        elif args.action == "runtime-migrate":
+            if args.backup is None:
+                parser.error("runtime-migrate 必须提供 --backup")
+            result = migrate_project_to_v7(args.project_yaml, args.backup)
         elif args.action == "migrate":
             if args.backup is None:
                 parser.error("migrate 必须提供 --backup")

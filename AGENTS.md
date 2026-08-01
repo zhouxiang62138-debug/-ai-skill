@@ -43,6 +43,16 @@
 
 每次开始项目工作，必须先读取项目根目录唯一的 `project.yaml`。不得创建 `memory/project.yaml`，不得用聊天记录替代项目状态。
 
+## F10 Managed Runtime 规则
+
+- Orchestrator、Session Store、Lease Manager、Recovery 和 Context 构建入口都是确定性基础设施，不是第四个 Agent。
+- schema v7 项目的完整 Session/Event 保存在项目 `.runtime/sessions.sqlite3`；`project.yaml.runtime` 只保存当前投影。
+- v3、v4、v5、v6 项目首次读取必须保持只读；只有显式检查、预览、备份、迁移、验证流程才能进入 v7。
+- schema v7 的 `project.yaml` 写入必须持有有效 Worker Lease，并提供 `expected_revision` 通过 Compare-And-Swap；遗留 writer 不得直接写入。
+- 等待用户、阻塞、已验收和归档状态不得启动角色。
+- Runtime 恢复必须幂等，不得重复生成业务工件、Event、Checkpoint 或状态递增。
+- Event Payload 不得包含凭据或疑似 Secret；长工具输出只保存受控引用和 hash。
+
 - Planner 不得修改 `code/`，不得宣布 PASS 或 FAIL。
 - Planner 不得修改 `memory/requirements/`；基础事实缺失、变化或冲突时，只能通过追加式 Intake 交接返回 First-Ask。
 - Generator 不得修改评分标准、验收阈值或最终 PASS/FAIL。

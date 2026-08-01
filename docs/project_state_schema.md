@@ -17,6 +17,23 @@
 
 ## 当前版本
 
+## v7：Durable Session Runtime 投影
+
+v7 在完整 v6 业务契约上新增：
+
+```yaml
+runtime:
+  session_id: session-<24 hex>
+  revision: 0
+  last_event_sequence: 0
+  last_checkpoint_id: null
+```
+
+完整 Session、Event、Lease、Checkpoint、Tool Call 和 State Revision 位于
+SQLite，不进入 YAML。`revision` 由 Runtime CAS 递增；未持有有效 Lease 或
+`expected_revision` 不匹配时拒绝覆盖并记录冲突。v3-v6 仍可只读校验，首次读取
+不自动添加 Runtime 字段。
+
 ## v6：结构化验收与受控循环
 
 新项目使用 `schema_version: 6`。v6 在 v4 产品批准链和 v5 Skill Maintenance

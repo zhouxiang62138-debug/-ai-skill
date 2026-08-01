@@ -1,5 +1,17 @@
 # 文件驱动调度协议
 
+## Workflow v7：Durable Session Runtime
+
+v7 不改变业务状态机，而是在其外围增加持久化 Session Store 和确定性
+Orchestrator。Orchestrator 读取 `active_module`、`status`、`next_role` 后，只能
+选择 First-Ask Module、Planner、Generator、Evaluator 或 WAIT。等待态、BLOCKED、
+ACCEPTED 和 ARCHIVED 永不启动角色。
+
+schema v7 的每次业务状态提交必须持有 Worker Lease，并以 `expected_revision`
+执行 CAS。提交请求、冲突、成功和恢复写入追加式 Runtime Event；完整事件不写入
+`project.yaml`。详细顺序见 `SESSION_EVENT_PROTOCOL.md`、
+`ORCHESTRATOR_PROTOCOL.md` 和 `RECOVERY_PROTOCOL.md`。
+
 ## Workflow v6：Completed Project Change Request
 
 `ACCEPTED/ARCHIVED → CHANGE_REQUESTED → WAITING_FOR_CHANGE_APPROVAL →

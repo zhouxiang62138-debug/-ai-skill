@@ -1,4 +1,4 @@
-schema_version: 6
+schema_version: 7
 project_id: <project_id>
 project_name: <project_name>
 project_type: <project_type>
@@ -82,3 +82,10 @@ release_version: null
 current_release: null
 created_at: <ISO-8601 timestamp>
 updated_at: <ISO-8601 timestamp>
+
+# F10 Runtime 只保存当前投影；完整事件位于独立 SQLite Session Store。
+runtime:
+  session_id: session-000000000000000000000000
+  revision: 0
+  last_event_sequence: 0
+  last_checkpoint_id: null

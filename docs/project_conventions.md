@@ -1,5 +1,18 @@
 # 项目约定
 
+## F10 Runtime 目录
+
+```text
+.runtime/
+  sessions.sqlite3
+  sessions.sqlite3-wal
+  sessions.sqlite3-shm
+```
+
+`.runtime/` 是项目运行时状态，不得保存到 Skill 本体，也不得作为产品工件。
+数据库由 Runtime 管理；角色不得直接修改。备份、打包和安装同步应明确排除活动
+中的 WAL/SHM，或先暂停 Session 后做 SQLite 一致快照。
+
 ## 已完成项目变更目录
 
 后续修改使用 `change_requests/CR-<nnnn>.yaml` 和同名子目录保存追加式事件、

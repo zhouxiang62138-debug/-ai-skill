@@ -9,12 +9,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from project_state import (
-    ProjectStateError,
-    parse_project_yaml,
-    serialize_project_state,
-    write_project_state_atomic,
-)
+try:
+    from .project_state import (
+        ProjectStateError,
+        load_project_state,
+        parse_project_yaml,
+        serialize_project_state,
+        write_project_state_atomic,
+    )
+except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
+    from project_state import (
+        ProjectStateError,
+        load_project_state,
+        parse_project_yaml,
+        serialize_project_state,
+        write_project_state_atomic,
+    )
 
 
 ISSUE_CATEGORIES = (
@@ -657,12 +667,17 @@ def commit_evaluation_transaction(
     transaction_dir.mkdir(parents=True, exist_ok=False)
     issue_temp = transaction_dir / "issues.yaml.tmp"
     report_temp = transaction_dir / "report.md.tmp"
+    state_temp = transaction_dir / "project-state.yaml.tmp"
+    state_payload = deepcopy(next_state)
+    state_payload["last_evaluation"] = report_path.relative_to(root).as_posix()
+    state_payload["last_issue_package"] = issue_path.relative_to(root).as_posix()
     journal = {
         "evaluation_id": evaluation_id,
         "status": "STAGING",
         "issue_path": issue_path.relative_to(root).as_posix(),
         "report_path": report_path.relative_to(root).as_posix(),
         "state_path": "project.yaml",
+        "staged_state_path": state_temp.relative_to(root).as_posix(),
     }
     journal_path.write_text(
         json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
@@ -672,6 +687,7 @@ def commit_evaluation_transaction(
     if fail_at == "issue_write":
         raise OSError("注入 Issue 写入失败")
     report_temp.write_text(render_evaluation_markdown(package), encoding="utf-8")
+    state_temp.write_text(serialize_project_state(state_payload), encoding="utf-8")
     if fail_at == "report_write":
         raise OSError("注入 Markdown 写入失败")
     issue_path.parent.mkdir(parents=True, exist_ok=True)
@@ -690,9 +706,6 @@ def commit_evaluation_transaction(
             encoding="utf-8",
         )
         raise OSError("注入状态写入失败")
-    state_payload = deepcopy(next_state)
-    state_payload["last_evaluation"] = report_path.relative_to(root).as_posix()
-    state_payload["last_issue_package"] = issue_path.relative_to(root).as_posix()
     state_writer(root / "project.yaml", state_payload)
     journal["status"] = "COMMITTED"
     journal_path.write_text(
@@ -704,3 +717,51 @@ def commit_evaluation_transaction(
         "report": report_path.relative_to(root).as_posix(),
         "journal": journal_path.relative_to(root).as_posix(),
     }
+
+
+def recover_evaluation_transaction(
+    project_root: str | Path,
+    evaluation_id: str,
+    *,
+    state_writer: Callable[[str | Path, dict[str, Any]], None] = write_project_state_atomic,
+) -> dict[str, str]:
+    """幂等恢复 `RECOVERY_REQUIRED` Evaluation 事务。
+
+    若 project.yaml 已包含目标引用，只补记 COMMITTED；否则使用事务中持久化的
+    完整候选状态再次提交。调用方可注入受 Lease/CAS 约束的 state_writer。
+    """
+
+    root = Path(project_root).resolve()
+    transaction_dir = root / "evaluation" / ".transactions" / evaluation_id
+    journal_path = transaction_dir / "journal.json"
+    if not journal_path.is_file():
+        raise ProjectStateError("Evaluation 恢复日志不存在")
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    if journal.get("evaluation_id") != evaluation_id:
+        raise ProjectStateError("Evaluation 恢复日志关联错误")
+    if journal.get("status") == "COMMITTED":
+        return {"result": "IDEMPOTENT", "journal": str(journal_path)}
+    if journal.get("status") != "RECOVERY_REQUIRED":
+        raise ProjectStateError(f"事务状态不可恢复：{journal.get('status')}")
+    issue_reference = str(journal["issue_path"])
+    report_reference = str(journal["report_path"])
+    if not (root / issue_reference).is_file() or not (root / report_reference).is_file():
+        raise ProjectStateError("Evaluation 已提交工件缺失，拒绝伪造恢复")
+    current = load_project_state(root / "project.yaml")
+    if (
+        current.get("last_evaluation") != report_reference
+        or current.get("last_issue_package") != issue_reference
+    ):
+        staged_path = root / str(journal["staged_state_path"])
+        if not staged_path.is_file():
+            raise ProjectStateError("Evaluation 恢复候选状态缺失")
+        staged = parse_project_yaml(staged_path.read_text(encoding="utf-8"))
+        state_writer(root / "project.yaml", staged)
+    journal["status"] = "COMMITTED"
+    temporary = journal_path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(journal_path)
+    return {"result": "RECOVERED", "journal": str(journal_path)}

@@ -18,6 +18,7 @@ from evaluation_protocol import (  # noqa: E402
     issue_id,
     load_generator_response,
     load_issue_package,
+    recover_evaluation_transaction,
     resolve_issue_route,
     validate_generator_response,
     validate_issue_package,
@@ -501,6 +502,33 @@ class EvaluationTransactionTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual("RECOVERY_REQUIRED", journal["status"])
+
+    def test_recovery_required_transaction_is_idempotently_replayed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "project.yaml"
+            state.write_text("status: OLD\n", encoding="utf-8")
+            with self.assertRaises(OSError):
+                commit_evaluation_transaction(
+                    root,
+                    make_package(make_issue()),
+                    {"status": "IMPLEMENTING"},
+                    fail_at="state_write",
+                    state_writer=self.write_state,
+                )
+            recovered = recover_evaluation_transaction(
+                root, "evaluation-003", state_writer=self.write_state
+            )
+            self.assertEqual("RECOVERED", recovered["result"])
+            current = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "evaluation/reports/evaluation-003.md",
+                current["last_evaluation"],
+            )
+            replay = recover_evaluation_transaction(
+                root, "evaluation-003", state_writer=self.write_state
+            )
+            self.assertEqual("IDEMPOTENT", replay["result"])
 
     def test_history_cannot_be_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
