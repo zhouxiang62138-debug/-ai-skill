@@ -18,9 +18,17 @@ Orchestrator 不得生成产品内容、编写业务代码、修改需求、判�
 ## CLI
 
 ```text
-python -m runtime.cli start <project_root>
+python -m runtime.cli begin-step <project_root>
+python -m runtime.cli inspect-step <session_id> --project-root <project_root>
+python -m runtime.cli commit-step <session_id> --project-root <project_root> --run-id <id> --lease-token <token> --result <result.json>
+python -m runtime.cli fail-step <session_id> --project-root <project_root> --run-id <id> --result <reason.json>
 python -m runtime.cli resume <session_id> --project-root <project_root>
-python -m runtime.cli inspect <session_id> --project-root <project_root>
 python -m runtime.cli pause <session_id> --project-root <project_root>
 python -m runtime.cli recover <session_id> --project-root <project_root>
 ```
+
+Codex 不由 Python 自动调用模型：先用 `begin-step` 取得角色、Run ID、Lease Token 和
+expected revision，完成角色工作后把结构化结果交给 `commit-step`。结果必须包含
+`source_status`、`target_status`、`changed_fields`、`expected_revision` 与
+`idempotency_key`；完整 `next_state` 不被接受。暂停和恢复后都会撤销旧 Lease，恢复步骤
+会签发新的 Lease Token。
