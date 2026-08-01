@@ -53,6 +53,10 @@ class RuntimeMigrationRollbackTests(unittest.TestCase):
             )
             self.assertEqual(4, load_project_state(project)["schema_version"])
             self.assertTrue(before_rollback.is_file())
+            self.assertEqual(
+                "ROLLED_BACK",
+                json.loads(Path(result["record_path"]).read_text(encoding="utf-8"))["status"],
+            )
             store = SessionStore(session_database_path("test_migration", home=root / "control-home"))
             self.assertEqual("DETACHED", store.get_session(rollback["detached_session_id"]).status)
 

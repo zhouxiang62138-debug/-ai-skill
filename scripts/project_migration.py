@@ -389,6 +389,18 @@ def rollback_project_file(
         if database.is_file():
             store = SessionStore(database)
             store.set_session_status(str(current_state["runtime"]["session_id"]), "DETACHED")
+        record_reference = current_state.get("schema_migration_record")
+        if isinstance(record_reference, str):
+            record_path = (path.parent / record_reference).resolve()
+            try:
+                record_path.relative_to(path.parent.resolve())
+            except ValueError as exc:
+                raise ProjectStateError("迁移记录路径逃出项目根目录") from exc
+            if record_path.is_file():
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+                record["status"] = "ROLLED_BACK"
+                record["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+                _write_migration_record(record_path, record)
     restored = load_project_state(path)
     return {
         "result": "PASS",
