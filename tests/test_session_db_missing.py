@@ -10,7 +10,7 @@ class SessionDatabaseMissingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="test_session_db_missing_") as directory:
             root = Path(directory)
             (root / "project.yaml").write_text("schema_version: 6\n", encoding="utf-8")
-            self.assertTrue(session_database_missing(root))
+            self.assertFalse(session_database_missing(root))
 
 
 if __name__ == "__main__":

@@ -97,10 +97,20 @@ class RecoveryManager:
         return result
 
 
-def session_database_missing(project_root: str | Path) -> bool:
-    """检测项目存在但默认 Session DB 缺失。"""
+def session_database_missing(
+    project_root: str | Path, *, control_plane_home: str | Path | None = None
+) -> bool:
+    """检测已绑定项目的外部 Session Control Plane 是否缺失。"""
 
     root = Path(project_root).resolve()
-    return (root / "project.yaml").is_file() and not (
-        root / ".runtime" / "sessions.sqlite3"
+    project_yaml = root / "project.yaml"
+    if not project_yaml.is_file():
+        return False
+    state = load_project_state(project_yaml)
+    if state.get("schema_version") != 7:
+        return False
+    from .control_plane import session_database_path
+
+    return not session_database_path(
+        str(state["project_id"]), home=control_plane_home
     ).is_file()

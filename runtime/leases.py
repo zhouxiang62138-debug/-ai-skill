@@ -51,7 +51,11 @@ class LeaseManager:
                 if current["worker_id"] == worker_id:
                     raise LeaseError("同一 Worker 必须持有原 Lease Token")
                 raise LeaseError("Session 已被其他 Worker 持有")
-            version = int(current["lease_version"]) + 1 if current else 1
+            fence = connection.execute(
+                "SELECT last_lease_version FROM lease_fences WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            version = int(fence["last_lease_version"]) + 1 if fence else 1
             token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
             values = (
@@ -75,6 +79,14 @@ class LeaseManager:
                     lease_token_hash=excluded.lease_token_hash
                 """,
                 values,
+            )
+            connection.execute(
+                """
+                INSERT INTO lease_fences(session_id, last_lease_version) VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    last_lease_version=excluded.last_lease_version
+                """,
+                (session_id, version),
             )
             connection.execute(
                 "UPDATE sessions SET active_worker_id = ?, updated_at = ? WHERE session_id = ?",

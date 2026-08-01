@@ -51,6 +51,23 @@ class WorkerLeaseTests(unittest.TestCase):
             second = Orchestrator(second_root, control_plane_home=second_home).start()
             self.assertNotEqual(first["worker_id"], second["worker_id"])
 
+    def test_default_recovery_worker_receives_unique_id(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_recovery_worker_") as directory:
+            root, session_id = make_runtime_project(directory)
+            home = Path((root / ".test-control-plane-home").read_text(encoding="utf-8"))
+            orchestrator = Orchestrator(root, control_plane_home=home)
+            started = orchestrator.start()
+            orchestrator.leases.release(
+                session_id,
+                started["worker_id"],
+                started["lease_version"],
+                started["lease_token"],
+            )
+            orchestrator.recover_session(session_id)
+            recovered = orchestrator.leases.get(session_id)
+            self.assertNotEqual("worker-recovery", recovered.worker_id)
+            self.assertGreater(recovered.lease_version, started["lease_version"])
+
 
 if __name__ == "__main__":
     unittest.main()

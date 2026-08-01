@@ -20,7 +20,8 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 ## F10 持久化运行时
 
-schema v7 项目在原文件驱动业务协议外围增加 `.runtime/sessions.sqlite3`。
+schema v7 项目在原文件驱动业务协议外围增加外部 Session Control Plane；运行历史位于
+`~/.ai-development-team/runtime/<control_plane_id>/sessions.sqlite3`，不得写入项目目录。
 Runtime 通过确定性 Orchestrator 管理 Session、追加 Event、Worker Lease、
 revision/CAS、Checkpoint 和崩溃恢复；它不是 Agent，也不能做产品决策、写业务
 代码或替代 Evaluator 判定结果。`project.yaml` 仍是业务当前状态的权威投影，
@@ -32,10 +33,8 @@ revision/CAS、Checkpoint 和崩溃恢复；它不是 Agent，也不能做产品
 Worker Lease 的 Runtime CAS 提交。Runtime CLI 见 `python -m runtime.cli --help`，
 完整协议见 `docs/MANAGED_RUNTIME_ARCHITECTURE.md`。
 
-F11 使用 `runtime.environment` 的白名单参数数组执行环境；F12 使用
-`runtime.security` 的能力策略和 Credential Proxy；F13 使用
-`runtime.context_builder.build_context` 最小化角色上下文。三者均为基础设施，不新增
-Agent，且不得绕过产品/Plan 批准链。
+F11–F13 已移入 `experimental/`，仅作为实验原型，不属于正式 Runtime 路径，且不得绕过
+产品/Plan 批准链。
 
 ## 角色选择
 
@@ -90,7 +89,7 @@ Evaluator 同时生成 Markdown 报告、`evaluation/issues/` Issue Package 和
 
 必需 Gate 或证据缺失、开放 blocker/critical、受保护工件未授权修改时不得 PASS。
 只有发往 Generator 的可返工 FAIL 增加 `current_iteration`；提前升级或第 5 次
-失败后停止自动返工。新项目使用 project schema v6；旧项目迁移使用
+失败后停止自动返工。新项目使用 project schema v7；旧项目迁移使用
 `scripts/project_migration.py` 的检查、预览、迁移、验证和回滚动作。
 
 ### 已完成项目 Change Request

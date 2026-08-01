@@ -138,6 +138,10 @@ class SessionStore:
             lease_version INTEGER NOT NULL CHECK(lease_version > 0),
             lease_token_hash TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS lease_fences (
+            session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
+            last_lease_version INTEGER NOT NULL CHECK(last_lease_version >= 0)
+        );
         CREATE TABLE IF NOT EXISTS tool_calls (
             tool_call_id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -282,6 +286,36 @@ class SessionStore:
     ) -> Event:
         """在事务中分配 sequence 并追加不可变事件。"""
 
+        with self.transaction(immediate=True) as connection:
+            return self._append_event_in_transaction(
+                connection,
+                session_id,
+                event_type,
+                actor_type,
+                actor_id,
+                idempotency_key=idempotency_key,
+                correlation_id=correlation_id,
+                payload=payload,
+                caused_by_event_id=caused_by_event_id,
+                timestamp=timestamp,
+            )
+
+    def _append_event_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        event_type: EventType | str,
+        actor_type: ActorType | str,
+        actor_id: str,
+        *,
+        idempotency_key: str,
+        correlation_id: str,
+        payload: dict[str, Any],
+        caused_by_event_id: str | None = None,
+        timestamp: str | None = None,
+    ) -> Event:
+        """在调用方已有的 SQLite 事务内追加事件。"""
+
         event_value = EventType(event_type).value
         actor_value = ActorType(actor_type).value
         if not actor_id or not idempotency_key or not correlation_id:
@@ -292,57 +326,33 @@ class SessionStore:
         if _SECRET_PATTERN.search(payload_text):
             raise RuntimeValidationError("事件 Payload 包含疑似敏感字段")
         payload_hash = hashlib.sha256(payload_text.encode("utf-8")).hexdigest()
-        with self.transaction(immediate=True) as connection:
-            existing = connection.execute(
-                "SELECT * FROM events WHERE session_id = ? AND idempotency_key = ?",
-                (session_id, idempotency_key),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing["event_type"] != event_value
-                    or existing["payload_hash"] != payload_hash
-                ):
-                    raise RuntimeValidationError("幂等键已关联不同事件内容")
-                return self._event_from_row(existing)
-            session = connection.execute(
-                "SELECT last_event_sequence FROM sessions WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-            if session is None:
-                raise RuntimeStorageError(f"Session 不存在：{session_id}")
-            sequence = int(session["last_event_sequence"]) + 1
-            event_id = stable_id("event", session_id, sequence)
-            event_timestamp = timestamp or utc_now()
-            connection.execute(
-                """
-                INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event_id,
-                    session_id,
-                    sequence,
-                    event_timestamp,
-                    actor_value,
-                    actor_id,
-                    event_value,
-                    caused_by_event_id,
-                    correlation_id,
-                    idempotency_key,
-                    payload_text,
-                    payload_hash,
-                ),
-            )
-            connection.execute(
-                """
-                UPDATE sessions
-                SET last_event_sequence = ?, updated_at = ?
-                WHERE session_id = ?
-                """,
-                (sequence, event_timestamp, session_id),
-            )
-            row = connection.execute(
-                "SELECT * FROM events WHERE event_id = ?", (event_id,)
-            ).fetchone()
+        existing = connection.execute(
+            "SELECT * FROM events WHERE session_id = ? AND idempotency_key = ?",
+            (session_id, idempotency_key),
+        ).fetchone()
+        if existing is not None:
+            if existing["event_type"] != event_value or existing["payload_hash"] != payload_hash:
+                raise RuntimeValidationError("幂等键已关联不同事件内容")
+            return self._event_from_row(existing)
+        session = connection.execute(
+            "SELECT last_event_sequence FROM sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        if session is None:
+            raise RuntimeStorageError(f"Session 不存在：{session_id}")
+        sequence = int(session["last_event_sequence"]) + 1
+        event_id = stable_id("event", session_id, sequence)
+        event_timestamp = timestamp or utc_now()
+        connection.execute(
+            "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (event_id, session_id, sequence, event_timestamp, actor_value, actor_id,
+             event_value, caused_by_event_id, correlation_id, idempotency_key,
+             payload_text, payload_hash),
+        )
+        connection.execute(
+            "UPDATE sessions SET last_event_sequence = ?, updated_at = ? WHERE session_id = ?",
+            (sequence, event_timestamp, session_id),
+        )
+        row = connection.execute("SELECT * FROM events WHERE event_id = ?", (event_id,)).fetchone()
         return self._event_from_row(row)
 
     @staticmethod
@@ -493,15 +503,11 @@ class SessionStore:
                     payload_hash,
                 ),
             )
-        self.append_event(
-            session_id,
-            EventType.TOOL_CALL_REQUESTED,
-            ActorType.TOOL,
-            tool_name,
-            idempotency_key=f"tool-requested:{idempotency_key}",
-            correlation_id=tool_call_id,
-            payload={"tool_call_id": tool_call_id, "tool_name": tool_name},
-        )
+            self._append_event_in_transaction(
+                connection, session_id, EventType.TOOL_CALL_REQUESTED, ActorType.TOOL, tool_name,
+                idempotency_key=f"tool-requested:{idempotency_key}", correlation_id=tool_call_id,
+                payload={"tool_call_id": tool_call_id, "tool_name": tool_name},
+            )
         return tool_call_id
 
     def start_tool_call(self, session_id: str, tool_call_id: str) -> None:
@@ -516,7 +522,11 @@ class SessionStore:
             if row["status"] != "REQUESTED":
                 raise RuntimeValidationError("TOOL_CALL_INVALID_TRANSITION")
             connection.execute("UPDATE tool_calls SET status='STARTED', started_at=? WHERE tool_call_id=?", (utc_now(), tool_call_id))
-        self.append_event(session_id, EventType.TOOL_CALL_STARTED, ActorType.TOOL, "tool-runtime", idempotency_key=f"tool-started:{tool_call_id}", correlation_id=tool_call_id, payload={"tool_call_id": tool_call_id})
+            self._append_event_in_transaction(
+                connection, session_id, EventType.TOOL_CALL_STARTED, ActorType.TOOL, "tool-runtime",
+                idempotency_key=f"tool-started:{tool_call_id}", correlation_id=tool_call_id,
+                payload={"tool_call_id": tool_call_id},
+            )
 
     def complete_tool_call(
         self,
@@ -550,18 +560,16 @@ class SessionStore:
                 """,
                 (status, utc_now(), result_reference, result_hash, tool_call_id),
             )
-        self.append_event(
-            session_id,
-            EventType.TOOL_CALL_COMPLETED if status == "SUCCEEDED" else EventType.TOOL_CALL_FAILED,
-            ActorType.TOOL,
-            "tool-runtime",
-            idempotency_key=f"tool-completed:{tool_call_id}",
-            correlation_id=tool_call_id,
-            payload={
-                "tool_call_id": tool_call_id,
-                "result_reference": result_reference, "status": status, "result_hash": result_hash,
-            },
-        )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.TOOL_CALL_COMPLETED if status == "SUCCEEDED" else EventType.TOOL_CALL_FAILED,
+                ActorType.TOOL,
+                "tool-runtime",
+                idempotency_key=f"tool-completed:{tool_call_id}", correlation_id=tool_call_id,
+                payload={"tool_call_id": tool_call_id, "result_reference": result_reference,
+                         "status": status, "result_hash": result_hash},
+            )
 
     def completed_tool_calls(self, session_id: str) -> list[dict[str, Any]]:
         """返回可供崩溃恢复重放引用的已完成工具调用。"""
@@ -651,9 +659,8 @@ class SessionStore:
                     "UPDATE tool_calls SET status='UNKNOWN_AFTER_CRASH', completed_at=? WHERE tool_call_id=?",
                     (utc_now(), tool_call_id),
                 )
-        for tool_call_id in ids:
-            self.append_event(
-                session_id, EventType.TOOL_CALL_FAILED, ActorType.TOOL, "tool-runtime",
+                self._append_event_in_transaction(
+                connection, session_id, EventType.TOOL_CALL_FAILED, ActorType.TOOL, "tool-runtime",
                 idempotency_key=f"tool-unknown-after-crash:{tool_call_id}",
                 correlation_id=tool_call_id,
                 payload={"tool_call_id": tool_call_id, "status": "UNKNOWN_AFTER_CRASH"},

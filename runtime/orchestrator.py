@@ -177,10 +177,11 @@ class Orchestrator:
         return self.inspect(session_id)
 
     def recover_session(
-        self, session_id: str, *, worker_id: str = "worker-recovery"
+        self, session_id: str, *, worker_id: str | None = None
     ) -> dict[str, Any]:
         """取得 Lease 后恢复 Runtime 与 Evaluation 事务。"""
 
+        worker_id = worker_id or f"worker-{uuid4()}"
         try:
             lease = self.leases.acquire(session_id, worker_id)
         except Exception:
