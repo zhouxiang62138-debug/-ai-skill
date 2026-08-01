@@ -19,6 +19,7 @@ def test_runtime_database_config_is_loaded() -> None:
     config = load_runtime_config()
     assert config["busy_timeout_ms"] == 5000
     assert config["payload_limit_bytes"] == 65536
+    assert config["default_lease_ttl_seconds"] == 30.0
     assert config["control_plane_root"].endswith(".ai-development-team/runtime")
 
 

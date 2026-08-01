@@ -21,19 +21,23 @@ def load_runtime_config() -> dict[str, Any]:
     )
     database = document.get("database")
     events = document.get("events")
-    if not isinstance(database, dict) or not isinstance(events, dict):
+    leases = document.get("leases")
+    if not isinstance(database, dict) or not isinstance(events, dict) or not isinstance(leases, dict):
         raise RuntimeValidationError("RUNTIME_CONFIG_INVALID")
     root = database.get("control_plane_root")
     busy_timeout = database.get("busy_timeout_ms")
     payload_limit = events.get("payload_limit_bytes")
+    default_ttl = leases.get("default_ttl_seconds")
     if (
         not isinstance(root, str) or not root
         or not isinstance(busy_timeout, int) or busy_timeout <= 0
         or not isinstance(payload_limit, int) or payload_limit <= 0
+        or not isinstance(default_ttl, (int, float)) or default_ttl <= 0
     ):
         raise RuntimeValidationError("RUNTIME_CONFIG_INVALID")
     return {
         "control_plane_root": root,
         "busy_timeout_ms": busy_timeout,
         "payload_limit_bytes": payload_limit,
+        "default_lease_ttl_seconds": float(default_ttl),
     }

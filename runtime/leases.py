@@ -12,6 +12,7 @@ from .errors import LeaseError, RuntimeStorageError
 from .event_types import ActorType, EventType
 from .models import Lease
 from .session_store import SessionStore, utc_now
+from .runtime_config import load_runtime_config
 
 
 def _parse(value: str) -> datetime:
@@ -32,11 +33,12 @@ class LeaseManager:
         session_id: str,
         worker_id: str,
         *,
-        ttl_seconds: float = 30.0,
+        ttl_seconds: float | None = None,
         now: datetime | None = None,
     ) -> Lease:
         """获取无主或已过期 Lease；未过期时拒绝抢占。"""
 
+        ttl_seconds = ttl_seconds if ttl_seconds is not None else load_runtime_config()["default_lease_ttl_seconds"]
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         if ttl_seconds <= 0 or not worker_id:
             raise LeaseError("Lease TTL 和 worker_id 无效")
@@ -112,7 +114,7 @@ class LeaseManager:
         session_id: str,
         worker_id: str,
         *,
-        ttl_seconds: float = 30.0,
+        ttl_seconds: float | None = None,
     ) -> Iterator[Lease]:
         """受控 Lease 上下文：正常或异常离开时都尽力释放当前 Token。"""
 
@@ -138,12 +140,13 @@ class LeaseManager:
         lease_version: int,
         lease_token: str,
         *,
-        ttl_seconds: float = 30.0,
+        ttl_seconds: float | None = None,
         now: datetime | None = None,
     ) -> Lease:
         """续约时校验 Worker、版本和未过期状态。"""
 
         instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        ttl_seconds = ttl_seconds if ttl_seconds is not None else load_runtime_config()["default_lease_ttl_seconds"]
         expires = instant + timedelta(seconds=ttl_seconds)
         with self.store.transaction(immediate=True) as connection:
             current = connection.execute(
@@ -288,7 +291,7 @@ class LeaseManager:
         session_id: str,
         worker_id: str,
         *,
-        ttl_seconds: float = 30.0,
+        ttl_seconds: float | None = None,
         now: datetime | None = None,
     ) -> Lease:
         """显式接管已过期 Lease。"""
