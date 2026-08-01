@@ -23,3 +23,10 @@ def test_f11_f12_f13_not_marked_complete() -> None:
         text = (ROOT / filename).read_text(encoding="utf-8")
         assert "EXPERIMENTAL PROTOTYPE" in text
         assert "不属于正式 Runtime" in text
+
+
+def test_official_runtime_does_not_import_experimental_modules() -> None:
+    for source in (ROOT / "runtime").glob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        assert "experimental." not in text
+        assert "experimental/" not in text
