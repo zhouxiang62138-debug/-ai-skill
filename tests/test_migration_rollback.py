@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import json
+from unittest.mock import patch
 from pathlib import Path
 
 from scripts.project_migration import (
@@ -17,6 +18,20 @@ from tests.test_project_migration import v4_state
 
 
 class RuntimeMigrationRollbackTests(unittest.TestCase):
+    def test_migration_failure_before_control_plane_is_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_v7_migration_failure_") as directory:
+            root = Path(directory)
+            project = root / "project.yaml"
+            project.write_text(serialize_project_state(v4_state()), encoding="utf-8")
+            backup = root / "backups" / "project-v4.yaml"
+            with patch("runtime.control_plane.initialize_control_plane", side_effect=OSError("control plane unavailable")):
+                with self.assertRaisesRegex(OSError, "control plane unavailable"):
+                    migrate_project_to_v7(project, backup, control_plane_home=root / "control-home")
+            self.assertEqual(4, load_project_state(project)["schema_version"])
+            records = sorted((root / "memory" / "migrations").glob("migration-*.json"))
+            self.assertEqual(1, len(records))
+            self.assertEqual("RECOVERY_REQUIRED", json.loads(records[0].read_text(encoding="utf-8"))["status"])
+
     def test_v7_migration_can_restore_original_v4(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_v7_rollback_") as directory:
             root = Path(directory)
