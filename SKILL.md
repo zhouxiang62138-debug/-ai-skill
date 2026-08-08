@@ -45,8 +45,15 @@ revision/CAS、Checkpoint 和崩溃恢复；它不是 Agent，也不能做产品
 Worker Lease 的 Runtime CAS 提交。Runtime CLI 见 `python -m runtime.cli --help`，
 完整协议见 `docs/MANAGED_RUNTIME_ARCHITECTURE.md`。
 
-F11–F13 已移入 `experimental/`，仅作为实验原型，不属于正式 Runtime 路径，且不得绕过
-产品/Plan 批准链。
+F11–F13 的正式实现已经进入 `runtime/` 正式 Runtime 路径：F11 提供
+ExecutionBroker、LocalCompatibilityEnvironment 与 Snapshot / Restore，F12 提供
+Capability、Credential、Network / External Tool Security，F13 提供 Deterministic
+Context Builder、Context Budget、Incremental Resume 与 Rollover/Fresh Invocation。
+Evaluator 还可追加 Candidate 验证记录，Runtime 通过 Snapshot Service 管理恢复。
+`experimental/` 下同名目录只
+保留为历史原型，不是正式调用路径。Docker Sandbox 仍为 `DEFERRED`，且
+`LocalCompatibilityEnvironment` 不等于物理 Sandbox。完整当前状态见
+`docs/RUNTIME_CAPABILITY_STATUS.md`。这些能力都不得绕过产品/Plan 批准链。
 
 ## 角色选择
 

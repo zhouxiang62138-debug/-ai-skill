@@ -1,0 +1,8 @@
+schema_version: 1
+minimum_feature_completeness_score: "8.0"
+allowed_browser_acceptance:
+  - PASS
+  - SKIPPED
+required_regression_status: PASS
+maximum_blocking_issues: 0
+maximum_critical_issues: 0

@@ -1,0 +1,31 @@
+schema_version: 1
+strategy_id: implementation-strategy-<nnn>
+record_kind: planner_what_why
+source_plan: memory/plans/plan-<nnn>.md
+source_requirements: memory/requirements/requirements_v<nnn>.yaml
+requirement_ids:
+  - REQ-<nnn>
+acceptance_criteria:
+  - AC-<nnn>
+what_why:
+  outcomes:
+    - 用户可验证的结果
+  in_scope:
+    - 本轮获批范围
+  out_of_scope:
+    - 明确不做的内容
+  constraints:
+    - 已知产品或合规约束
+  rationale:
+    - 为什么采用本范围
+
+# Generator 追加记录时使用同一文件协议，但 record_kind 改为 generator_how：
+# parent_strategy_id: implementation-strategy-<上一个编号>
+# implementation:
+#   approach: 实现路线
+#   change_set: []
+#   interfaces: []
+#   sequence: []
+#   test_commands: []
+#   rollback: 回滚方式
+#   risks: []

@@ -184,6 +184,7 @@ roles:
       - filesystem.read
       - filesystem.write
       - process.execute
+      - browser.access
     reads:
       - project.yaml
       - memory/plans/

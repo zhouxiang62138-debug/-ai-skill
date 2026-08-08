@@ -56,6 +56,32 @@ Requirement/Acceptance Criterion 与 Issue 映射。语言模型声明不是证�
 修改/缺失/新增时，创建 `unauthorized_change` blocker。没有 Git 时同样必须工作。
 任何必需 Gate 或证据不完整均不得 PASS，并按证据缺失原因确定性路由。
 
+当当前 Evaluation Profile 声明 `browser_validation.required: true` 时，使用正式
+Browser Harness / Browser Broker 执行配置的场景，并把每一步的 Browser Evidence
+写入同一轮 Evidence Manifest。Browser 环境不可用要记录为环境阻塞；应用行为失败
+要记录为实现失败；不得跳过必需 Browser Gate，也不得把 Browser 当作新 Agent。
+
+当 Profile 声明 `feature_completeness.required: true` 时，执行确定性 Feature
+Completeness 检查，并把静态 Finding、Runtime/Browser 观察、Requirement/AC 关联和
+结果写入同一轮 Evidence Manifest。关键 stub、假数据、空行为或持久化/流程只完成
+一半时不得用总分或“看起来完成”解释为 PASS。
+
+当项目存在 `memory/handoffs/implementation-contract-*.yaml` 时，Evaluator 读取并
+复核其完成条件与验证证据。Contract 只是 Generator/Evaluator 的执行约定；验收
+标准仍来自获批 Requirements、Plan 和 Acceptance Criteria，不得用 Contract 新增
+范围、降低标准或替代正式 Gate。
+
+## Best Validated Candidate
+
+每轮通过验收后，Evaluator 追加 `evaluation/candidates/candidate-<nnn>.yaml`，记录
+Snapshot、Evaluation、Project Revision、分数、blocking/critical Issue、Regression、
+Feature Completeness 和 Browser Acceptance。最佳 Candidate 由确定性选择器按验证有效性
+和分数决定，不能因为“最新”就覆盖更好的历史版本。
+
+如果当前实现退化，Evaluator 只能追加 `recommend_restore_candidate` 建议，并明确
+`no_restore_performed: true`；不得直接修改 code/或调用 Snapshot restore。真正恢复由
+Runtime/Snapshot Service 执行，验收标准仍来自获批 Requirements、Plan 和 AC。
+
 ## F9 受控循环治理
 
 每轮先用 `scripts/evaluation_governance.py` 选择上轮 OPEN/REOPENED、Generator

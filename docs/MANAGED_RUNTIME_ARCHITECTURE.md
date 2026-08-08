@@ -9,13 +9,22 @@ Deterministic Orchestrator
         ↓
 Stateless Role Harness 请求/结果信封
         ↓
+Runtime Infrastructure
+  ├─ F11 ExecutionBroker / ExecutionEnvironment / Snapshot
+  ├─ F12 Capability / Credential / Network Policy
+  └─ F13 Deterministic Context Builder / Resume
+        ↓
 Planner / Generator / Evaluator
         ↓
 现有文件驱动业务工作流
 ```
 
-F10 只实现前三层的耐久控制骨架，不实现 Docker、凭据代理、通用执行环境、
-Context Builder 或多 Worker 并行。
+F10 提供前三层的耐久控制骨架；F11、F12、F13 已在正式 Runtime 路径中增量接入，
+分别负责执行、托管安全和确定性上下文。Docker Sandbox 仍为 `DEFERRED`，
+LocalCompatibilityEnvironment 不是物理 Sandbox；本文件不把它们描述为同一能力。
+
+当前正式、实验和延期能力的唯一状态矩阵见
+`docs/RUNTIME_CAPABILITY_STATUS.md`。多 Worker 并行和第四个 Agent 仍不属于本架构。
 
 ## Session Control Plane
 

@@ -1,0 +1,9 @@
+gates:
+  - gate_id: GATE-REGRESSION
+    required: true
+    result: FAIL
+issues:
+  - category: regression
+    severity: critical
+    status: OPEN
+    route_to: GENERATOR

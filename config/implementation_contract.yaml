@@ -1,0 +1,49 @@
+schema_version: 1
+thresholds:
+  acceptance_criteria_count: 5
+  critical_workflow_pages: 2
+trigger_tags:
+  - database_migration
+  - authentication
+  - authorization
+  - payment
+  - destructive_operation
+  - external_api_integration
+  - complex_state_machine
+  - data_compatibility
+  - high_risk_change_request
+verification_by_trigger:
+  database_migration:
+    - persistence
+    - regression
+  authentication:
+    - integration
+    - regression
+  authorization:
+    - integration
+    - regression
+  payment:
+    - integration
+    - regression
+  destructive_operation:
+    - integration
+    - regression
+  external_api_integration:
+    - integration
+    - regression
+  complex_state_machine:
+    - integration
+    - regression
+  data_compatibility:
+    - persistence
+    - regression
+  high_risk_change_request:
+    - regression
+  irreversible:
+    - integration
+    - regression
+  critical_workflow_pages:
+    - browser
+    - regression
+  many_acceptance_criteria:
+    - regression

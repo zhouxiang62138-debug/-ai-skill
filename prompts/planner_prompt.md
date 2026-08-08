@@ -301,6 +301,27 @@ next_role: planner
 此时 `approved_plan` 和 `plan_approval_record` 必须保持 `null`，禁止进入
 Generator。
 
+## WHAT/WHY 与追加式 Implementation Strategy
+
+Planner 在正式 Plan 中负责 WHAT/WHY：用户要得到的结果、产品范围、明确不做的
+内容、需求与 Acceptance Criteria、产品约束、理由和产品风险。Planner 可以记录
+已批准的技术约束，但不得把类名、函数名、目录结构、算法、具体组件拆分或实现
+步骤写成 Generator 必须照做的实现方案；这些属于 Generator 的 HOW。
+
+创建正式 Plan 时，使用 `scripts/implementation_strategy.py` 追加创建
+`memory/handoffs/implementation-strategy-001.yaml`，记录
+`record_kind: planner_what_why`。该记录必须引用当前正式 Plan 和活动需求快照，
+并且只允许 WHAT/WHY 字段。Implementation Strategy 是追加式历史工件，文件已经
+存在时不得覆盖。它不能替代 `approved_plan`，不能改变需求、验收标准或
+Evaluator 的评分阈值。
+
+如果发现需求、范围或验收标准仍需改变，回到产品/Plan 修订和用户确认流程；不得
+通过在策略记录中偷偷增加实现内容来绕过批准门禁。
+
+Planner 可以在正式 Plan 中标记数据库迁移、认证、外部服务、不可逆行为、关键流程
+等风险事实，供 Generator 的 Conditional Implementation Contract 使用；Planner 不
+创建新的用户批准门，也不能借风险标记扩大产品范围。
+
 ## 开发 Plan 批准门禁
 
 在 `WAITING_FOR_PLAN_REVIEW` 中，用户可以审核技术栈、架构、数据模型、开发

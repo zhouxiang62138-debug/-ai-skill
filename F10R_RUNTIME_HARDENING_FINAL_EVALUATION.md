@@ -1,5 +1,9 @@
 # F10R 最终评估（未完成）
 
+> 文档状态：历史快照（2026-08-01）。本文件记录当时 F10R 分支的范围与结论，
+> 不代表当前 F11–F13 状态；当前状态请读取 `docs/RUNTIME_CAPABILITY_STATUS.md`
+> 和 `FINAL_PRODUCTION_READINESS_REVIEW.md`。
+
 ## 2026-08-01 最终验收结论
 
 本节为当前分支的最终结论。验证范围严格限定为 F10；F11、F12、F13 继续仅作为

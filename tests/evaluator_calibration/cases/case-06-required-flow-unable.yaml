@@ -1,0 +1,10 @@
+gates:
+  - gate_id: GATE-BROWSER-ACCEPTANCE
+    required: true
+    result: FAIL
+feature_completeness:
+  result: FAIL
+browser_acceptance:
+  result: FAIL
+  failure_class: implementation_failure
+issues: []

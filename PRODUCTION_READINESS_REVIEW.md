@@ -1,5 +1,9 @@
 # F10–F13 Production Readiness Review
 
+> 文档状态：历史快照（2026-08-08），保留当时未就绪评审证据；当前结论已由
+> `FINAL_PRODUCTION_READINESS_REVIEW.md` 取代。F10–F13 当前状态以
+> `docs/RUNTIME_CAPABILITY_STATUS.md` 为准。
+
 ## 1. Executive Verdict
 
 结论：**NOT_READY**。

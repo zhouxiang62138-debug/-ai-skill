@@ -18,7 +18,7 @@ from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
 
-RUNTIME_SCHEMA_VERSION = 1
+RUNTIME_SCHEMA_VERSION = 2
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|api[_-]?key|access[_-]?token|secret|password)"
 )
@@ -195,6 +195,37 @@ class SessionStore:
             completed_at TEXT,
             result_json TEXT
         );
+        CREATE TABLE IF NOT EXISTS model_invocations (
+            invocation_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL REFERENCES role_runs(run_id),
+            role TEXT NOT NULL,
+            invocation_sequence INTEGER NOT NULL CHECK(invocation_sequence > 0),
+            status TEXT NOT NULL,
+            previous_invocation_id TEXT,
+            context_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            handoff_id TEXT,
+            idempotency_key TEXT NOT NULL,
+            UNIQUE(session_id, invocation_sequence),
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS rollover_handoffs (
+            handoff_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            invocation_id TEXT NOT NULL REFERENCES model_invocations(invocation_id),
+            role TEXT NOT NULL,
+            reason_json TEXT NOT NULL,
+            handoff_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TRIGGER IF NOT EXISTS rollover_handoffs_no_update
+        BEFORE UPDATE ON rollover_handoffs BEGIN SELECT RAISE(ABORT, 'rollover handoffs are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS rollover_handoffs_no_delete
+        BEFORE DELETE ON rollover_handoffs BEGIN SELECT RAISE(ABORT, 'rollover handoffs are append-only'); END;
         CREATE TABLE IF NOT EXISTS context_manifests (
             context_id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -969,6 +1000,214 @@ class SessionStore:
         if row is None:
             raise RuntimeStorageError("ROLE_RUN_MISSING")
         return dict(row)
+
+    def create_model_invocation(
+        self,
+        session_id: str,
+        run_id: str,
+        role: str,
+        context_id: str,
+        *,
+        idempotency_key: str,
+        previous_invocation_id: str | None = None,
+        started_at: str | None = None,
+    ) -> dict[str, Any]:
+        """创建独立于 Durable Runtime Session 的模型 Invocation。"""
+
+        if not all(isinstance(value, str) and value for value in (run_id, role, context_id, idempotency_key)):
+            raise RuntimeValidationError("MODEL_INVOCATION_INVALID")
+        role_run = self.get_role_run(session_id, run_id)
+        if role_run["role"] != role:
+            raise RuntimeValidationError("MODEL_INVOCATION_ROLE_MISMATCH")
+        if previous_invocation_id is not None and not previous_invocation_id:
+            raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_INVALID")
+        invocation_id = stable_id("model-invocation", session_id, run_id, idempotency_key)
+        timestamp = started_at or utc_now()
+        with self.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if any(
+                    existing[key] != value
+                    for key, value in {
+                        "run_id": run_id,
+                        "role": role,
+                        "context_id": context_id,
+                        "previous_invocation_id": previous_invocation_id,
+                    }.items()
+                ):
+                    raise RuntimeValidationError("MODEL_INVOCATION_IDEMPOTENCY_CONFLICT")
+                return dict(existing)
+            if previous_invocation_id is not None:
+                previous = connection.execute(
+                    "SELECT status, session_id, role FROM model_invocations WHERE invocation_id=?",
+                    (previous_invocation_id,),
+                ).fetchone()
+                if previous is None or previous["session_id"] != session_id or previous["role"] != role:
+                    raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_INVALID")
+                if previous["status"] != "ROLLED_OVER":
+                    raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_NOT_ROLLED_OVER")
+            sequence_row = connection.execute(
+                "SELECT COALESCE(MAX(invocation_sequence), 0) + 1 AS next_sequence FROM model_invocations WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            sequence = int(sequence_row["next_sequence"])
+            connection.execute(
+                """
+                INSERT INTO model_invocations(
+                    invocation_id, session_id, run_id, role, invocation_sequence,
+                    status, previous_invocation_id, context_id, started_at,
+                    ended_at, handoff_id, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL, NULL, ?)
+                """,
+                (invocation_id, session_id, run_id, role, sequence,
+                 previous_invocation_id, context_id, timestamp, idempotency_key),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.MODEL_INVOCATION_STARTED,
+                ActorType.ORCHESTRATOR,
+                "context-runtime",
+                idempotency_key=f"model-invocation-started:{invocation_id}",
+                correlation_id=invocation_id,
+                payload={
+                    "invocation_id": invocation_id,
+                    "run_id": run_id,
+                    "role": role,
+                    "previous_invocation_id": previous_invocation_id,
+                    "context_id": context_id,
+                },
+                timestamp=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM model_invocations WHERE invocation_id=?", (invocation_id,)
+            ).fetchone()
+        return dict(row)
+
+    def get_model_invocation(self, session_id: str, invocation_id: str) -> dict[str, Any]:
+        """读取同一 Runtime Session 的模型 Invocation。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND invocation_id=?",
+                (session_id, invocation_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise RuntimeStorageError("MODEL_INVOCATION_MISSING")
+        return dict(row)
+
+    def append_rollover_handoff(
+        self,
+        session_id: str,
+        invocation_id: str,
+        role: str,
+        handoff: dict[str, Any],
+        *,
+        reason: dict[str, Any],
+        idempotency_key: str,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        """追加 Rollover Handoff，并原子地结束旧 Invocation。"""
+
+        if not isinstance(handoff, dict) or not isinstance(reason, dict) or not idempotency_key:
+            raise RuntimeValidationError("ROLLOVER_HANDOFF_INVALID")
+        handoff_json = canonical_json(handoff)
+        reason_json = canonical_json(reason)
+        if len(handoff_json.encode("utf-8")) > 32 * 1024 or len(reason_json.encode("utf-8")) > 4096:
+            raise RuntimeValidationError("ROLLOVER_HANDOFF_TOO_LARGE")
+        if _SECRET_PATTERN.search(handoff_json + reason_json):
+            raise RuntimeValidationError("ROLLOVER_HANDOFF_SECRET_FORBIDDEN")
+        timestamp = created_at or utc_now()
+        handoff_id = stable_id("rollover-handoff", session_id, invocation_id, idempotency_key)
+        with self.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                "SELECT * FROM rollover_handoffs WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if existing["handoff_json"] != handoff_json or existing["reason_json"] != reason_json:
+                    raise RuntimeValidationError("ROLLOVER_HANDOFF_IDEMPOTENCY_CONFLICT")
+                return self._rollover_handoff_from_row(existing)
+            invocation = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND invocation_id=?",
+                (session_id, invocation_id),
+            ).fetchone()
+            if invocation is None:
+                raise RuntimeStorageError("MODEL_INVOCATION_MISSING")
+            if invocation["role"] != role or invocation["status"] != "ACTIVE":
+                raise RuntimeValidationError("MODEL_INVOCATION_ROLLOVER_INVALID")
+            connection.execute(
+                """
+                INSERT INTO rollover_handoffs(
+                    handoff_id, session_id, invocation_id, role, reason_json,
+                    handoff_json, created_at, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (handoff_id, session_id, invocation_id, role, reason_json,
+                 handoff_json, timestamp, idempotency_key),
+            )
+            connection.execute(
+                """
+                UPDATE model_invocations
+                SET status='ROLLED_OVER', ended_at=?, handoff_id=?
+                WHERE session_id=? AND invocation_id=?
+                """,
+                (timestamp, handoff_id, session_id, invocation_id),
+            )
+            reason_codes = reason.get("reason_codes", [])
+            if not isinstance(reason_codes, list) or any(not isinstance(item, str) for item in reason_codes):
+                raise RuntimeValidationError("ROLLOVER_REASON_INVALID")
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.MODEL_INVOCATION_ROLLED_OVER,
+                ActorType.ORCHESTRATOR,
+                "context-runtime",
+                idempotency_key=f"model-invocation-rollover:{handoff_id}",
+                correlation_id=invocation_id,
+                payload={
+                    "handoff_id": handoff_id,
+                    "invocation_id": invocation_id,
+                    "reason_codes": reason_codes,
+                    "reference_count": len(handoff.get("references", [])) if isinstance(handoff.get("references", []), list) else 0,
+                },
+                timestamp=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM rollover_handoffs WHERE handoff_id=?", (handoff_id,)
+            ).fetchone()
+        return self._rollover_handoff_from_row(row)
+
+    @staticmethod
+    def _rollover_handoff_from_row(row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            raise RuntimeStorageError("ROLLOVER_HANDOFF_MISSING")
+        value = dict(row)
+        try:
+            value["reason"] = json.loads(value.pop("reason_json"))
+            value["handoff"] = json.loads(value.pop("handoff_json"))
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeStorageError("ROLLOVER_HANDOFF_INVALID") from exc
+        return value
+
+    def get_rollover_handoff(self, session_id: str, handoff_id: str) -> dict[str, Any]:
+        """读取同一 Session 的结构化 Rollover Handoff。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM rollover_handoffs WHERE session_id=? AND handoff_id=?",
+                (session_id, handoff_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._rollover_handoff_from_row(row)
 
     def complete_role_run(self, session_id: str, run_id: str, result: dict[str, Any]) -> None:
         """不可重复地完成 Role Run 并追加 ROLE_COMPLETED。"""

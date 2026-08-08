@@ -1,0 +1,6 @@
+expected_result: FAIL
+expected_issue_classes:
+  - requirement_ambiguity
+  - scope_mismatch
+minimum_severity: major
+route_to: PLANNER

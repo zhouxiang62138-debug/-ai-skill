@@ -8,6 +8,12 @@ evaluation:
   required_checks:
     runtime: PASS
     core_functionality: PASS
+  browser_validation:
+    required: false
+  feature_completeness:
+    required: false
+    minimum_score: 8.0
+    required_sources: ["static", "runtime"]
   criteria:
     functionality:
       weight: 0.30

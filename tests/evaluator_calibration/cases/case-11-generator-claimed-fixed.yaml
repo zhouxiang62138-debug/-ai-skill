@@ -1,0 +1,13 @@
+generator_claimed_fixed: true
+gates:
+  - gate_id: GATE-BROWSER-ACCEPTANCE
+    required: true
+    result: FAIL
+browser_acceptance:
+  result: FAIL
+  failure_class: implementation_failure
+issues:
+  - category: implementation_defect
+    severity: critical
+    status: OPEN
+    route_to: GENERATOR

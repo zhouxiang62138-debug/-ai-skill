@@ -71,6 +71,25 @@ Generator 在 `APPROVED_FOR_IMPLEMENTATION` 只执行门禁校验。它必须验
 `plan_approval_record` 的完整来源链。全部通过后进入 `IMPLEMENTING`；
 任一门禁缺失时进入 `WAITING_FOR_USER`，不得实施。
 
+实现交接另有确定性边界：Planner 通过追加式
+`memory/handoffs/implementation-strategy-<nnn>.yaml` 记录 WHAT/WHY，Generator
+只能在来源链有效后追加 HOW。策略记录不得覆盖历史、替代 `approved_plan` 或改变
+需求、验收标准和评分阈值；策略链校验由 `scripts/implementation_strategy.py` 执行。
+
+高风险实现才追加 `memory/handoffs/implementation-contract-<nnn>.yaml`。触发判断由
+`config/implementation_contract.yaml` 与 `scripts/implementation_contract.py` 确定性
+执行；普通任务不创建 Contract。Contract 只约束完成条件、验证和回滚，不是新的
+用户批准门，且不得扩展获批 Requirements/AC。
+
+Durable Runtime Session 与 Model Invocation 分离：同一 Session 可以串联多个模型
+Invocation。Runtime 根据 `config/context.yaml` 的 rollover 阈值追加结构化 Handoff，
+再由 F13 Context Builder、Handoff 和当前 Durable project state 创建 Fresh Invocation；
+不得依赖聊天历史或模型自报上下文长度恢复任务。
+
+Evaluator 每轮还可在 `evaluation/candidates/` 追加 Candidate。Runtime 只把无阻塞/严重
+问题、回归通过、完整性和浏览器验收满足条件的记录纳入最佳候选；Evaluator 的恢复建议
+不直接修改代码，实际 Snapshot restore 只能由 Runtime/Snapshot Service 执行。
+
 Evaluator 对可返工 FAIL 递增 `current_iteration` 并路由；达到 5 时，必须写入 `status: WAITING_FOR_USER`、`next_role: null` 和 `blocked_reason: maximum_iterations_reached`。
 
 旧状态只读迁移：

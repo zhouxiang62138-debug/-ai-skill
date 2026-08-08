@@ -93,6 +93,35 @@ Generator 不得修改：
 
 门禁全部通过后设置 `status: IMPLEMENTING`、`next_role: generator`。只在 `IMPLEMENTING` 状态实现或修改代码。
 
+## Implementation Strategy：只追加 HOW
+
+开始实现前，Generator 必须读取并校验当前 Plan 对应的
+`memory/handoffs/implementation-strategy-*.yaml` 链。链的第一条必须是 Planner 的
+`planner_what_why`，且 `source_plan` 与 `approved_plan` 一致。通过批准链后，使用
+`scripts/implementation_strategy.py` 追加新的 `generator_how` 记录，说明实现路线、
+真实文件变更、接口、执行顺序、参数数组形式的测试命令、回滚方式和风险。
+
+Implementation Strategy 只能补充 HOW，不能覆盖或改写既有记录，不能新增需求、
+改变范围、验收标准、评分阈值或把未批准的技术方案变成批准输入。若 HOW 与
+`approved_plan`、需求或 Acceptance Criteria 冲突，必须停止并进入用户确认或正式
+Change Request，不得猜测性扩展实现。没有有效的 Planner WHAT/WHY 记录时不得开始
+编码。
+
+## Conditional Implementation Contract
+
+开始重大或高风险实现前，使用 `scripts/implementation_contract.py` 根据
+`config/implementation_contract.yaml` 的确定性规则判断是否需要 Contract。普通任务
+保持 `Generator → Evaluator`，不创建 Contract。数据库迁移、认证/授权、支付、
+破坏性或不可逆操作、外部 API、复杂状态机、多页关键流程、数据兼容性、高风险
+Change Request 或较多 Acceptance Criteria 命中任一条件时，必须追加
+`memory/handoffs/implementation-contract-<nnn>.yaml`。
+
+Contract 必须引用 `approved_plan`、获批 Requirements/AC，并列出 `done_when`、
+验证类型、回滚预期、风险和触发原因。Contract 是 Generator/Evaluator 的执行约定，
+不是新的用户批准门；不得写入 `next_role`、新增 Requirement、改变产品范围或
+修改验收阈值。风险要求的 persistence、integration、browser、regression 等验证
+不能被省略。已有 Contract 历史无效或来源冲突时必须停止，不得继续编码。
+
 如果用户在实施开始后要求改变核心产品方向，Generator 不得直接修改批准来源。
 创建正式变更请求并进入 `WAITING_FOR_USER`，等待新的范围、回滚和批准链。
 

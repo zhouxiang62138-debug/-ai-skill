@@ -28,6 +28,18 @@ gates:
     pass_when: all_required_acceptance_criteria_checked
     evidence_required: true
     skip_allowed: false
+  - id: GATE-BROWSER-ACCEPTANCE
+    required: false
+    trigger: profile_browser_validation_required
+    pass_when: all_required_browser_scenarios_pass
+    evidence_required: true
+    skip_allowed: true
+  - id: GATE-FEATURE-COMPLETENESS
+    required: false
+    trigger: profile_feature_completeness_required
+    pass_when: score_meets_profile_and_no_critical_stub
+    evidence_required: true
+    skip_allowed: true
   - id: GATE-REGRESSION
     required: true
     trigger: always

@@ -1,0 +1,6 @@
+expected_result: FAIL
+expected_issue_classes:
+  - implementation_defect
+  - incomplete_implementation
+minimum_severity: critical
+route_to: GENERATOR

@@ -1,0 +1,9 @@
+feature_completeness:
+  result: FAIL
+browser_acceptance:
+  result: PASS
+issues:
+  - category: incomplete_implementation
+    severity: critical
+    status: OPEN
+    route_to: GENERATOR

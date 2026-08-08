@@ -10,6 +10,16 @@ from .models import (
     ContextSourceDelta,
 )
 from .policy import ContextBudgetConfig, ContextPolicy, ContextSourceRule
+from .rollover import (
+    ContextRolloverService,
+    FreshInvocationContext,
+    InvocationStats,
+    RolloverDecision,
+    RolloverHandoff,
+    RolloverPolicy,
+    evaluate_rollover,
+    load_rollover_policy,
+)
 
 __all__ = [
     "ContextBuildRequest",
@@ -22,6 +32,14 @@ __all__ = [
     "ContextSource",
     "ContextSourceDelta",
     "ContextSourceRule",
+    "ContextRolloverService",
+    "FreshInvocationContext",
+    "InvocationStats",
+    "RolloverDecision",
+    "RolloverHandoff",
+    "RolloverPolicy",
     "build_context",
+    "evaluate_rollover",
+    "load_rollover_policy",
     "resume_context",
 ]
