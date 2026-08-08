@@ -7,7 +7,19 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 使用本 Skill 管理位于 `C:\Users\28388\Desktop\ai-projects\<project_id>` 的独立软件项目。Skill 本体只提供规则、Prompt 和模板；不得保存任何具体项目的数据或代码。
 
-## 开始项目工作
+## Skill 本体仓库与 managed project 边界
+
+本仓库是 Skill 本体，不是 managed project。仓库根目录不要求存在
+`project.yaml`，不得为了满足项目协议创建假的 `project.yaml`。
+`project.yaml` 只属于 `C:\Users\28388\Desktop\ai-projects\<project_id>`
+下的项目实例。
+
+Skill 本体开发、测试、文档维护、Git commit、Git push 和 GitHub 上传不要求
+`project.yaml`，不得因 Skill 仓库根目录缺少该文件而 BLOCKED。只有 Planner、
+Generator、Evaluator、Change Request 等项目工作流，才按本节协议读取和更新
+对应 managed project 的 `project.yaml`。
+
+## 开始 managed project 工作
 
 1. 定位唯一目标项目；未经用户明确授权，不读取其他项目。
 2. 读取项目根目录唯一的 `project.yaml`，它是项目状态的唯一可信来源。

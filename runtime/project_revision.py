@@ -18,7 +18,11 @@ from scripts.project_state import (
 from .errors import RecoveryError, StateConflictError
 from .event_types import ActorType, EventType
 from .leases import LeaseManager
-from .policy import assert_field_ownership, assert_state_transition
+from .policy import (
+    assert_field_ownership,
+    assert_workflow_lifecycle,
+    load_lifecycle_fields,
+)
 from .session_store import SessionStore, stable_id, utc_now
 
 
@@ -57,6 +61,37 @@ class ProjectStateCAS:
         expected_revision: int,
         idempotency_key: str,
         fail_at: str | None = None,
+    ) -> dict[str, Any]:
+        """提交角色业务字段；生命周期字段只能由内部 CAS 迁移入口提交。"""
+
+        return self._commit(
+            project_yaml,
+            next_state,
+            session_id=session_id,
+            worker_id=worker_id,
+            actor_role=actor_role,
+            lease_version=lease_version,
+            lease_token=lease_token,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            fail_at=fail_at,
+            lifecycle_transition=None,
+        )
+
+    def _commit(
+        self,
+        project_yaml: str | Path,
+        next_state: dict[str, Any],
+        *,
+        session_id: str,
+        worker_id: str,
+        actor_role: str,
+        lease_version: int,
+        lease_token: str,
+        expected_revision: int,
+        idempotency_key: str,
+        fail_at: str | None,
+        lifecycle_transition: tuple[str, str] | None,
     ) -> dict[str, Any]:
         """提交一个 revision；失败注入仅供恢复测试使用。"""
 
@@ -103,8 +138,15 @@ class ProjectStateCAS:
         prepared = copy.deepcopy(next_state)
         prepared["schema_version"] = 7
         prepared["runtime"] = copy.deepcopy(current_runtime)
-        # 角色只提交其声明字段；Runtime 投影由 Commit Coordinator 独占。
-        assert_field_ownership(actor_role, current, prepared)
+        # 角色只提交其声明的业务字段；生命周期投影由内部 Runtime CAS 入口独占。
+        if lifecycle_transition is None:
+            assert_field_ownership(actor_role, current, prepared)
+        else:
+            lifecycle_fields = load_lifecycle_fields()
+            role_candidate = copy.deepcopy(prepared)
+            for field in lifecycle_fields:
+                role_candidate[field] = current.get(field)
+            assert_field_ownership(actor_role, current, role_candidate)
         prepared["runtime"]["revision"] = expected_revision + 1
         after_hash = project_state_hash(prepared)
         revision_id = stable_id("revision", session_id, expected_revision + 1)
@@ -196,6 +238,7 @@ class ProjectStateCAS:
         *,
         source_status: str,
         target_status: str,
+        fail_at: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """从当前状态构造受限 Patch，禁止 Worker 提交完整状态快照。"""
@@ -209,11 +252,22 @@ class ProjectStateCAS:
             raise StateConflictError("COMMIT_PATCH_RUNTIME_FORBIDDEN")
         if changed_fields.get("status", target_status) != target_status:
             raise StateConflictError("COMMIT_PATCH_TARGET_STATUS_CONFLICT")
-        assert_state_transition(source_status, target_status)
+        assert_workflow_lifecycle(
+            source_status,
+            target_status,
+            kwargs.get("actor_role", ""),
+            changed_fields,
+        )
         candidate = copy.deepcopy(current)
         candidate.update(copy.deepcopy(changed_fields))
         candidate["status"] = target_status
-        return self.commit(project_yaml, candidate, **kwargs)
+        return self._commit(
+            project_yaml,
+            candidate,
+            fail_at=fail_at,
+            lifecycle_transition=(source_status, target_status),
+            **kwargs,
+        )
 
     def _conflict(
         self,

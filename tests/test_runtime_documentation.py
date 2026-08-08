@@ -14,11 +14,10 @@ def test_skill_schema_version_is_consistent() -> None:
     assert "last_checkpoint_id" not in schema
 
 
-def test_f11_f12_f13_not_marked_complete() -> None:
+def test_f11_f12_historical_reports_remain_marked_experimental() -> None:
     for filename in (
         "F11_EXECUTION_ENVIRONMENT_REPORT.md",
         "F12_SECURITY_BOUNDARY_REPORT.md",
-        "F13_CONTEXT_BUILDER_REPORT.md",
     ):
         text = (ROOT / filename).read_text(encoding="utf-8")
         assert "EXPERIMENTAL PROTOTYPE" in text

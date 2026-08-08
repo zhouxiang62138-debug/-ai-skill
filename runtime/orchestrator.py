@@ -155,6 +155,152 @@ class Orchestrator:
         self.leases.release(session_id, str(run["worker_id"]), lease.lease_version, lease_token)
         return committed
 
+    def commit_module_step(
+        self,
+        session_id: str,
+        module: str,
+        result: dict[str, Any],
+        *,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """让受信任 Module 复用现有 CAS，不创建额外 Agent 或 CAS。"""
+
+        if module != "change_request":
+            raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            required = {
+                "project_yaml",
+                "source_status",
+                "target_status",
+                "changed_fields",
+                "expected_revision",
+                "idempotency_key",
+            }
+            if set(result) != required or not isinstance(result["changed_fields"], dict):
+                raise RuntimeValidationError("MODULE_STEP_RESULT_INVALID")
+            return self.cas.commit_patch(
+                result["project_yaml"],
+                result["changed_fields"],
+                source_status=str(result["source_status"]),
+                target_status=str(result["target_status"]),
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=module,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=int(result["expected_revision"]),
+                idempotency_key=str(result["idempotency_key"]),
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
+    def commit_module_state(
+        self,
+        session_id: str,
+        module: str,
+        next_state: dict[str, Any],
+        *,
+        project_yaml: str | Path,
+        expected_revision: int,
+        idempotency_key: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """提交 Module 元数据，仍受 F10 ownership、Lease 和 CAS 保护。"""
+
+        if module != "change_request":
+            raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            return self.cas.commit(
+                project_yaml,
+                next_state,
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=module,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
+    def commit_role_state(
+        self,
+        session_id: str,
+        role: str,
+        next_state: dict[str, Any],
+        *,
+        project_yaml: str | Path,
+        expected_revision: int,
+        idempotency_key: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """通过现有 CAS 提交角色业务状态，保留 Lease 与字段 ownership 校验。"""
+
+        if role not in {"planner", "generator", "evaluator"}:
+            raise RuntimeValidationError("RUNTIME_ROLE_NOT_ALLOWED")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            return self.cas.commit(
+                project_yaml,
+                next_state,
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=role,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
+    def commit_role_transition(
+        self,
+        session_id: str,
+        role: str,
+        result: dict[str, Any],
+        *,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """用一次受限 Role 生命周期提交处理等待态后的合法迁移。"""
+
+        if role not in {"planner", "generator", "evaluator"}:
+            raise RuntimeValidationError("RUNTIME_ROLE_NOT_ALLOWED")
+        required = {
+            "project_yaml",
+            "source_status",
+            "target_status",
+            "changed_fields",
+            "expected_revision",
+            "idempotency_key",
+        }
+        if set(result) != required or not isinstance(result["changed_fields"], dict):
+            raise RuntimeValidationError("ROLE_TRANSITION_RESULT_INVALID")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            return self.cas.commit_patch(
+                result["project_yaml"],
+                result["changed_fields"],
+                source_status=str(result["source_status"]),
+                target_status=str(result["target_status"]),
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=role,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=int(result["expected_revision"]),
+                idempotency_key=str(result["idempotency_key"]),
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
     def fail_step(self, session_id: str, run_id: str, reason: dict[str, Any]) -> None:
         """持久化失败 Run；不提交候选 project state。"""
 

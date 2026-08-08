@@ -3,6 +3,50 @@ version: 7
 policy_precedence:
   write_prohibited_overrides_writes: true
 
+# F12.1：Capability 是 Role 可请求的抽象能力，不包含任何凭据内容。
+capabilities:
+  - filesystem.read
+  - filesystem.write
+  - process.execute
+  - network.access
+  - git.read
+  - git.write
+  - browser.access
+  - credential.use
+  - external_tool.invoke
+
+network_policy:
+  default: deny
+  allowed_schemes:
+    - https
+  services:
+    github:
+      hosts:
+        - api.github.com
+      ports:
+        - 443
+      operations:
+        - read
+  roles:
+    generator:
+      services:
+        - github
+
+external_tool_policy:
+  default: deny
+  tools:
+    git:
+      operations:
+        - read
+    github:
+      operations:
+        - read
+  roles:
+    generator:
+      tools:
+        - git
+        - github
+
 modules:
   runtime_orchestrator:
     reads:
@@ -65,6 +109,9 @@ modules:
 
 roles:
   planner:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
     reads:
       - project.yaml
       - memory/requirements/
@@ -89,9 +136,18 @@ roles:
     prohibited:
       - code/
       - evaluation/reports/
+    read_exceptions:
+      - evaluation/reports/
     write_prohibited:
       - memory/requirements/
   generator:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
+      - process.execute
+      - credential.use
+      - network.access
+      - external_tool.invoke
     reads:
       - project.yaml
       - memory/requirements/
@@ -107,6 +163,7 @@ roles:
       - releases/
     writes:
       - code/
+      - tests/
       - artifacts/
       - memory/handoffs/
       - memory/handoffs/responses/
@@ -115,12 +172,18 @@ roles:
     prohibited:
       - config/evaluation_rules/
       - evaluation/reports/
+    read_exceptions:
+      - evaluation/reports/
     write_prohibited:
       - artifacts/design_previews/
       - memory/requirements/
       - memory/proposals/
       - memory/decisions/
   evaluator:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
+      - process.execute
     reads:
       - project.yaml
       - memory/plans/
@@ -145,12 +208,26 @@ roles:
       - releases/
     prohibited:
       - code/
-      - memory/plans/
       - config/evaluation_rules/
+
+# 生命周期字段由 Runtime CAS 在验证合法工作流迁移后统一提交；不属于任何角色的业务字段权限。
+lifecycle_authority:
+  owner: runtime_cas
+  fields:
+    - status
+    - next_role
+    - active_module
+    - active_change_request
 
 field_ownership:
   runtime_orchestrator:
     - runtime
+  change_request:
+    - change_cycle
+    - change_context
+    - current_iteration
+    - automatic_retry_allowed
+    - change_request_record
   first_ask_intake:
     - requirements_status
     - requirements_version
@@ -192,8 +269,10 @@ field_ownership:
     - change_approval_record
     - approved_change_items
   evaluator:
+    - change_context
     - current_iteration
     - last_evaluation
+    - evidence_manifest
     - last_issue_package
     - iteration_metrics
     - retry_history
@@ -201,8 +280,12 @@ field_ownership:
     - escalation_record
     - automatic_retry_allowed
     - iteration_sequence
+    - release_version
+    - current_release
+    - blocked_reason
   generator:
     - last_generator_response
+    - change_baseline
 
 # F8.5：外部目标只在 schema_version=5、project_type=skill_maintenance 时有效。
 # 实际路径授权由 scripts/skill_maintenance.py 强制执行，不能仅依赖 Prompt。

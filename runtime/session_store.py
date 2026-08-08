@@ -195,6 +195,24 @@ class SessionStore:
             completed_at TEXT,
             result_json TEXT
         );
+        CREATE TABLE IF NOT EXISTS context_manifests (
+            context_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            workflow_state TEXT NOT NULL,
+            project_revision INTEGER NOT NULL,
+            project_state_hash TEXT NOT NULL,
+            context_hash TEXT NOT NULL,
+            context_policy_hash TEXT NOT NULL,
+            budget_fingerprint TEXT NOT NULL,
+            sources_json TEXT NOT NULL,
+            omitted_sources_json TEXT NOT NULL,
+            complete INTEGER NOT NULL CHECK(complete IN (0, 1)),
+            created_at TEXT NOT NULL,
+            persisted_at TEXT NOT NULL
+        );
         """
         connection = self._connect()
         try:
@@ -388,6 +406,257 @@ class SessionStore:
             connection.close()
         return [self._event_from_row(row) for row in rows]
 
+    def save_context_manifest(
+        self,
+        *,
+        context_id: str,
+        session_id: str,
+        project_id: str,
+        run_id: str,
+        role: str,
+        workflow_state: str,
+        project_revision: int,
+        project_state_hash: str,
+        context_hash: str,
+        context_policy_hash: str,
+        budget_fingerprint: str,
+        sources: list[dict[str, Any]],
+        omitted_sources: list[dict[str, Any]],
+        created_at: str,
+        complete: bool = True,
+    ) -> dict[str, Any]:
+        """通过 F10 正式 API 持久化不含正文的 Context Manifest。"""
+
+        session = self.get_session(session_id)
+        if session.project_id != project_id:
+            raise RuntimeValidationError("CONTEXT_MANIFEST_PROJECT_MISMATCH")
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                context_id,
+                run_id,
+                role,
+                workflow_state,
+                project_state_hash,
+                context_hash,
+                context_policy_hash,
+                budget_fingerprint,
+                created_at,
+            )
+        ):
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        if not isinstance(project_revision, int) or project_revision < 0:
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        if not isinstance(complete, bool):
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        safe_sources = self._validate_context_manifest_sources(sources)
+        safe_omitted = self._validate_context_manifest_sources(
+            omitted_sources, omitted=True
+        )
+        sources_json = canonical_json(safe_sources)
+        omitted_json = canonical_json(safe_omitted)
+        if _SECRET_PATTERN.search(sources_json + omitted_json):
+            raise RuntimeValidationError("CONTEXT_MANIFEST_SECRET_FORBIDDEN")
+        persisted_at = utc_now()
+        row_values = (
+            context_id,
+            session_id,
+            project_id,
+            run_id,
+            role,
+            workflow_state,
+            project_revision,
+            project_state_hash,
+            context_hash,
+            context_policy_hash,
+            budget_fingerprint,
+            sources_json,
+            omitted_json,
+            1 if complete else 0,
+            created_at,
+            persisted_at,
+        )
+        with self.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                "SELECT * FROM context_manifests WHERE context_id=?",
+                (context_id,),
+            ).fetchone()
+            if existing is not None:
+                existing_valid = True
+                try:
+                    self._context_manifest_from_row(existing)
+                except RuntimeStorageError:
+                    existing_valid = False
+                if not existing_valid or int(existing["complete"]) != 1:
+                    connection.execute(
+                        """
+                        UPDATE context_manifests SET
+                            session_id=?, project_id=?, run_id=?, role=?,
+                            workflow_state=?, project_revision=?, project_state_hash=?,
+                            context_hash=?, context_policy_hash=?, budget_fingerprint=?,
+                            sources_json=?, omitted_sources_json=?, complete=?,
+                            created_at=?, persisted_at=?
+                        WHERE context_id=?
+                        """,
+                        (*row_values[1:], context_id),
+                    )
+                    row = connection.execute(
+                        "SELECT * FROM context_manifests WHERE context_id=?",
+                        (context_id,),
+                    ).fetchone()
+                    return self._context_manifest_from_row(row)
+                existing_dict = dict(existing)
+                if tuple(existing_dict[key] for key in (
+                    "session_id",
+                    "project_id",
+                    "run_id",
+                    "role",
+                    "workflow_state",
+                    "project_revision",
+                    "project_state_hash",
+                    "context_hash",
+                    "context_policy_hash",
+                    "budget_fingerprint",
+                    "sources_json",
+                    "omitted_sources_json",
+                    "complete",
+                    "created_at",
+                )) != (
+                    session_id,
+                    project_id,
+                    run_id,
+                    role,
+                    workflow_state,
+                    project_revision,
+                    project_state_hash,
+                    context_hash,
+                    context_policy_hash,
+                    budget_fingerprint,
+                    sources_json,
+                    omitted_json,
+                    1 if complete else 0,
+                    created_at,
+                ):
+                    raise RuntimeValidationError("CONTEXT_MANIFEST_CONFLICT")
+                return self._context_manifest_from_row(existing)
+            connection.execute(
+                """
+                INSERT INTO context_manifests(
+                    context_id, session_id, project_id, run_id, role,
+                    workflow_state, project_revision, project_state_hash,
+                    context_hash, context_policy_hash, budget_fingerprint,
+                    sources_json, omitted_sources_json, complete, created_at,
+                    persisted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                row_values,
+            )
+            row = connection.execute(
+                "SELECT * FROM context_manifests WHERE context_id=?",
+                (context_id,),
+            ).fetchone()
+        return self._context_manifest_from_row(row)
+
+    @staticmethod
+    def _validate_context_manifest_sources(
+        sources: list[dict[str, Any]], *, omitted: bool = False
+    ) -> list[dict[str, Any]]:
+        if not isinstance(sources, list):
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        allowed = (
+            {
+                "reference",
+                "content_hash",
+                "reason",
+                "priority",
+                "omission_reason",
+                "size",
+            }
+            if omitted
+            else {
+                "source_type",
+                "reference",
+                "content_hash",
+                "reason",
+                "priority",
+                "delivery_mode",
+                "size",
+                "original_size",
+                "included_size",
+                "is_excerpt",
+            }
+        )
+        result: list[dict[str, Any]] = []
+        for source in sources:
+            if not isinstance(source, dict) or not set(source).issubset(allowed):
+                raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+            if "content" in source:
+                raise RuntimeValidationError("CONTEXT_MANIFEST_CONTENT_FORBIDDEN")
+            result.append(dict(source))
+        return result
+
+    @staticmethod
+    def _context_manifest_from_row(row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            raise RuntimeStorageError("CONTEXT_MANIFEST_MISSING")
+        value = dict(row)
+        try:
+            value["sources"] = json.loads(value.pop("sources_json"))
+            value["omitted_sources"] = json.loads(value.pop("omitted_sources_json"))
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID") from exc
+        if not isinstance(value["sources"], list) or not isinstance(
+            value["omitted_sources"], list
+        ):
+            raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID")
+        return value
+
+    def get_context_manifest(
+        self, session_id: str, context_id: str
+    ) -> dict[str, Any]:
+        """读取同一 Session 的 durable Context Manifest。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM context_manifests WHERE session_id=? AND context_id=?",
+                (session_id, context_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._context_manifest_from_row(row)
+
+    def find_previous_context_manifest(
+        self,
+        session_id: str,
+        *,
+        project_id: str,
+        role: str,
+        workflow_state: str | None = None,
+    ) -> dict[str, Any] | None:
+        """只查同一 Session/Project/Role 的已完成 Manifest。"""
+
+        session = self.get_session(session_id)
+        if session.project_id != project_id:
+            raise RuntimeValidationError("CONTEXT_MANIFEST_PROJECT_MISMATCH")
+        query = """
+            SELECT * FROM context_manifests
+            WHERE session_id=? AND project_id=? AND role=? AND complete=1
+        """
+        parameters: list[Any] = [session_id, project_id, role]
+        if workflow_state is not None:
+            query += " AND workflow_state=?"
+            parameters.append(workflow_state)
+        query += " ORDER BY persisted_at DESC, context_id DESC LIMIT 1"
+        connection = self._connect()
+        try:
+            row = connection.execute(query, parameters).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        return self._context_manifest_from_row(row)
+
     def create_checkpoint(
         self,
         session_id: str,
@@ -568,6 +837,21 @@ class SessionStore:
             )
         return attempt_id
 
+    def get_tool_call(self, session_id: str, tool_call_id: str) -> dict[str, Any]:
+        """读取 Tool Call 状态；不暴露给 ExecutionEnvironment。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM tool_calls WHERE tool_call_id=? AND session_id=?",
+                (tool_call_id, session_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise RuntimeStorageError(f"Tool Call 不存在：{tool_call_id}")
+        return dict(row)
+
     def complete_tool_call(
         self,
         session_id: str,
@@ -631,7 +915,11 @@ class SessionStore:
             self._append_event_in_transaction(
                 connection,
                 session_id,
-                EventType.TOOL_CALL_COMPLETED if status == "SUCCEEDED" else EventType.TOOL_CALL_FAILED,
+                EventType.TOOL_CALL_COMPLETED
+                if status == "SUCCEEDED"
+                else EventType.TOOL_CALL_TIMED_OUT
+                if status == "TIMED_OUT"
+                else EventType.TOOL_CALL_FAILED,
                 ActorType.TOOL,
                 "tool-runtime",
                 idempotency_key=f"tool-completed:{event_attempt_id or tool_call_id}", correlation_id=tool_call_id,

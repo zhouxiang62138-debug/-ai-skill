@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from runtime.event_types import ActorType, EventType
+
 from project_state import (
     ProjectStateError,
     load_project_state,
@@ -158,6 +160,184 @@ def _write_new_yaml(path: Path, value: dict[str, Any]) -> None:
     if path.exists():
         raise ProjectStateError(f"追加式工件并发冲突：{path}")
     temp.replace(path)
+
+
+def _request_fingerprint(
+    project_id: str,
+    base_revision: int,
+    raw_feedback: str,
+    requested_changes: list[dict[str, Any]],
+) -> str:
+    canonical_changes = [
+        {
+            key: value
+            for key, value in item.items()
+            if key not in {"change_item_id", "approval_status"}
+        }
+        for item in requested_changes
+    ]
+    payload = {
+        "project_id": project_id,
+        "base_revision": base_revision,
+        "raw_feedback": raw_feedback,
+        "requested_changes": canonical_changes,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _staged_request_path(root: Path, fingerprint: str) -> Path:
+    return root / "change_requests" / ".staging" / f"create-{fingerprint}.yaml"
+
+
+def _runtime_orchestrator(
+    root: Path,
+    state: dict[str, Any],
+    runtime: Any | None,
+    control_plane_home: str | Path | None,
+) -> Any:
+    if state.get("schema_version") != 7:
+        return runtime
+    if runtime is None:
+        from runtime.orchestrator import Orchestrator
+
+        runtime = Orchestrator(root, control_plane_home=control_plane_home)
+    if Path(runtime.root).resolve() != root:
+        raise ProjectStateError("Change Request Runtime 与项目根目录不一致")
+    return runtime
+
+
+def _commit_v7_role_step(
+    root: Path,
+    runtime: Any,
+    *,
+    role: str,
+    source_status: str,
+    target_status: str,
+    changed_fields: dict[str, Any],
+    expected_revision: int,
+    idempotency_key: str,
+    worker_id: str,
+    run_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """用已有 Role Run 或新建一次 Role Run，经 F10 CAS 提交生命周期步骤。"""
+
+    if run_context is None:
+        run_context = runtime.start(worker_id=worker_id)
+    selection = run_context.get("selection")
+    if (
+        selection is None
+        or getattr(selection, "kind", None) != "ROLE"
+        or getattr(selection, "target", None) != role
+        or not run_context.get("run_id")
+        or not run_context.get("lease_token")
+    ):
+        raise ProjectStateError(f"Runtime 未进入 {role} Role Run")
+    return runtime.commit_step(
+        str(run_context["session_id"]),
+        str(run_context["run_id"]),
+        str(run_context["lease_token"]),
+        {
+            "source_status": source_status,
+            "target_status": target_status,
+            "changed_fields": changed_fields,
+            "expected_revision": expected_revision,
+            "idempotency_key": idempotency_key,
+        },
+    )
+
+
+def _commit_v7_role_state(
+    root: Path,
+    state: dict[str, Any],
+    runtime: Any,
+    *,
+    role: str,
+    next_state: dict[str, Any],
+    expected_revision: int,
+    idempotency_key: str,
+    worker_id: str,
+) -> dict[str, Any]:
+    """用 F10 CAS 提交不改变 workflow status 的角色业务字段。"""
+
+    return runtime.commit_role_state(
+        str(state["runtime"]["session_id"]),
+        role,
+        next_state,
+        project_yaml=root / "project.yaml",
+        expected_revision=expected_revision,
+        idempotency_key=idempotency_key,
+        worker_id=worker_id,
+    )
+
+
+def _commit_v7_role_transition(
+    root: Path,
+    state: dict[str, Any],
+    runtime: Any,
+    *,
+    role: str,
+    source_status: str,
+    target_status: str,
+    changed_fields: dict[str, Any],
+    expected_revision: int,
+    idempotency_key: str,
+    worker_id: str,
+) -> dict[str, Any]:
+    """在没有活动 Role Run 的等待态入口上，仍只经 F10 CAS 迁移。"""
+
+    return runtime.commit_role_transition(
+        str(state["runtime"]["session_id"]),
+        role,
+        {
+            "project_yaml": root / "project.yaml",
+            "source_status": source_status,
+            "target_status": target_status,
+            "changed_fields": changed_fields,
+            "expected_revision": expected_revision,
+            "idempotency_key": idempotency_key,
+        },
+        worker_id=worker_id,
+    )
+
+
+def _append_v7_stage_audit(
+    root: Path,
+    runtime: Any,
+    *,
+    change_request_id: str,
+    stage: str,
+    actor: str,
+    artifact: str | None = None,
+) -> None:
+    """把 Change Request 阶段写入 F10，payload 只包含引用与状态元数据。"""
+
+    state = load_project_state(root / "project.yaml")
+    session_id = str(state["runtime"]["session_id"])
+    revision = int(state["runtime"]["revision"])
+    key = f"change-request-stage:{change_request_id}:{stage}:{revision}"
+    if any(event.idempotency_key == key for event in runtime.store.list_events(session_id)):
+        return
+    actor_type = ActorType.USER if actor == "user" else ActorType.ROLE
+    runtime.store.append_event(
+        session_id,
+        EventType.CHANGE_REQUEST_STAGE,
+        actor_type,
+        actor,
+        idempotency_key=key,
+        correlation_id=f"change-request:{change_request_id}",
+        payload={
+            "change_request_id": change_request_id,
+            "stage": stage,
+            "actor": actor,
+            "status": state["status"],
+            "revision": revision,
+            "artifact": artifact,
+        },
+    )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -509,6 +689,281 @@ def migrate_completed_project_for_change_request(
     }
 
 
+def _prepare_v7_change_request(
+    root: Path,
+    state: dict[str, Any],
+    *,
+    raw_feedback: str,
+    requested_changes: Iterable[str | dict[str, Any]],
+    source_type: str,
+    source_description: str,
+    created_by: str,
+    staged_path: Path,
+) -> tuple[dict[str, Any], str]:
+    requested_changes = list(requested_changes)
+    normalized_changes = _normalize_changes(
+        _next_identifier(root / "change_requests", CR_ID_RE, "CR-", 4),
+        requested_changes,
+    )
+    base_revision = int((state.get("runtime") or {}).get("revision", 0))
+    fingerprint = _request_fingerprint(
+        str(state["project_id"]), base_revision, raw_feedback, normalized_changes
+    )
+    if staged_path.is_file():
+        request = _load_yaml(staged_path)
+        errors = validate_change_request(
+            request, project_id=state["project_id"], project_root=root
+        )
+        if errors:
+            raise ProjectStateError("staged Change Request 无效：" + "; ".join(errors))
+        if (
+            request["project_id"] != state["project_id"]
+            or request["raw_feedback"] != raw_feedback
+            or request["created_by"] != created_by
+            or request["source"]
+            != {"type": source_type, "description": source_description}
+            or [
+                (item["type"], item["description"])
+                for item in request["requested_changes"]
+            ]
+            != [
+                (item["type"], item["description"])
+                for item in normalized_changes
+            ]
+        ):
+            raise ProjectStateError("staged Change Request request mismatch")
+        staged_fingerprint = staged_path.stem.removeprefix("create-")
+        if not re.fullmatch(r"[0-9a-f]{64}", staged_fingerprint):
+            raise ProjectStateError("staged Change Request fingerprint invalid")
+        return request, staged_fingerprint
+        expected = _request_fingerprint(
+            str(state["project_id"]),
+            base_revision,
+            str(request["raw_feedback"]),
+            list(request["requested_changes"]),
+        )
+        if expected != fingerprint:
+            raise ProjectStateError("staged Change Request 与当前请求不一致")
+        return request, fingerprint
+
+    change_request_id = _next_identifier(
+        root / "change_requests", CR_ID_RE, "CR-", 4
+    )
+    request = {
+        "schema_version": "1.0",
+        "change_request_id": change_request_id,
+        "project_id": state["project_id"],
+        "created_at": _now(),
+        "created_by": created_by,
+        "source": {"type": source_type, "description": source_description},
+        "raw_feedback": raw_feedback,
+        "baseline": {
+            "previous_project_status": state["status"],
+            "plan_version": state.get("plan_version"),
+            "release_version": state.get("release_version")
+            or state.get("current_release"),
+            "last_evaluation": state.get("last_evaluation"),
+            "commit_sha": _git_commit(root / "code")
+            if (root / "code").is_dir()
+            else _git_commit(root),
+        },
+        "requested_changes": normalized_changes,
+    }
+    errors = validate_change_request(
+        request,
+        filename=f"{change_request_id}.yaml",
+        project_id=state["project_id"],
+        project_root=root,
+    )
+    if errors:
+        raise ProjectStateError("Change Request 创建数据无效：" + "; ".join(errors))
+    _write_new_yaml(staged_path, request)
+    return request, fingerprint
+
+
+def _finalize_v7_change_request(
+    root: Path,
+    runtime: Any,
+    request: dict[str, Any],
+    *,
+    base_revision: int,
+    fingerprint: str,
+    worker_id: str,
+) -> dict[str, Any]:
+    change_request_id = str(request["change_request_id"])
+    request_path = _request_path(root, change_request_id)
+    if not request_path.exists():
+        _write_new_yaml(request_path, request)
+    if not load_events(root, change_request_id):
+        append_event(
+            root,
+            change_request_id,
+            "PROPOSED",
+            actor="change_request",
+            reason="已通过 Runtime CAS 建立 Change Request 生命周期起点",
+            artifact=request_path.relative_to(root).as_posix(),
+        )
+
+    state = load_project_state(root / "project.yaml")
+    formal_reference = request_path.relative_to(root).as_posix()
+    if state.get("change_request_record") != formal_reference:
+        candidate = copy.deepcopy(state)
+        candidate["change_request_record"] = formal_reference
+        runtime.commit_module_state(
+            str(state["runtime"]["session_id"]),
+            "change_request",
+            candidate,
+            project_yaml=root / "project.yaml",
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-finalize:{fingerprint}",
+            worker_id=worker_id,
+        )
+        state = load_project_state(root / "project.yaml")
+
+    session_id = str(state["runtime"]["session_id"])
+    audit_key = f"change-request-created:{fingerprint}"
+    if not any(
+        event.event_type == EventType.CHANGE_REQUEST_CREATED
+        and event.idempotency_key == audit_key
+        for event in runtime.store.list_events(session_id)
+    ):
+        runtime.store.append_event(
+            session_id,
+            EventType.CHANGE_REQUEST_CREATED,
+            ActorType.MODULE,
+            "change_request",
+            idempotency_key=audit_key,
+            correlation_id=f"change-request:{change_request_id}",
+            payload={
+                "change_request_id": change_request_id,
+                "base_revision": base_revision,
+                "new_revision": int(state["runtime"]["revision"]),
+                "actor": "change_request",
+            },
+        )
+    return {
+        "result": "PASS",
+        "change_request_id": change_request_id,
+        "request_path": str(request_path),
+        "project_status": state["status"],
+        "next_role": state["next_role"],
+        "classification": {
+            change_type: sum(
+                1
+                for item in request["requested_changes"]
+                if item["type"] == change_type
+            )
+            for change_type in sorted(
+                {item["type"] for item in request["requested_changes"]}
+            )
+        },
+    }
+
+
+def _create_v7_change_request(
+    root: Path,
+    state: dict[str, Any],
+    *,
+    raw_feedback: str,
+    requested_changes: Iterable[str | dict[str, Any]],
+    source_type: str,
+    source_description: str,
+    created_by: str,
+    runtime: Any | None,
+    control_plane_home: str | Path | None,
+    worker_id: str,
+) -> dict[str, Any]:
+    requested_changes = list(requested_changes)
+    runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
+    if runtime is None:
+        raise ProjectStateError("v7 Change Request 必须通过 Runtime CAS")
+    if state.get("status") not in REOPENABLE_STATUSES and not state.get(
+        "active_change_request"
+    ):
+        raise ProjectStateError("只有 ACCEPTED 或 ARCHIVED 项目可以创建活动 Change Request")
+
+    base_revision = int((state.get("runtime") or {}).get("revision", 0))
+    normalized_input = _normalize_changes(
+        _next_identifier(root / "change_requests", CR_ID_RE, "CR-", 4),
+        requested_changes,
+    )
+    fingerprint = _request_fingerprint(
+        str(state["project_id"]),
+        base_revision,
+        raw_feedback,
+        normalized_input,
+    )
+    staged_path = _staged_request_path(root, fingerprint)
+    if state.get("active_change_request"):
+        staging_dir = root / "change_requests" / ".staging"
+        for candidate in sorted(staging_dir.glob("create-*.yaml")):
+            try:
+                staged_request = _load_yaml(candidate)
+            except ProjectStateError:
+                continue
+            if staged_request.get("change_request_id") == state["active_change_request"]:
+                staged_path = candidate
+                break
+    request, fingerprint = _prepare_v7_change_request(
+        root,
+        state,
+        raw_feedback=raw_feedback,
+        requested_changes=requested_changes,
+        source_type=source_type,
+        source_description=source_description,
+        created_by=created_by,
+        staged_path=staged_path,
+    )
+    if state.get("active_change_request"):
+        if state["active_change_request"] != request["change_request_id"]:
+            raise ProjectStateError("项目已有其他 active_change_request")
+        return _finalize_v7_change_request(
+            root,
+            runtime,
+            request,
+            base_revision=base_revision,
+            fingerprint=fingerprint,
+            worker_id=worker_id,
+        )
+
+    change_context = {
+        "previous_project_status": state["status"],
+        "change_cycle": int(state.get("change_cycle") or 0) + 1,
+        "evaluation_iteration": 0,
+    }
+    changed_fields = {
+        "status": "CHANGE_REQUESTED",
+        "next_role": "planner",
+        "active_module": None,
+        "active_change_request": request["change_request_id"],
+        "change_context": change_context,
+        "change_cycle": change_context["change_cycle"],
+        "current_iteration": 0,
+        "automatic_retry_allowed": True,
+    }
+    runtime.commit_module_step(
+        str(state["runtime"]["session_id"]),
+        "change_request",
+        {
+            "project_yaml": root / "project.yaml",
+            "source_status": state["status"],
+            "target_status": "CHANGE_REQUESTED",
+            "changed_fields": changed_fields,
+            "expected_revision": base_revision,
+            "idempotency_key": f"change-request-open:{fingerprint}",
+        },
+        worker_id=worker_id,
+    )
+    return _finalize_v7_change_request(
+        root,
+        runtime,
+        request,
+        base_revision=base_revision,
+        fingerprint=fingerprint,
+        worker_id=worker_id,
+    )
+
+
 def create_change_request(
     project_root: str | Path,
     *,
@@ -517,6 +972,9 @@ def create_change_request(
     source_type: str = "user_feedback",
     source_description: str = "用户在项目完成后提交修改意见",
     created_by: str = "user",
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "change-request-module",
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     project_yaml = root / "project.yaml"
@@ -526,6 +984,22 @@ def create_change_request(
     if state.get("schema_version") in {3, 4, 5}:
         migrate_completed_project_for_change_request(root)
         state = load_project_state(project_yaml)
+    if state.get("schema_version") == 7:
+        state_errors = validate_project_state(state, root)
+        if state_errors:
+            raise ProjectStateError("invalid project state: " + "; ".join(state_errors))
+        return _create_v7_change_request(
+            root,
+            state,
+            raw_feedback=raw_feedback,
+            requested_changes=requested_changes,
+            source_type=source_type,
+            source_description=source_description,
+            created_by=created_by,
+            runtime=runtime,
+            control_plane_home=control_plane_home,
+            worker_id=worker_id,
+        )
     state_errors = validate_project_state(state, root)
     if state_errors:
         raise ProjectStateError("目标项目状态无效：" + "; ".join(state_errors))
@@ -828,9 +1302,16 @@ def create_impact_analysis(
     item_impacts: list[dict[str, Any]] | None = None,
     risk_level: str | None = None,
     approval_questions: list[str] | None = None,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "planner",
+    run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     if state.get("status") != "CHANGE_REQUESTED":
         raise ProjectStateError("只有 CHANGE_REQUESTED 可生成影响分析")
     if state.get("active_change_request") != change_request_id:
@@ -839,7 +1320,7 @@ def create_impact_analysis(
     status = current_change_status(root, change_request_id)
     if status not in {"PROPOSED", "ANALYZING"}:
         raise ProjectStateError("只有 PROPOSED/ANALYZING 请求可生成影响分析")
-    if status == "PROPOSED":
+    if status == "PROPOSED" and not is_v7:
         append_event(
             root,
             change_request_id,
@@ -944,6 +1425,14 @@ def create_impact_analysis(
             ]
         )
     _write_new_text(markdown_path, "\n".join(lines))
+    if is_v7 and status == "PROPOSED":
+        append_event(
+            root,
+            change_request_id,
+            "ANALYZING",
+            actor="planner",
+            reason="Planner 开始变更影响分析",
+        )
     append_event(
         root,
         change_request_id,
@@ -956,6 +1445,40 @@ def create_impact_analysis(
     updated["status"] = "WAITING_FOR_CHANGE_APPROVAL"
     updated["next_role"] = "planner"
     updated["change_impact_analysis"] = yaml_path.relative_to(root).as_posix()
+    if is_v7:
+        assert runtime is not None
+        _commit_v7_role_step(
+            root,
+            runtime,
+            role="planner",
+            source_status="CHANGE_REQUESTED",
+            target_status="WAITING_FOR_CHANGE_APPROVAL",
+            changed_fields={
+                "status": "WAITING_FOR_CHANGE_APPROVAL",
+                "next_role": "planner",
+                "active_module": None,
+                "change_impact_analysis": yaml_path.relative_to(root).as_posix(),
+            },
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-impact:{change_request_id}:{yaml_path.stem}",
+            worker_id=worker_id,
+            run_context=run_context,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage="IMPACT_ANALYSIS_COMPLETED",
+            actor="planner",
+            artifact=yaml_path.relative_to(root).as_posix(),
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": "PASS",
+            "impact_analysis": str(yaml_path),
+            "user_document": str(markdown_path),
+            "project_status": final_state["status"],
+        }
     errors = validate_project_state(updated, root)
     if errors:
         raise ProjectStateError("影响分析后的项目状态无效：" + "; ".join(errors))
@@ -1055,9 +1578,15 @@ def decide_change_request(
     *,
     item_decisions: dict[str, str],
     source_text: str,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "planner",
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     if state.get("status") != "WAITING_FOR_CHANGE_APPROVAL":
         raise ProjectStateError("只有 WAITING_FOR_CHANGE_APPROVAL 可记录决定")
     if state.get("active_change_request") != change_request_id:
@@ -1148,6 +1677,36 @@ def decide_change_request(
     updated["change_approval_record"] = approval_ref
     updated["approved_change_items"] = sorted(approved_ids)
     updated["next_role"] = "planner"
+    if is_v7:
+        assert runtime is not None
+        _commit_v7_role_state(
+            root,
+            state,
+            runtime,
+            role="planner",
+            next_state=updated,
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-scope-approved:{change_request_id}:{approval_id}",
+            worker_id=worker_id,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage="CHANGE_SCOPE_APPROVED",
+            actor="user",
+            artifact=approval_ref,
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": "PASS",
+            "decision": decision,
+            "approved_change_items": sorted(approved_ids),
+            "approval": str(approval_path),
+            "plan": str(plan_path),
+            "plan_version": plan_version,
+            "project_status": final_state["status"],
+        }
     errors = validate_project_state(updated, root)
     if errors:
         raise ProjectStateError("批准后的项目状态无效：" + "; ".join(errors))
@@ -1284,10 +1843,19 @@ def create_change_baseline(
 
 
 def begin_change_implementation(
-    project_root: str | Path, change_request_id: str
+    project_root: str | Path,
+    change_request_id: str,
+    *,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "generator",
+    run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     if state.get("status") != "WAITING_FOR_CHANGE_APPROVAL":
         raise ProjectStateError("项目尚未处于批准后的变更等待状态")
     if state.get("active_change_request") != change_request_id:
@@ -1323,6 +1891,41 @@ def begin_change_implementation(
     updated["next_role"] = "generator"
     updated["change_baseline"] = baseline_path.relative_to(root).as_posix()
     updated["automatic_retry_allowed"] = True
+    if is_v7:
+        assert runtime is not None
+        _commit_v7_role_transition(
+            root,
+            state,
+            runtime,
+            role="generator",
+            source_status="WAITING_FOR_CHANGE_APPROVAL",
+            target_status="IMPLEMENTING",
+            changed_fields={
+                "status": "IMPLEMENTING",
+                "next_role": "generator",
+                "active_module": None,
+                "change_baseline": baseline_path.relative_to(root).as_posix(),
+                "automatic_retry_allowed": True,
+            },
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-implementation:{change_request_id}",
+            worker_id=worker_id,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage="CHANGE_IMPLEMENTATION_STARTED",
+            actor="generator",
+            artifact=baseline_path.relative_to(root).as_posix(),
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": "PASS",
+            "project_status": final_state["status"],
+            "baseline": str(baseline_path),
+            "approved_change_items": approved,
+        }
     errors = validate_project_state(updated, root)
     if errors:
         raise ProjectStateError("实施状态无效：" + "; ".join(errors))
@@ -1377,7 +1980,7 @@ def validate_generator_change_scope(
         normalized_files.append(relative)
         if relative.startswith(protected_prefixes):
             errors.append(f"Generator 修改了受保护文件：{relative}")
-        if not relative.startswith(("code/", "artifacts/")):
+        if not relative.startswith(("code/", "tests/", "artifacts/")):
             errors.append(f"Generator 修改路径超出允许范围：{relative}")
     if not normalized_files:
         errors.append("Generator Handoff 必须记录真实修改文件")
@@ -1402,8 +2005,16 @@ def record_generator_change_handoff(
     verification_results: list[dict[str, Any]],
     known_limitations: list[str] | None = None,
     rollback: str,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "generator",
+    run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
+    state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     item_ids = [item.get("change_item_id") for item in implemented_items]
     errors = validate_generator_change_scope(
         root,
@@ -1489,11 +2100,43 @@ def record_generator_change_handoff(
         reason="Generator 已逐项交接批准范围及自测证据",
         artifact=path.relative_to(root).as_posix(),
     )
-    state = load_project_state(root / "project.yaml")
     updated = copy.deepcopy(state)
     updated["status"] = "EVALUATING"
     updated["next_role"] = "evaluator"
     updated["last_generator_response"] = path.relative_to(root).as_posix()
+    if is_v7:
+        assert runtime is not None
+        _commit_v7_role_step(
+            root,
+            runtime,
+            role="generator",
+            source_status="IMPLEMENTING",
+            target_status="EVALUATING",
+            changed_fields={
+                "status": "EVALUATING",
+                "next_role": "evaluator",
+                "active_module": None,
+                "last_generator_response": path.relative_to(root).as_posix(),
+            },
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-handoff:{change_request_id}:{handoff_id}",
+            worker_id=worker_id,
+            run_context=run_context,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage="GENERATOR_HANDOFF",
+            actor="generator",
+            artifact=path.relative_to(root).as_posix(),
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": "PASS",
+            "handoff": str(path),
+            "project_status": final_state["status"],
+        }
     errors = validate_project_state(updated, root)
     if errors:
         raise ProjectStateError("Generator 交接后的项目状态无效：" + "; ".join(errors))
@@ -1538,9 +2181,16 @@ def record_change_evaluation(
     evidence: list[str],
     environment_blocked: bool = False,
     ambiguity_reason: str | None = None,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "evaluator",
+    run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     if state.get("status") != "EVALUATING" or state.get("next_role") != "evaluator":
         raise ProjectStateError("Evaluator 只能在 EVALUATING 状态验收变更")
     if state.get("active_change_request") != change_request_id:
@@ -1697,6 +2347,52 @@ def record_change_evaluation(
         updated["status"] = "CHANGE_REQUESTED"
         updated["next_role"] = "planner"
         updated["automatic_retry_allowed"] = False
+    if is_v7:
+        assert runtime is not None
+        changed_fields = {
+            field: copy.deepcopy(updated.get(field))
+            for field in ("status", "next_role", "active_module")
+        }
+        changed_fields.update(
+            {
+                field: copy.deepcopy(updated.get(field))
+                for field in (
+                    "last_evaluation",
+                    "current_iteration",
+                    "change_context",
+                    "automatic_retry_allowed",
+                    "blocked_reason",
+                )
+                if updated.get(field) != state.get(field)
+            }
+        )
+        _commit_v7_role_step(
+            root,
+            runtime,
+            role="evaluator",
+            source_status="EVALUATING",
+            target_status=str(updated["status"]),
+            changed_fields=changed_fields,
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-evaluation:{change_request_id}:{evaluation_id}",
+            worker_id=worker_id,
+            run_context=run_context,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage=f"EVALUATION_{result}",
+            actor="evaluator",
+            artifact=reference,
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": result,
+            "evaluation": str(path),
+            "project_status": final_state["status"],
+            "evaluation_iteration": iteration,
+        }
     state_errors = validate_project_state(updated, root)
     if state_errors:
         raise ProjectStateError(
@@ -1755,10 +2451,18 @@ def _ensure_baseline_release(
 
 
 def create_change_release(
-    project_root: str | Path, change_request_id: str
+    project_root: str | Path,
+    change_request_id: str,
+    *,
+    runtime: Any | None = None,
+    control_plane_home: str | Path | None = None,
+    worker_id: str = "evaluator",
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     state = load_project_state(root / "project.yaml")
+    is_v7 = state.get("schema_version") == 7
+    if is_v7:
+        runtime = _runtime_orchestrator(root, state, runtime, control_plane_home)
     if state.get("status") != "RELEASE_READY" or state.get("next_role") != "evaluator":
         raise ProjectStateError("只有 RELEASE_READY 可以创建新 Release")
     if state.get("active_change_request") != change_request_id:
@@ -1818,6 +2522,47 @@ def create_change_release(
     updated["current_iteration"] = 0
     updated["automatic_retry_allowed"] = False
     updated["blocked_reason"] = None
+    if is_v7:
+        assert runtime is not None
+        _commit_v7_role_transition(
+            root,
+            state,
+            runtime,
+            role="evaluator",
+            source_status="RELEASE_READY",
+            target_status="ACCEPTED",
+            changed_fields={
+                "status": "ACCEPTED",
+                "next_role": None,
+                "active_module": None,
+                "active_change_request": None,
+                "change_context": None,
+                "release_version": version,
+                "current_release": path.relative_to(root).as_posix(),
+                "current_iteration": 0,
+                "automatic_retry_allowed": False,
+                "blocked_reason": None,
+            },
+            expected_revision=int(state["runtime"]["revision"]),
+            idempotency_key=f"change-request-release:{change_request_id}:{version}",
+            worker_id=worker_id,
+        )
+        _append_v7_stage_audit(
+            root,
+            runtime,
+            change_request_id=change_request_id,
+            stage="RELEASE_ACCEPTED",
+            actor="evaluator",
+            artifact=path.relative_to(root).as_posix(),
+        )
+        final_state = load_project_state(root / "project.yaml")
+        return {
+            "result": "PASS",
+            "release_version": version,
+            "release": str(path),
+            "previous_release": previous or "legacy-baseline",
+            "project_status": final_state["status"],
+        }
     errors = validate_project_state(updated, root)
     if errors:
         raise ProjectStateError("Release 后项目状态无效：" + "; ".join(errors))

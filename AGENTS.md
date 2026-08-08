@@ -41,7 +41,20 @@
 
 当前角色仅限 Planner、Generator、Evaluator。不得创建、假设或代替 Architect、Tester、Security Reviewer、Release Manager 或 Project Manager Agent。
 
-每次开始项目工作，必须先读取项目根目录唯一的 `project.yaml`。不得创建 `memory/project.yaml`，不得用聊天记录替代项目状态。
+## Skill 本体仓库与 managed project 边界
+
+本仓库是 `ai-development-team-skill` Skill 本体仓库，不是
+`C:\Users\28388\Desktop\ai-projects\<project_id>` managed project。Skill
+仓库根目录不要求存在 `project.yaml`，禁止为了满足项目协议创建假的
+`project.yaml`。`project.yaml` 只属于具体 managed project 实例。
+
+Skill 本体开发、测试、文档维护、Git commit、Git push 和 GitHub 上传不依赖
+`project.yaml`，不得因 Skill 仓库根目录缺少该文件而 BLOCKED。只有 Planner、
+Generator、Evaluator、Change Request 等 managed project 工作流才要求读取对应
+项目根目录的 `project.yaml`，并遵守其状态协议。
+
+仅在开始 managed project 工作时，必须先读取该项目根目录唯一的 `project.yaml`。
+不得创建 `memory/project.yaml`，不得用聊天记录替代项目状态。
 
 ## F10 Managed Runtime 规则
 

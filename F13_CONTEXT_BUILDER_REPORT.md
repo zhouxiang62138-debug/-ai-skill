@@ -1,10 +1,12 @@
-# F13 EXPERIMENTAL PROTOTYPE：上下文构建报告
+# F13.1 Deterministic Context Builder
 
-> F10R 范围更正：本文件描述的实现已移入 `experimental/f13_context_builder/`，
-> 不属于正式 Runtime，不构成完整 Context Builder；以下历史性描述不能作为已交付能力。
+正式实现位于 `runtime/context/`，配置位于 `config/context.yaml`。旧的
+`experimental/f13_context_builder/` 仅作为历史原型保留，不是正式调用路径。
 
-已实现 `build_context(session_id, role, checkpoint_id, relevant_artifacts, relevant_issue_ids, token_budget)`。
-它按角色、路径和预算读取原始工件片段，保留截断标记与 Event hash 引用；Generator 被
-确定性禁止读取候选产品方案和设计预览，Evaluator 仍需依赖证据而非 Generator 文本结论。
+- 按 Planner、Generator、Evaluator 与 workflow state 选择 Context 来源。
+- 每个来源提供 reference、content hash 和 reason；Package 计算稳定 context hash。
+- 项目根目录来自 F10 Session；读取通过现有 Capability 与 Path Policy。
+- Secret、Control Plane raw files 和跨项目路径被拒绝。
+- 构建只通过 F10 `SessionStore` 追加轻量 `CONTEXT_BUILT` Event。
 
-F13 没有启用同角色多 Worker、任务图或并行执行；这些扩展应在独立并发设计后再启用。
+F13.1 不实现 Token Budget、Resume Context、搜索、模型调用或并行 Agent。
