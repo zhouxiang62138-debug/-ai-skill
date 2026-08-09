@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -79,6 +81,8 @@ class BrowserProfile:
     console_error_policy: str = "fail_on_error"
     network_failure_policy: str = "fail_on_failure"
     required_scenarios: tuple[str, ...] = ()
+    scenario_manifest_reference: str | None = None
+    scenario_manifest_hash: str | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "BrowserProfile":
@@ -106,6 +110,25 @@ class BrowserProfile:
             isinstance(item, str) and item.strip() for item in scenario_ids
         ):
             raise BrowserPolicyError("BROWSER_PROFILE_INVALID", "required_scenarios")
+        manifest_config = data.get("scenario_manifest")
+        manifest_reference = manifest_config
+        manifest_hash = None
+        if isinstance(manifest_config, Mapping):
+            manifest_reference = manifest_config.get("reference")
+            manifest_hash = manifest_config.get("hash")
+        if manifest_reference is not None and (
+            not isinstance(manifest_reference, str) or not manifest_reference.strip()
+        ):
+            raise BrowserPolicyError("BROWSER_PROFILE_INVALID", "scenario_manifest")
+        if manifest_hash is not None and (
+            not isinstance(manifest_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", manifest_hash)
+        ):
+            raise BrowserPolicyError("BROWSER_PROFILE_INVALID", "scenario_manifest.hash")
+        if required and not scenario_ids and manifest_reference is None:
+            raise BrowserPolicyError(
+                "BROWSER_REQUIRED_SCENARIOS_MISSING",
+                "required_scenarios 或 scenario_manifest 至少需要一个",
+            )
         values = {
             "screenshot_policy": data.get("screenshot_policy", "on_failure"),
             "console_error_policy": data.get("console_error_policy", "fail_on_error"),
@@ -130,6 +153,8 @@ class BrowserProfile:
             console_error_policy=str(values["console_error_policy"]),
             network_failure_policy=str(values["network_failure_policy"]),
             required_scenarios=tuple(scenario_ids),
+            scenario_manifest_reference=manifest_reference,
+            scenario_manifest_hash=manifest_hash,
         )
 
     def __post_init__(self) -> None:
@@ -141,6 +166,155 @@ class BrowserProfile:
                 raise BrowserPolicyError("BROWSER_PROFILE_INVALID", "base_url")
             if parsed.username or parsed.password:
                 raise BrowserPolicyError("BROWSER_PROFILE_SECRET_FORBIDDEN")
+        if self.required and not self.required_scenarios and not self.scenario_manifest_reference:
+            raise BrowserPolicyError("BROWSER_REQUIRED_SCENARIOS_MISSING")
+
+
+_SCENARIO_TYPES = frozenset(
+    {"normal", "failure", "boundary", "persistence", "first_use"}
+)
+
+
+@dataclass(frozen=True)
+class BrowserScenario:
+    """一个可追踪到 Requirement/AC 的 Browser 业务场景。"""
+
+    scenario_id: str
+    requirement_id: str
+    acceptance_criterion_id: str
+    preconditions: tuple[str, ...]
+    steps: tuple[Mapping[str, Any], ...]
+    expected_ui_state: Mapping[str, Any]
+    expected_api_state: Mapping[str, Any]
+    critical_workflow: bool
+    scenario_type: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "BrowserScenario":
+        if not isinstance(value, Mapping):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID")
+        required = (
+            "scenario_id",
+            "requirement_id",
+            "acceptance_criterion_id",
+            "preconditions",
+            "steps",
+            "expected_ui_state",
+            "expected_api_state",
+            "critical_workflow",
+            "scenario_type",
+        )
+        if any(key not in value for key in required):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "字段不完整")
+        for key in required[:3]:
+            _required_text(value[key], key)
+        preconditions = value["preconditions"]
+        steps = value["steps"]
+        if not isinstance(preconditions, list) or any(
+            not isinstance(item, str) or not item.strip() for item in preconditions
+        ):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "preconditions")
+        if not isinstance(steps, list) or not steps or any(
+            not isinstance(item, Mapping) or not item.get("action") for item in steps
+        ):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "steps")
+        if not isinstance(value["expected_ui_state"], Mapping):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "expected_ui_state")
+        if not isinstance(value["expected_api_state"], Mapping):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "expected_api_state")
+        if not isinstance(value["critical_workflow"], bool):
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "critical_workflow")
+        if value["scenario_type"] not in _SCENARIO_TYPES:
+            raise BrowserPolicyError("BROWSER_SCENARIO_INVALID", "scenario_type")
+        return cls(
+            scenario_id=str(value["scenario_id"]),
+            requirement_id=str(value["requirement_id"]),
+            acceptance_criterion_id=str(value["acceptance_criterion_id"]),
+            preconditions=tuple(preconditions),
+            steps=tuple(dict(item) for item in steps),
+            expected_ui_state=dict(value["expected_ui_state"]),
+            expected_api_state=dict(value["expected_api_state"]),
+            critical_workflow=value["critical_workflow"],
+            scenario_type=str(value["scenario_type"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scenario_id": self.scenario_id,
+            "requirement_id": self.requirement_id,
+            "acceptance_criterion_id": self.acceptance_criterion_id,
+            "preconditions": list(self.preconditions),
+            "steps": [dict(item) for item in self.steps],
+            "expected_ui_state": dict(self.expected_ui_state),
+            "expected_api_state": dict(self.expected_api_state),
+            "critical_workflow": self.critical_workflow,
+            "scenario_type": self.scenario_type,
+        }
+
+
+@dataclass(frozen=True)
+class BrowserScenarioManifest:
+    """Browser 场景清单；它是 Gate 的结构化输入，不是模型提示词。"""
+
+    schema_version: int
+    manifest_id: str
+    profile: str
+    scenarios: tuple[BrowserScenario, ...]
+    manifest_hash: str | None = None
+    artifact_kind: str = "approved"
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "BrowserScenarioManifest":
+        if not isinstance(value, Mapping) or value.get("schema_version") != 1:
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_INVALID")
+        for key in ("manifest_id", "profile"):
+            _required_text(value.get(key), key)
+        raw_scenarios = value.get("scenarios")
+        if not isinstance(raw_scenarios, list) or not raw_scenarios:
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_EMPTY")
+        scenarios = tuple(BrowserScenario.from_mapping(item) for item in raw_scenarios)
+        ids = [item.scenario_id for item in scenarios]
+        if len(set(ids)) != len(ids):
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_DUPLICATE")
+        declared_hash = value.get("manifest_hash")
+        if declared_hash is not None and (
+            not isinstance(declared_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", declared_hash)
+        ):
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_INVALID", "manifest_hash")
+        artifact_kind = value.get("artifact_kind", "approved")
+        if artifact_kind not in {"approved", "template", "example"}:
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_INVALID", "artifact_kind")
+        parsed = cls(1, str(value["manifest_id"]), str(value["profile"]), scenarios, declared_hash, artifact_kind)
+        if declared_hash is not None and declared_hash != parsed.compute_hash():
+            raise BrowserPolicyError("BROWSER_SCENARIO_MANIFEST_HASH_MISMATCH")
+        return parsed
+
+    def compute_hash(self) -> str:
+        payload = json.dumps(
+            {
+                "schema_version": self.schema_version,
+                "manifest_id": self.manifest_id,
+                "profile": self.profile,
+                "scenarios": [item.to_dict() for item in self.scenarios],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def get(self, scenario_id: str) -> BrowserScenario | None:
+        return next((item for item in self.scenarios if item.scenario_id == scenario_id), None)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "manifest_id": self.manifest_id,
+            "profile": self.profile,
+            **({"manifest_hash": self.manifest_hash} if self.manifest_hash is not None else {}),
+            "artifact_kind": self.artifact_kind,
+            "scenarios": [item.to_dict() for item in self.scenarios],
+        }
 
 
 @dataclass(frozen=True)

@@ -16,7 +16,11 @@ evaluation:
     screenshot_policy: on_failure
     console_error_policy: fail_on_error
     network_failure_policy: fail_on_failure
-    required_scenarios: []
+    required_scenarios:
+      - web-app-core-flow
+    scenario_manifest:
+      reference: config/browser_scenarios/web_app.yaml
+      schema_version: 1
   feature_completeness:
     required: true
     minimum_score: 8.0

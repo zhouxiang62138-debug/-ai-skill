@@ -72,6 +72,7 @@ from tests.test_approval import (
     product_review_state,
 )
 from tests.test_evaluation_protocol import make_issue, make_package
+from tests.runtime_test_support import commit_step_with_test_attestation
 from tests.test_stage2_core_e2e import (
     _changed_fields,
     _commit_user_transition,
@@ -196,7 +197,7 @@ def _advance_to_evaluating(
     planner_target["project_id"] = PROJECT_ID
     planner_target["runtime"] = current["runtime"]
     planner_target["schema_version"] = 7
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         planner_start["run_id"],
         planner_start["lease_token"],
@@ -236,7 +237,7 @@ def _advance_to_evaluating(
     state = load_project_state(root / "project.yaml")
     generator_gate_start = orchestrator.start(worker_id="generator-stage3-gate-worker")
     assert generator_gate_start["selection"].target == "generator"
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         generator_gate_start["run_id"],
         generator_gate_start["lease_token"],
@@ -355,7 +356,7 @@ if __name__ == "__main__":
             "last_generator_response": HANDOFF_001,
         }
     )
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         generator_start["run_id"],
         generator_start["lease_token"],
@@ -881,7 +882,7 @@ def test_stage3_real_fail_fix_pass_rework(tmp_path: Path) -> None:
             "last_generator_response": HANDOFF_002,
         }
     )
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         generator_fix_start["run_id"],
         generator_fix_start["lease_token"],

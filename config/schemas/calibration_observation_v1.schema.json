@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/calibration-observation-v1.schema.json",
+  "title": "Blind evaluator calibration observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requirement_id": {"type": "string"},
+    "acceptance_criterion_id": {"type": "string"},
+    "source_hash": {"type": "string"},
+    "code_refs": {"type": "array", "items": {"type": "string"}},
+    "screenshot_refs": {"type": "array", "items": {"type": "string"}},
+    "browser_trace": {"$ref": "#/$defs/raw_observations"},
+    "dom_observations": {"$ref": "#/$defs/raw_observations"},
+    "console_observations": {"$ref": "#/$defs/raw_observations"},
+    "network_observations": {"$ref": "#/$defs/raw_observations"},
+    "api_observations": {"$ref": "#/$defs/raw_observations"},
+    "persistence_observations": {"$ref": "#/$defs/raw_observations"},
+    "command_observations": {"$ref": "#/$defs/command_observations"}
+  },
+  "$defs": {
+    "raw_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {"type": "string"},
+          "target": {"type": "string"},
+          "timestamp": {"type": "string"},
+          "observation": {},
+          "raw_ref": {"type": "string"}
+        }
+      }
+    },
+    "command_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "command_ref": {"type": "string"},
+          "exit_code": {"type": "integer"},
+          "output_ref": {"type": "string"}
+        }
+      }
+    }
+  },
+  "description": "只允许事实观察，不允许预先写入最终判断、严重度或路由。",
+  "not": {
+    "anyOf": [
+      {"required": ["expected_result"]},
+      {"required": ["expected_issue_classes"]},
+      {"required": ["minimum_severity"]},
+      {"required": ["route_to"]},
+      {"required": ["final_result"]},
+      {"required": ["issue_category"]},
+      {"required": ["severity"]}
+    ]
+  }
+}

@@ -18,6 +18,7 @@ from .rollover import (
     RolloverHandoff,
     RolloverPolicy,
     evaluate_rollover,
+    evaluate_adaptive_rollover,
     load_rollover_policy,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "RolloverPolicy",
     "build_context",
     "evaluate_rollover",
+    "evaluate_adaptive_rollover",
     "load_rollover_policy",
     "resume_context",
 ]

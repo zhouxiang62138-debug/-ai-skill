@@ -15,11 +15,12 @@ def test_skill_schema_version_is_consistent() -> None:
 
 
 def test_f11_f12_historical_reports_remain_marked_experimental() -> None:
+    report_directory = ROOT / "docs" / "reports" / "f11-f13-capabilities"
     for filename in (
         "F11_EXECUTION_ENVIRONMENT_REPORT.md",
         "F12_SECURITY_BOUNDARY_REPORT.md",
     ):
-        text = (ROOT / filename).read_text(encoding="utf-8")
+        text = (report_directory / filename).read_text(encoding="utf-8")
         assert "EXPERIMENTAL PROTOTYPE" in text
         assert "不属于正式 Runtime" in text
 

@@ -55,6 +55,7 @@ from tests.test_approval import (
     product_review_state,
 )
 from tests.test_evaluation_protocol import make_package
+from tests.runtime_test_support import commit_step_with_test_attestation
 
 
 PROJECT_ID = "test_stage2_todo_app"
@@ -251,7 +252,7 @@ def test_stage2_product_approval_plan_generator_evaluator_accepted(
     planner_target["project_id"] = PROJECT_ID
     planner_target["runtime"] = current["runtime"]
     planner_target["schema_version"] = 7
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         planner_start["run_id"],
         planner_start["lease_token"],
@@ -298,7 +299,7 @@ def test_stage2_product_approval_plan_generator_evaluator_accepted(
 
     generator_gate_start = orchestrator.start(worker_id="generator-stage2-worker")
     assert generator_gate_start["selection"].target == "generator"
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         generator_gate_start["run_id"],
         generator_gate_start["lease_token"],
@@ -397,7 +398,7 @@ def test_stage2_product_approval_plan_generator_evaluator_accepted(
             "last_generator_response": HANDOFF,
         }
     )
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         session_id,
         generator_start["run_id"],
         generator_start["lease_token"],

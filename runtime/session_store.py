@@ -10,10 +10,11 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from .errors import RuntimeStorageError, RuntimeValidationError
 from .event_types import ActorType, EventType
+from .attestation import attestation_hash, validate_verifier_results
 from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
@@ -244,6 +245,26 @@ class SessionStore:
             created_at TEXT NOT NULL,
             persisted_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS phase_attestations (
+            attestation_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL REFERENCES role_runs(run_id),
+            role TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            context_id TEXT NOT NULL REFERENCES context_manifests(context_id),
+            invocation_id TEXT NOT NULL REFERENCES model_invocations(invocation_id),
+            required_steps_hash TEXT NOT NULL,
+            verifier_results_json TEXT NOT NULL,
+            evidence_refs_json TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            attestation_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TRIGGER IF NOT EXISTS phase_attestations_no_update
+        BEFORE UPDATE ON phase_attestations BEGIN SELECT RAISE(ABORT, 'phase attestations are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS phase_attestations_no_delete
+        BEFORE DELETE ON phase_attestations BEGIN SELECT RAISE(ABORT, 'phase attestations are append-only'); END;
         """
         connection = self._connect()
         try:
@@ -1101,6 +1122,239 @@ class SessionStore:
         if row is None:
             raise RuntimeStorageError("MODEL_INVOCATION_MISSING")
         return dict(row)
+
+    def create_phase_attestation(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        role: str,
+        project_revision: int,
+        context_id: str,
+        invocation_id: str,
+        required_steps_hash: str,
+        verifier_results: Mapping[str, Any],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """由 Runtime 创建追加式 Phase Attestation，不接受模型提供的 ID 或摘要。"""
+
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                session_id,
+                run_id,
+                role,
+                context_id,
+                invocation_id,
+                required_steps_hash,
+                idempotency_key,
+            )
+        ) or not isinstance(project_revision, int) or project_revision < 0:
+            raise RuntimeValidationError("ATTESTATION_INVALID")
+        role_run = self.get_role_run(session_id, run_id)
+        invocation = self.get_model_invocation(session_id, invocation_id)
+        if role_run["role"] != role or invocation["run_id"] != run_id or invocation["role"] != role:
+            raise RuntimeValidationError("ATTESTATION_RUN_ROLE_MISMATCH")
+        if invocation["context_id"] != context_id:
+            raise RuntimeValidationError("ATTESTATION_CONTEXT_MISMATCH")
+        context = self.get_context_manifest(session_id, context_id)
+        if context["session_id"] != session_id or int(context["project_revision"]) != project_revision:
+            raise RuntimeValidationError("ATTESTATION_REVISION_MISMATCH")
+        safe_results, evidence_refs = validate_verifier_results(verifier_results)
+        results_json = canonical_json(safe_results)
+        refs_json = canonical_json(evidence_refs)
+        if _SECRET_PATTERN.search(results_json + refs_json):
+            raise RuntimeValidationError("ATTESTATION_SECRET_FORBIDDEN")
+        fields = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "role": role,
+            "project_revision": project_revision,
+            "context_id": context_id,
+            "invocation_id": invocation_id,
+            "required_steps_hash": required_steps_hash,
+            "verifier_results": safe_results,
+            "evidence_refs": evidence_refs,
+            "idempotency_key": idempotency_key,
+        }
+        digest = attestation_hash(fields)
+        attestation_id = stable_id("phase-attestation", session_id, run_id, idempotency_key)
+        timestamp = utc_now()
+        with self.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                "SELECT * FROM phase_attestations WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if existing["attestation_hash"] != digest:
+                    raise RuntimeValidationError("ATTESTATION_IDEMPOTENCY_CONFLICT")
+                return self._phase_attestation_from_row(existing)
+            connection.execute(
+                """
+                INSERT INTO phase_attestations(
+                    attestation_id, session_id, run_id, role, project_revision,
+                    context_id, invocation_id, required_steps_hash,
+                    verifier_results_json, evidence_refs_json, idempotency_key,
+                    attestation_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attestation_id,
+                    session_id,
+                    run_id,
+                    role,
+                    project_revision,
+                    context_id,
+                    invocation_id,
+                    required_steps_hash,
+                    results_json,
+                    refs_json,
+                    idempotency_key,
+                    digest,
+                    timestamp,
+                ),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.PHASE_ATTESTATION_CREATED,
+                ActorType.ORCHESTRATOR,
+                "phase-runtime",
+                idempotency_key=f"phase-attestation-created:{attestation_id}",
+                correlation_id=run_id,
+                payload={
+                    "attestation_id": attestation_id,
+                    "run_id": run_id,
+                    "role": role,
+                    "project_revision": project_revision,
+                    "context_id": context_id,
+                    "invocation_id": invocation_id,
+                    "required_steps_hash": required_steps_hash,
+                    "evidence_ref_count": len(evidence_refs),
+                },
+                timestamp=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM phase_attestations WHERE attestation_id=?",
+                (attestation_id,),
+            ).fetchone()
+        return self._phase_attestation_from_row(row)
+
+    @staticmethod
+    def _phase_attestation_from_row(row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            raise RuntimeStorageError("ATTESTATION_MISSING")
+        value = dict(row)
+        value["verifier_results"] = json.loads(value.pop("verifier_results_json"))
+        value["evidence_refs"] = json.loads(value.pop("evidence_refs_json"))
+        return value
+
+    def get_phase_attestation(self, session_id: str, attestation_id: str) -> dict[str, Any]:
+        """读取同一 Session 的不可变 Attestation。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM phase_attestations WHERE session_id=? AND attestation_id=?",
+                (session_id, attestation_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._phase_attestation_from_row(row)
+
+    def get_state_revision_by_idempotency(self, session_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        """查询提交幂等记录，供重复提交在 Role Run 已完成后安全重放。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM state_revisions WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+        finally:
+            connection.close()
+        return dict(row) if row is not None else None
+
+    def active_model_invocations(self, session_id: str) -> list[dict[str, Any]]:
+        """列出崩溃恢复时仍停留在 ACTIVE 的 Invocation。"""
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND status='ACTIVE' ORDER BY invocation_sequence",
+                (session_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [dict(row) for row in rows]
+
+    def recover_interrupted_model_invocations(self, session_id: str) -> list[str]:
+        """将崩溃留下的 ACTIVE Invocation 以固定摘要标记失败；可重复执行。"""
+
+        ids = [str(item["invocation_id"]) for item in self.active_model_invocations(session_id)]
+        for invocation_id in ids:
+            self.complete_model_invocation(
+                session_id,
+                invocation_id,
+                status="FAILED",
+                result_hash=hashlib.sha256(
+                    f"interrupted-after-crash:{invocation_id}".encode("utf-8")
+                ).hexdigest(),
+            )
+        return ids
+
+    def complete_model_invocation(
+        self,
+        session_id: str,
+        invocation_id: str,
+        *,
+        status: str = "SUCCEEDED",
+        result_hash: str,
+    ) -> dict[str, Any]:
+        """以摘要结束 Invocation；事件不保存模型输出正文或凭据。"""
+
+        if status not in {"SUCCEEDED", "FAILED"} or not isinstance(result_hash, str) or not result_hash:
+            raise RuntimeValidationError("MODEL_INVOCATION_RESULT_INVALID")
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND invocation_id=?",
+                (session_id, invocation_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeStorageError("MODEL_INVOCATION_MISSING")
+            if row["status"] in {"SUCCEEDED", "FAILED"}:
+                if row["status"] != status:
+                    raise RuntimeValidationError("MODEL_INVOCATION_TERMINAL_CONFLICT")
+                return dict(row)
+            if row["status"] != "ACTIVE":
+                raise RuntimeValidationError("MODEL_INVOCATION_INVALID_TRANSITION")
+            ended_at = utc_now()
+            connection.execute(
+                "UPDATE model_invocations SET status=?, ended_at=? WHERE session_id=? AND invocation_id=?",
+                (status, ended_at, session_id, invocation_id),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.MODEL_INVOCATION_COMPLETED
+                if status == "SUCCEEDED"
+                else EventType.MODEL_INVOCATION_FAILED,
+                ActorType.ORCHESTRATOR,
+                "phase-runtime",
+                idempotency_key=f"model-invocation-{status.lower()}:{invocation_id}",
+                correlation_id=invocation_id,
+                payload={
+                    "invocation_id": invocation_id,
+                    "status": status,
+                    "result_hash": result_hash,
+                },
+                timestamp=ended_at,
+            )
+            result = connection.execute(
+                "SELECT * FROM model_invocations WHERE session_id=? AND invocation_id=?",
+                (session_id, invocation_id),
+            ).fetchone()
+        return dict(result)
 
     def append_rollover_handoff(
         self,

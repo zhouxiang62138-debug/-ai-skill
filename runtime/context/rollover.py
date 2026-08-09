@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -147,7 +147,8 @@ def load_rollover_policy(path: str | Path | None = None) -> RolloverPolicy:
     if not isinstance(rollover, dict):
         raise RuntimeValidationError("ROLLOVER_POLICY_INVALID")
     try:
-        return RolloverPolicy(**rollover)
+        allowed = {item.name for item in fields(RolloverPolicy)}
+        return RolloverPolicy(**{key: value for key, value in rollover.items() if key in allowed})
     except TypeError as exc:
         raise RuntimeValidationError("ROLLOVER_POLICY_INVALID") from exc
 
@@ -179,6 +180,19 @@ def evaluate_rollover(
     return RolloverDecision(bool(reasons), tuple(dict.fromkeys(reasons)))
 
 
+def evaluate_adaptive_rollover(
+    context: ContextPackage,
+    stats: InvocationStats,
+    harness_decision: Any,
+) -> RolloverDecision:
+    """使用 Harness Policy 为当前模型选择的 rollover 阈值。"""
+
+    policy = getattr(harness_decision, "rollover_policy", None)
+    if not isinstance(policy, RolloverPolicy):
+        raise RuntimeValidationError("ADAPTIVE_ROLLOVER_POLICY_INVALID")
+    return evaluate_rollover(context, stats, policy=policy)
+
+
 class ContextRolloverService:
     """连接 F13 Context Builder 与 F10 Durable Session 的确定性服务。"""
 
@@ -188,10 +202,12 @@ class ContextRolloverService:
         *,
         context_builder: ContextBuilder | None = None,
         rollover_policy: RolloverPolicy | None = None,
+        harness_decision: Any | None = None,
     ) -> None:
         self._store = store
         self._builder = context_builder or ContextBuilder(store)
-        self._policy = rollover_policy or load_rollover_policy()
+        adaptive_policy = getattr(harness_decision, "rollover_policy", None)
+        self._policy = rollover_policy or adaptive_policy or load_rollover_policy()
 
     def start_invocation(self, context: ContextPackage, *, idempotency_key: str) -> dict[str, Any]:
         return self._store.create_model_invocation(

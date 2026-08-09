@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from project_state import ProjectStateError, validate_project_state
+try:
+    from .project_state import ProjectStateError, validate_project_state
+except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
+    from project_state import ProjectStateError, validate_project_state
 
 
 PRODUCT_SPEC_SECTIONS = (

@@ -46,5 +46,5 @@ Request、ExecutionBroker、Context Builder 和其他协调能力都是 Module�
 ## 读取规则
 
 需要判断当前状态时，优先读取本文件和
-`FINAL_PRODUCTION_READINESS_REVIEW.md`；带有“历史快照”标记的报告只用于追溯当时
-的基线、发现和修复过程。
+`docs/reports/production-readiness/FINAL_PRODUCTION_READINESS_REVIEW.md`；带有
+“历史快照”标记的报告只用于追溯当时的基线、发现和修复过程。

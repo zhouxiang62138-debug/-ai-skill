@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from runtime.event_types import ActorType, EventType
+from runtime.attestation import attestation_hash, required_steps_hash
+from runtime.context import ContextBuildRequest, ContextBuilder
+from runtime.verifiers import RuntimeVerifierRegistry
 
 from project_state import (
     ProjectStateError,
@@ -236,18 +239,64 @@ def _commit_v7_role_step(
         or not run_context.get("lease_token")
     ):
         raise ProjectStateError(f"Runtime 未进入 {role} Role Run")
-    return runtime.commit_step(
-        str(run_context["session_id"]),
-        str(run_context["run_id"]),
-        str(run_context["lease_token"]),
-        {
-            "source_status": source_status,
-            "target_status": target_status,
-            "changed_fields": changed_fields,
-            "expected_revision": expected_revision,
-            "idempotency_key": idempotency_key,
-        },
+    session_id = str(run_context["session_id"])
+    run_id = str(run_context["run_id"])
+    lease_token = str(run_context["lease_token"])
+    transition = {
+        "source_status": source_status,
+        "target_status": target_status,
+        "changed_fields": changed_fields,
+        "expected_revision": expected_revision,
+        "idempotency_key": idempotency_key,
+    }
+    verifier = RuntimeVerifierRegistry(root).verify_transition(
+        role,
+        source_status,
+        target_status,
+        changed_fields,
+        expected_revision,
     )
+    if verifier.get("passed") is not True:
+        raise ProjectStateError("Change Request Runtime transition verifier 失败：" + str(verifier.get("details", "")))
+    store = runtime.store
+    context = ContextBuilder(store).build(ContextBuildRequest(session_id, run_id, role))
+    invocation = store.create_model_invocation(
+        session_id,
+        run_id,
+        role,
+        context.context_id,
+        idempotency_key=f"change-request-transition-invocation:{idempotency_key}",
+    )
+    state = load_project_state(root / "project.yaml")
+    attestation = store.create_phase_attestation(
+        session_id=session_id,
+        run_id=run_id,
+        role=role,
+        project_revision=int(state["runtime"]["revision"]),
+        context_id=context.context_id,
+        invocation_id=str(invocation["invocation_id"]),
+        required_steps_hash=required_steps_hash(("runtime_transition",)),
+        verifier_results={"runtime_transition": verifier},
+        idempotency_key=f"change-request-transition-attestation:{idempotency_key}",
+    )
+    prepared = dict(transition)
+    prepared["attestation_id"] = attestation["attestation_id"]
+    try:
+        committed = runtime.commit_step(session_id, run_id, lease_token, prepared)
+        store.complete_model_invocation(
+            session_id,
+            str(invocation["invocation_id"]),
+            result_hash=attestation_hash(committed),
+        )
+        return committed
+    except Exception as exc:
+        store.complete_model_invocation(
+            session_id,
+            str(invocation["invocation_id"]),
+            status="FAILED",
+            result_hash=attestation_hash({"error": str(exc)[:200]}),
+        )
+        raise
 
 
 def _commit_v7_role_state(

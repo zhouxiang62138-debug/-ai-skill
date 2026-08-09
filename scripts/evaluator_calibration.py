@@ -4,12 +4,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from project_state import parse_project_yaml
+try:
+    from .project_state import parse_project_yaml
+except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
+    from project_state import parse_project_yaml
 
 
 RESULTS = {"PASS", "FAIL", "BLOCKED"}
+BLIND_FORBIDDEN_FIELDS = frozenset(
+    {
+        "expected_result",
+        "expected_issue_classes",
+        "minimum_severity",
+        "route_to",
+        "final_result",
+        "issue_category",
+        "severity",
+        "category",
+        "result",
+        "route",
+        "issue_class",
+        "issue_classes",
+        "implementation_defect",
+    }
+)
+BLIND_ALLOWED_FIELDS = frozenset(
+    {
+        "requirement_id",
+        "acceptance_criterion_id",
+        "source_hash",
+        "code_refs",
+        "browser_trace",
+        "dom_observations",
+        "console_observations",
+        "network_observations",
+        "command_observations",
+        "api_observations",
+        "persistence_observations",
+        "screenshot_refs",
+    }
+)
+BLIND_TRACE_ALLOWED_FIELDS = frozenset({"action", "target", "timestamp", "observation", "raw_ref"})
+BLIND_COMMAND_ALLOWED_FIELDS = frozenset({"command_ref", "exit_code", "output_ref"})
 SEVERITY_RANK = {
     "observation": 0,
     "minor": 1,
@@ -40,6 +78,126 @@ class CalibrationPrediction:
             "severity": self.severity,
             "route_to": self.route_to,
         }
+
+
+@dataclass(frozen=True)
+class BlindCalibrationCase:
+    """不带最终判断的观察输入；Expected 由人工复核独立保存。"""
+
+    name: str
+    observed: dict[str, Any]
+
+
+class BlindEvaluatorAdapter:
+    """独立 Evaluator 适配器接口；没有真实适配器时不得伪造 PASS。"""
+
+    def predict(self, observed: Mapping[str, Any]) -> "CalibrationPrediction":
+        raise NotImplementedError
+
+
+def _contains_forbidden(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in BLIND_FORBIDDEN_FIELDS:
+                return str(key)
+            found = _contains_forbidden(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _contains_forbidden(child)
+            if found:
+                return found
+    return None
+
+
+def validate_blind_observation(observed: Mapping[str, Any]) -> None:
+    """使用显式 allowlist 校验原始观察，递归拒绝未声明字段。"""
+
+    forbidden = _contains_forbidden(observed)
+    if forbidden:
+        raise ValueError(f"blind calibration 不得包含预先分类字段：{forbidden}")
+    if not isinstance(observed, Mapping) or not set(observed) <= BLIND_ALLOWED_FIELDS:
+        unknown = next(iter(set(observed) - BLIND_ALLOWED_FIELDS), "top_level") if isinstance(observed, Mapping) else "top_level"
+        raise ValueError(f"blind calibration allowlist 拒绝字段：{unknown}")
+    for key in ("code_refs", "screenshot_refs"):
+        value = observed.get(key, [])
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise ValueError(f"blind calibration 字段无效：{key}")
+    for key in ("browser_trace", "dom_observations", "console_observations", "network_observations", "api_observations", "persistence_observations"):
+        value = observed.get(key, [])
+        if not isinstance(value, list) or any(not isinstance(item, Mapping) or not set(item) <= BLIND_TRACE_ALLOWED_FIELDS for item in value):
+            raise ValueError(f"blind calibration allowlist 拒绝嵌套字段：{key}")
+    commands = observed.get("command_observations", [])
+    if not isinstance(commands, list) or any(not isinstance(item, Mapping) or not set(item) <= BLIND_COMMAND_ALLOWED_FIELDS for item in commands):
+        raise ValueError("blind calibration allowlist 拒绝嵌套字段：command_observations")
+
+
+def load_blind_calibration_cases(root: str | Path) -> list[BlindCalibrationCase]:
+    """加载只有 raw observation 的 blind-*.yaml 文件。"""
+
+    base = Path(root).resolve()
+    cases: list[BlindCalibrationCase] = []
+    for path in sorted(base.glob("blind-*.yaml")):
+        observed = parse_project_yaml(path.read_text(encoding="utf-8"))
+        if not isinstance(observed, dict):
+            raise ValueError(f"blind case 顶层必须是对象：{path.name}")
+        validate_blind_observation(observed)
+        cases.append(BlindCalibrationCase(path.stem.removeprefix("blind-"), observed))
+    return cases
+
+
+def predict_blind_case(
+    case: BlindCalibrationCase | Mapping[str, Any],
+    *,
+    evaluator_adapter: BlindEvaluatorAdapter | None = None,
+) -> CalibrationPrediction:
+    """在独立人工复核前先产生预测，不读取 Expected。"""
+
+    if isinstance(case, BlindCalibrationCase):
+        # 旧 12 Case 的确定性路由校准保持兼容；新 blind 文件走下方 allowlist。
+        observed = case.observed
+        return predict_case(dict(observed))
+    observed = dict(case)
+    validate_blind_observation(observed)
+    if evaluator_adapter is None:
+        return CalibrationPrediction("BLOCKED", (), "observation", "UNAVAILABLE")
+    prediction = evaluator_adapter.predict(observed)
+    if not isinstance(prediction, CalibrationPrediction):
+        raise ValueError("Blind Evaluator Adapter 必须返回结构化 CalibrationPrediction")
+    return prediction
+
+
+def blind_calibration_metrics(
+    predictions: Mapping[str, CalibrationPrediction],
+    adjudications: Mapping[str, Mapping[str, Any]],
+) -> dict[str, float | int]:
+    """比较模型预测与独立人工复核，单独计算分类、严重度和路由指标。"""
+
+    if not predictions or set(predictions) != set(adjudications):
+        raise ValueError("blind calibration 的预测与人工复核必须一一对应")
+    total = len(predictions)
+    result_matches = sum(
+        predictions[name].result == adjudications[name].get("result") for name in predictions
+    )
+    class_matches = sum(
+        set(predictions[name].issue_classes)
+        == set(adjudications[name].get("issue_classes", []))
+        for name in predictions
+    )
+    severity_matches = sum(
+        predictions[name].severity == adjudications[name].get("severity") for name in predictions
+    )
+    route_matches = sum(
+        predictions[name].route_to == adjudications[name].get("route_to") for name in predictions
+    )
+    return {
+        "total_cases": total,
+        "result_accuracy": result_matches / total,
+        "issue_classification_accuracy": class_matches / total,
+        "severity_agreement_rate": severity_matches / total,
+        "routing_accuracy": route_matches / total,
+    }
 
 
 def load_calibration_cases(root: str | Path) -> list[CalibrationCase]:

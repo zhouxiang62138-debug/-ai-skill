@@ -8,9 +8,15 @@ from .errors import (
     BrowserError,
     BrowserPolicyError,
 )
-from .evidence import evaluate_browser_gate, merge_browser_evidence
+from .evidence import evaluate_browser_gate, load_scenario_manifest, merge_browser_evidence
 from .harness import BrowserHarness
-from .models import BrowserProfile, BrowserRunRecord, BrowserStepRecord
+from .models import (
+    BrowserProfile,
+    BrowserRunRecord,
+    BrowserScenario,
+    BrowserScenarioManifest,
+    BrowserStepRecord,
+)
 from .policy import BrowserPolicy
 
 __all__ = [
@@ -24,8 +30,11 @@ __all__ = [
     "BrowserPolicyError",
     "BrowserProfile",
     "BrowserRunRecord",
+    "BrowserScenario",
+    "BrowserScenarioManifest",
     "BrowserStepRecord",
     "PlaywrightBrowserAdapter",
     "evaluate_browser_gate",
+    "load_scenario_manifest",
     "merge_browser_evidence",
 ]

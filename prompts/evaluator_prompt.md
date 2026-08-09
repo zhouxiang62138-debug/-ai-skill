@@ -44,6 +44,11 @@ Markdown 与 Issue Package 必须互相引用，并通过事务接口先提交�
 
 ## F9 可复现证据与 Gate
 
+Browser Scenario、Feature Completeness、Build/Test/Regression、Evidence Manifest、
+Issue Package、Candidate 和 Evaluation Transaction 由 Runtime PhaseRunner 的
+Gate verifier 串行执行。Evaluator 的文字声明不构成执行证据；缺少 verifier 或任一
+必需步骤时 Runtime 必须拒绝 PASS。Web Profile 的 Browser `SKIPPED` 不是合法结果。
+
 每轮必须创建
 `evaluation/evidence/evaluation-<nnn>/manifest.yaml`，并按
 `config/evaluation_gates.yaml` 和当前 evaluation profile 顺序执行 Gate。命令只能

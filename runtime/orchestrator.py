@@ -21,6 +21,7 @@ from .project_revision import ProjectStateCAS, project_state_hash, runtime_proje
 from .recovery import RecoveryManager
 from .role_selector import Selection, select_role
 from .session_store import SessionStore
+from .attestation import attestation_hash
 
 
 class Orchestrator:
@@ -113,6 +114,58 @@ class Orchestrator:
             "run_id": run_id,
         }
 
+    def run_phase(
+        self,
+        model_adapter: Any,
+        *,
+        worker_id: str | None = None,
+        phase: str = "main",
+        required_steps: tuple[str, ...] | None = None,
+        additional_references: tuple[str, ...] = (),
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """正式执行入口：Role Run、Policy、Context、Invocation、Verifier、Attestation、CAS。"""
+
+        from .harness_policy import HarnessPolicy
+        from .phase_runner import DEFAULT_PHASE_STEPS, PhaseRunner
+        from .verifiers import RuntimeVerifierRegistry
+
+        started = self.start(worker_id=worker_id)
+        selection = started["selection"]
+        if selection.kind != "ROLE" or not started.get("run_id"):
+            raise RuntimeValidationError("ROLE_RUN_NOT_AVAILABLE")
+        role = str(selection.target)
+        model_id = str(getattr(model_adapter, "model_id", "unknown"))
+        capability = getattr(model_adapter, "model_capability_profile", None)
+        decision = HarnessPolicy().choose(
+            model_id=model_id,
+            model_capability_profile=capability if isinstance(capability, str) else None,
+            evidence_sufficient=False,
+        )
+        phase_steps = dict(DEFAULT_PHASE_STEPS)
+        phase_steps[role] = tuple(dict.fromkeys((*DEFAULT_PHASE_STEPS[role], *decision.required_gates)))
+        runner = PhaseRunner(
+            self,
+            model_adapter,
+            phase_steps=phase_steps,
+            verifier_registry=RuntimeVerifierRegistry(self.root),
+        )
+        return runner.run(
+            str(started["session_id"]),
+            str(started["run_id"]),
+            str(started["lease_token"] or ""),
+            phase=phase,
+            role=role,
+            required_steps=required_steps,
+            additional_references=additional_references,
+            idempotency_key=idempotency_key,
+        )
+
+    def execute_role(self, model_adapter: Any, **kwargs: Any) -> Any:
+        """正式 Role 执行别名；宿主只能通过 Orchestrator 进入 PhaseRunner。"""
+
+        return self.run_phase(model_adapter, **kwargs)
+
     def inspect(self, session_id: str) -> dict[str, Any]:
         """只读返回 Session、事件计数、Checkpoint 和业务状态。"""
 
@@ -131,14 +184,56 @@ class Orchestrator:
         }
 
     def commit_step(self, session_id: str, run_id: str, lease_token: str, result: dict[str, Any]) -> dict[str, Any]:
-        """校验持久化 Run、Lease 与结构化结果后通过 CAS 提交角色步骤。"""
+        """校验 Runtime Attestation、Lease 与结构化结果后通过 CAS 提交角色步骤。"""
 
         run = self.store.get_role_run(session_id, run_id)
+        required = {
+            "source_status",
+            "target_status",
+            "changed_fields",
+            "expected_revision",
+            "idempotency_key",
+            "attestation_id",
+        }
+        if "attestation_id" not in result:
+            raise RuntimeValidationError("PHASE_ATTESTATION_REQUIRED")
         if run["status"] != "STARTED":
+            existing = self.store.get_state_revision_by_idempotency(session_id, str(result.get("idempotency_key", "")))
+            if run["status"] == "COMPLETED" and existing is not None and existing["status"] == "COMMITTED":
+                return {
+                    "result": "IDEMPOTENT",
+                    "revision": existing["new_revision"],
+                    "state_hash": existing["after_hash"],
+                }
             raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
-        required = {"source_status", "target_status", "changed_fields", "expected_revision", "idempotency_key"}
         if set(result) != required or not isinstance(result["changed_fields"], dict):
             raise RuntimeValidationError("STEP_RESULT_INVALID")
+        attestation = self.store.get_phase_attestation(session_id, str(result["attestation_id"]))
+        if attestation["run_id"] != run_id or attestation["role"] != run["role"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_RUN_MISMATCH")
+        if int(attestation["project_revision"]) != int(result["expected_revision"]):
+            raise RuntimeValidationError("PHASE_ATTESTATION_REVISION_MISMATCH")
+        invocation = self.store.get_model_invocation(session_id, str(attestation["invocation_id"]))
+        if invocation["run_id"] != run_id or invocation["context_id"] != attestation["context_id"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_INVOCATION_MISMATCH")
+        expected_hash = attestation_hash(
+            {
+                "session_id": attestation["session_id"],
+                "run_id": attestation["run_id"],
+                "role": attestation["role"],
+                "project_revision": int(attestation["project_revision"]),
+                "context_id": attestation["context_id"],
+                "invocation_id": attestation["invocation_id"],
+                "required_steps_hash": attestation["required_steps_hash"],
+                "verifier_results": attestation["verifier_results"],
+                "evidence_refs": attestation["evidence_refs"],
+                "idempotency_key": attestation["idempotency_key"],
+            }
+        )
+        if expected_hash != attestation["attestation_hash"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_TAMPERED")
+        if any(item.get("passed") is not True for item in attestation["verifier_results"].values()):
+            raise RuntimeValidationError("PHASE_ATTESTATION_VERIFIER_INVALID")
         lease = self.leases.get(session_id)
         if lease.worker_id != run["worker_id"]:
             raise RuntimeValidationError("ROLE_RUN_WORKER_MISMATCH")

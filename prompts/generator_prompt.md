@@ -18,6 +18,11 @@ Proposal、Evaluation Profile 或验收阈值。
 
 ## 获批来源链门禁
 
+以下门禁由 Runtime PhaseRunner 和 Contract Preflight 确定性执行；Prompt 中的说明
+不是可绕过 Runtime 的授权。模型不得直接写 `project.yaml`、伪造 Contract、跳过
+必需步骤或自行选择生命周期状态。只有 Runtime 完成来源链、风险 Contract、实现、
+测试和交接校验后，才允许 CAS 提交。
+
 Generator 只在 `APPROVED_FOR_IMPLEMENTATION` 状态执行门禁校验。开始开发前，必须验证 `project.yaml` 同时满足：
 
 - `requirements_status: sufficient_for_planning`

@@ -16,6 +16,7 @@ from runtime.session_store import SessionStore
 from scripts.project_migration import preview_runtime_migration
 from scripts.project_state import load_project_state, serialize_project_state
 from tests.test_project_migration import v4_state
+from tests.runtime_test_support import commit_step_with_test_attestation
 
 
 def _bootstrap(tmp_path: Path, status: str = "INTAKE") -> dict[str, object]:
@@ -224,7 +225,7 @@ def test_minimal_e2e_uses_orchestrator_first_ask_and_planner(tmp_path: Path) -> 
     assert planner["selection"].kind == "ROLE"
     assert planner["selection"].target == "planner"
     assert planner["run_id"] is not None
-    orchestrator.commit_step(
+    commit_step_with_test_attestation(orchestrator,
         planner["session_id"],  # type: ignore[arg-type]
         planner["run_id"],  # type: ignore[arg-type]
         planner["lease_token"],  # type: ignore[arg-type]

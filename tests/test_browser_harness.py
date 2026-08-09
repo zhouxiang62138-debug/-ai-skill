@@ -200,6 +200,51 @@ def test_environment_blocked_is_not_implementation_pass(tmp_path: Path) -> None:
     assert manifest["browser_runs"][0]["failure_class"] == "evaluation_environment_blocked"
 
 
+def test_browser_gate_rejects_missing_manifest_and_wrong_requirement_mapping() -> None:
+    profile_with_manifest = {
+        "browser_validation": {
+            **PROFILE["browser_validation"],
+            "scenario_manifest": {"reference": "config/browser_scenarios/web_app.yaml"},
+        }
+    }
+    manifest = {
+        "browser_runs": [{
+            "browser_run_id": "browser-run-001",
+            "scenario_id": "todo-create",
+            "result": "PASS",
+        }],
+        "browser_evidence": [{
+            "browser_run_id": "browser-run-001",
+            "step_id": "browser-run-001-step-001",
+            "action": "click",
+            "result": "PASS",
+            "requirement_id": "WRONG",
+            "acceptance_criterion_id": "WRONG",
+        }],
+    }
+    with pytest.raises(Exception, match="MANIFEST"):
+        evaluate_browser_gate(profile_with_manifest, manifest)
+    scenario_manifest = {
+        "schema_version": 1,
+        "manifest_id": "web-app-core-v1",
+        "profile": "web_app",
+        "scenarios": [{
+            "scenario_id": "todo-create",
+            "requirement_id": "REQ-001",
+            "acceptance_criterion_id": "AC-001",
+            "preconditions": ["应用已启动"],
+            "steps": [{"action": "click", "target": "[data-testid='save']"}],
+            "expected_ui_state": {"saved": True},
+            "expected_api_state": {"business_operation": "observed"},
+            "critical_workflow": True,
+            "scenario_type": "normal",
+        }],
+    }
+    gate = evaluate_browser_gate(PROFILE, manifest, scenario_manifest)
+    assert gate["result"] == "FAIL"
+    assert "trace" in gate["reason"]
+
+
 def _broker_setup(tmp_path: Path, role: str = "evaluator") -> tuple[BrowserBroker, ExecutionContext, str, SessionStore]:
     root = tmp_path / "project"
     root.mkdir()

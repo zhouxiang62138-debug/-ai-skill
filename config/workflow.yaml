@@ -2,6 +2,16 @@ version: 7
 protocol: file_driven_with_durable_runtime
 maximum_iterations: 5
 
+harness_enforcement:
+  phase_runner: runtime/phase_runner.py
+  model_invocation_adapter: runtime.phase_runner.ModelInvocationAdapter
+  policy: config/harness_policy.yaml
+  unknown_model_or_risk: FULL
+  evaluator_gate_verifiers_required: true
+  browser_required_gate_cannot_be_skipped: true
+  candidate_profile_binding_required_for_schema_v2: true
+  benchmark_scope: external_test_project_only
+
 runtime:
   version: 1
   rules: config/runtime.yaml

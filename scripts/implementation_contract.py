@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from project_state import ProjectStateError, parse_project_yaml, serialize_project_state
+try:
+    from .project_state import ProjectStateError, parse_project_yaml, serialize_project_state
+except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
+    from project_state import ProjectStateError, parse_project_yaml, serialize_project_state
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -95,10 +98,15 @@ def classify_contract_need(
     feature: Mapping[str, Any],
     *,
     policy: Mapping[str, Any] | None = None,
+    policy_path: str | Path | None = None,
 ) -> ContractDecision:
     """根据结构化特征判断是否进入 Contract，不解析自然语言猜测风险。"""
 
-    current_policy = policy or _load_policy()
+    if not isinstance(feature, Mapping):
+        raise _error("Feature 风险事实无法确定")
+    if policy is not None and policy_path is not None:
+        raise _error("policy 与 policy_path 不能同时提供")
+    current_policy = policy or _load_policy(policy_path)
     configured_tags = current_policy.get("trigger_tags", sorted(DEFAULT_TAGS))
     if not isinstance(configured_tags, list) or any(not isinstance(tag, str) for tag in configured_tags):
         raise _error("trigger_tags 必须是字符串列表")

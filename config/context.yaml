@@ -10,6 +10,8 @@ rollover:
   max_elapsed_seconds: 1800
   on_phase_transition: true
   on_role_transition: true
+  model_aware_policy: config/harness_policy.yaml
+  unknown_model_defaults_to_full: true
 
 # F13.1/F13.2：描述资料选择与字节预算，不重复定义 Role 的路径权限。
 roles:

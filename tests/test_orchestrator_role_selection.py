@@ -5,7 +5,7 @@ from pathlib import Path
 from runtime.orchestrator import Orchestrator
 from scripts.project_state import load_project_state
 from scripts.project_state import serialize_project_state
-from tests.runtime_test_support import make_runtime_project
+from tests.runtime_test_support import commit_step_with_test_attestation, make_runtime_project
 
 
 class OrchestratorRoleSelectionTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class OrchestratorRoleSelectionTests(unittest.TestCase):
             orchestrator = Orchestrator(root, control_plane_home=home)
             started = orchestrator.start()
             state = load_project_state(root / "project.yaml")
-            result = orchestrator.commit_step(
+            result = commit_step_with_test_attestation(orchestrator,
                 session_id, started["run_id"], started["lease_token"] or "",
                 {
                     "source_status": state["status"],
