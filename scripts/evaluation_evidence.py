@@ -42,6 +42,13 @@ GATE_ORDER = (
 COMMAND_STATUSES = ("PASSED", "FAILED", "BLOCKED", "TIMED_OUT")
 CHECK_RESULTS = ("PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED")
 GATE_RESULTS = ("PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE")
+EVIDENCE_PROVENANCE = (
+    "GENERATOR_PROVIDED",
+    "EVALUATOR_REPRODUCED",
+    "RUNTIME_VERIFIED",
+    "EXTERNAL",
+)
+INDEPENDENT_PROVENANCE = {"EVALUATOR_REPRODUCED", "RUNTIME_VERIFIED"}
 SENSITIVE_PATTERN = re.compile(
     r"(?i)(token|secret|password|api[_-]?key|authorization)\s*[:=]\s*([^\s]+)"
 )
@@ -323,6 +330,7 @@ def validate_evidence_manifest(
         path = Path(filename)
         if path.name != "manifest.yaml" or path.parent.name != evaluation_id:
             errors.append("manifest 路径必须与 evaluation_id 一致")
+    errors.extend(validate_evaluator_independence_manifest(manifest))
     browser_errors, browser_run_ids, browser_step_ids = _validate_browser_evidence_records(
         manifest.get("browser_runs", []),
         manifest.get("browser_evidence", []),
@@ -481,6 +489,74 @@ def validate_evidence_manifest(
                     errors.append("reference_conformance 缺少 Contract 身份")
                 if not isinstance(reference_section.get("binding_results"), list):
                     errors.append("reference_conformance.binding_results 必须是列表")
+    return errors
+
+
+def validate_evaluator_independence_manifest(manifest: dict[str, Any]) -> list[str]:
+    """校验 E1 Manifest 的 provenance 与当前 Invocation 身份绑定。"""
+
+    section = manifest.get("evaluator_independence")
+    if section is None:
+        return []
+    errors: list[str] = []
+    if not isinstance(section, dict):
+        return ["evaluator_independence 必须是对象"]
+    for field in ("invocation_id", "context_manifest_id", "code_snapshot_hash"):
+        if not _nonempty(section.get(field)):
+            errors.append(f"evaluator_independence.{field} 必须是非空字符串")
+    revision = section.get("project_revision")
+    if not isinstance(revision, int) or revision < 0:
+        errors.append("evaluator_independence.project_revision 必须是非负整数")
+    snapshot = section.get("code_snapshot_hash")
+    if not isinstance(snapshot, str) or not re.fullmatch(r"[a-f0-9]{64}", snapshot):
+        errors.append("evaluator_independence.code_snapshot_hash 必须是 SHA-256")
+    evidence = section.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return errors + ["evaluator_independence.evidence 必须是非空列表"]
+    criteria: dict[str, list[dict[str, Any]]] = {}
+    for index, item in enumerate(evidence):
+        prefix = f"evaluator_independence.evidence[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        criterion = item.get("acceptance_criterion_id")
+        if not _nonempty(criterion):
+            errors.append(f"{prefix}.acceptance_criterion_id 必填")
+        if item.get("provenance") not in EVIDENCE_PROVENANCE:
+            errors.append(f"{prefix}.provenance 枚举无效")
+        for field in ("tool_call_id", "attempt_id", "result_hash", "code_snapshot_hash"):
+            if not _nonempty(item.get(field)):
+                errors.append(f"{prefix}.{field} 必须是非空字符串")
+        if not isinstance(item.get("result_hash"), str) or not re.fullmatch(
+            r"[a-f0-9]{64}", str(item.get("result_hash"))
+        ):
+            errors.append(f"{prefix}.result_hash 必须是 SHA-256")
+        if item.get("project_revision") != revision:
+            errors.append(f"{prefix}.project_revision 与 Manifest 不一致")
+        if item.get("code_snapshot_hash") != snapshot:
+            errors.append(f"{prefix}.code_snapshot_hash 与 Manifest 不一致")
+        if not _timestamp(item.get("timestamp")):
+            errors.append(f"{prefix}.timestamp 必须是带时区时间")
+        if not isinstance(item.get("command"), list) or not item.get("command"):
+            errors.append(f"{prefix}.command 必须是非空数组")
+        if not isinstance(item.get("environment"), dict):
+            errors.append(f"{prefix}.environment 必须是对象")
+        if _nonempty(criterion):
+            criteria.setdefault(str(criterion), []).append(item)
+    required_criteria = section.get("required_acceptance_criteria")
+    if not isinstance(required_criteria, list) or not required_criteria:
+        errors.append("evaluator_independence.required_acceptance_criteria 必须是非空列表")
+    else:
+        for criterion in required_criteria:
+            if not _nonempty(criterion) or str(criterion) not in criteria:
+                errors.append(f"required Acceptance Criterion 缺少独立 Evidence：{criterion}")
+        for criterion, items in criteria.items():
+            if not any(
+                item.get("result") == "PASS"
+                and item.get("provenance") in INDEPENDENT_PROVENANCE
+                for item in items
+            ):
+                errors.append(f"Acceptance Criterion {criterion} 缺少 Evaluator/Runtime PASS Evidence")
     return errors
 
 

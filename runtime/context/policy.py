@@ -15,6 +15,17 @@ _ROOT = Path(__file__).resolve().parents[2]
 _CORE_ROLES = frozenset({"planner", "generator", "evaluator"})
 _PRIORITIES = frozenset({"REQUIRED", "HIGH", "NORMAL", "REFERENCE_ONLY"})
 _DELIVERY_MODES = frozenset({"INLINE", "REFERENCE"})
+_SOURCE_TYPES = frozenset(
+    {
+        "project_state",
+        "state_reference",
+        "state_value",
+        "reference_catalog",
+        "design_reference_subset",
+        "approved_reference_bindings",
+        "reference_conformance_subset",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -60,14 +71,36 @@ class ContextPolicy:
             document = parse_project_yaml(path.read_text(encoding="utf-8"))
         except OSError as exc:
             raise RuntimeValidationError("CONTEXT_POLICY_UNAVAILABLE") from exc
+        independence_path = _ROOT / "config" / "evaluation_independence.yaml"
+        try:
+            independence = parse_project_yaml(independence_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise RuntimeValidationError("EVALUATION_INDEPENDENCE_POLICY_UNAVAILABLE") from exc
+        context_independence = independence.get("context")
+        if not isinstance(context_independence, dict):
+            raise RuntimeValidationError("EVALUATION_INDEPENDENCE_POLICY_INVALID")
+        excluded_fields = context_independence.get("excluded_fields")
+        excluded_prefixes = context_independence.get("excluded_reference_prefixes")
+        excluded_labels = context_independence.get("excluded_source_labels")
+        if not all(
+            isinstance(value, list) and all(isinstance(item, str) and item for item in value)
+            for value in (excluded_fields, excluded_prefixes, excluded_labels)
+        ):
+            raise RuntimeValidationError("EVALUATION_INDEPENDENCE_POLICY_INVALID")
         if document.get("version") != 1 or document.get("default") != "deny":
             raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
         raw_roles = document.get("roles")
         if not isinstance(raw_roles, dict) or set(raw_roles) != _CORE_ROLES:
             raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+        self._evaluator_excluded_fields = frozenset(excluded_fields)
+        self._evaluator_excluded_reference_prefixes = tuple(excluded_prefixes)
+        self._evaluator_excluded_source_labels = frozenset(excluded_labels)
         self._policy_hash = hashlib.sha256(
             json.dumps(
-                document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                {"context": document, "evaluation_independence": independence},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
         self._roles: dict[str, tuple[ContextSourceRule, ...]] = {}
@@ -87,15 +120,7 @@ class ContextPolicy:
                 reason = raw_rule.get("reason")
                 priority = raw_rule.get("priority", "NORMAL")
                 delivery_mode = raw_rule.get("delivery_mode", "INLINE")
-                if not isinstance(source_type, str) or source_type not in {
-                    "project_state",
-                    "state_reference",
-                    "state_value",
-                    "reference_catalog",
-                    "design_reference_subset",
-                    "approved_reference_bindings",
-                    "reference_conformance_subset",
-                }:
+                if not isinstance(source_type, str) or source_type not in _SOURCE_TYPES:
                     raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
                 if reference is not None and not isinstance(reference, str):
                     raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
@@ -152,7 +177,7 @@ class ContextPolicy:
                 reason = raw_rule.get("reason")
                 priority = raw_rule.get("priority", "NORMAL")
                 delivery_mode = raw_rule.get("delivery_mode", "INLINE")
-                if source_type not in {"project_state", "state_reference", "state_value", "reference_catalog", "design_reference_subset", "approved_reference_bindings", "reference_conformance_subset"}:
+                if source_type not in _SOURCE_TYPES:
                     raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
                 if source_type == "project_state" and reference != "project.yaml":
                     raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
@@ -190,6 +215,30 @@ class ContextPolicy:
         if role not in self._budgets:
             raise RuntimeValidationError("CONTEXT_UNKNOWN_ROLE")
         return self._budgets[role]
+
+    def evaluator_source_excluded(self, field: str | None, reference: str | None) -> bool:
+        """判断来源是否属于 E1 明确排除的 Generator 叙事输入。"""
+
+        normalized = (reference or "").replace("\\", "/").casefold()
+        if any(
+            normalized.startswith(prefix.casefold())
+            for prefix in self._evaluator_excluded_reference_prefixes
+        ):
+            return True
+        if field is not None and field in self._evaluator_excluded_fields:
+            # 兼容历史状态字段：它可能指向事实性 handoff；只有指向响应/自评目录
+            # 时才排除，避免把 Generator 的定位信息误当成完整聊天历史。
+            factual_handoff = (
+                normalized.startswith("memory/handoffs/")
+                or "/handoffs/" in normalized
+                or normalized.startswith("handoff-")
+            )
+            return not factual_handoff
+        return False
+
+    @property
+    def evaluator_excluded_source_labels(self) -> frozenset[str]:
+        return self._evaluator_excluded_source_labels
 
     def validate(self) -> dict[str, tuple[ContextSourceRule, ...]]:
         """返回只读策略快照，便于测试配置驱动而非散落硬编码。"""

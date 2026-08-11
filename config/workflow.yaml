@@ -74,6 +74,18 @@ evidence_protocol:
     git_required: false
   manifest_committed_before_project_state: true
 
+evaluator_independence:
+  upgrade_id: E1
+  name: Evaluator Independence Hardening
+  policy: config/evaluation_independence.yaml
+  fresh_invocation_required: true
+  evaluator_context_type: EVALUATOR_INDEPENDENT
+  generator_claims_are_evidence: false
+  required_provenance:
+    - EVALUATOR_REPRODUCED
+    - RUNTIME_VERIFIED
+  deterministic_pass_gate_required: true
+
 controlled_retry:
   version: 1
   rules: config/retry_governance.yaml

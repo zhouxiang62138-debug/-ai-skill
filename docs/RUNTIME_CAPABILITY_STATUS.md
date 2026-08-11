@@ -21,6 +21,16 @@
   Session 解耦的 Rollover/Fresh Invocation。
 - **Best Validated Candidate Runtime**：`runtime/candidates.py` 只通过既有 Snapshot Service
   执行已验证 Candidate 的恢复，Evaluator 只能写推荐记录。
+- **E1 Evaluator Independence Hardening**：独立的验收可信度层，提供 Evaluator Fresh
+  Invocation、`EVALUATOR_INDEPENDENT` Context、Evidence Provenance、当前 revision /
+  code snapshot 绑定和 Deterministic PASS Gate。E1 复用 F11/F12/F13，不归入其中任何
+  一个阶段。
+- **Role Thread Isolation**：已进入正式 Runtime 路径。`RoleExecutionBroker`、Role
+  Execution 持久化、Host Capability Profile、Child Thread/Fresh Invocation fallback、
+  Workspace Binding、Thread Attestation、Pause/Crash Recovery 和 15 项定向回归测试
+  已接入。当前仓库没有真实 Codex Child Thread/App Server Host Adapter，因此默认
+  生产能力为 `FRESH_INVOCATION`；真实 Child Thread 能力为 `HOST_UNAVAILABLE`，不
+  伪造 `host_thread_id`。
 
 正式 Runtime 仍只有 Planner、Generator、Evaluator 三个 Agent。First-Ask、Change
 Request、ExecutionBroker、Context Builder 和其他协调能力都是 Module、Broker、Policy

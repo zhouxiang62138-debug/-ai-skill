@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from scripts.project_state import ProjectStateError, load_project_state
 
 from .errors import RuntimeValidationError
+from .evaluator_independence import validate_evaluator_evidence
 from scripts.reference_contract import validate_approved_reference_contract
 from scripts.reference_conformance import validate_reference_conformance_section
 
@@ -192,8 +193,9 @@ def _verify_reference_conformance(
 class RuntimeVerifierRegistry:
     """由 Runtime 固定分派的 Verifier；正式入口不接受任意 lambda。"""
 
-    def __init__(self, project_root: str | Path) -> None:
+    def __init__(self, project_root: str | Path, session_store: Any | None = None) -> None:
         self.root = Path(project_root).resolve()
+        self.session_store = session_store
 
     def verify_transition(
         self,
@@ -302,6 +304,19 @@ class RuntimeVerifierRegistry:
                     return {"passed": False, "evidence_refs": [], "details": "EXECUTION_EVIDENCE_REF_MISSING"}
                 refs.append(ref)
             return {"passed": True, "evidence_refs": refs, "details": "execution_broker_result"}
+        if step == "evaluator_independence":
+            if getattr(request, "role", None) != "evaluator":
+                return {
+                    "passed": False,
+                    "evidence_refs": [],
+                    "details": "EVALUATOR_INDEPENDENCE_ROLE_INVALID",
+                }
+            return validate_evaluator_evidence(
+                response,
+                request,
+                self.root,
+                session_store=self.session_store,
+            )
         if step == "implementation":
             paths = _references(response.get("implementation_paths"))
             if not paths:

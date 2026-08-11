@@ -55,6 +55,24 @@ Evaluator 还可追加 Candidate 验证记录，Runtime 通过 Snapshot Service 
 `LocalCompatibilityEnvironment` 不等于物理 Sandbox。完整当前状态见
 `docs/RUNTIME_CAPABILITY_STATUS.md`。这些能力都不得绕过产品/Plan 批准链。
 
+## E1 Evaluator Independence Hardening
+
+E1 是独立的“验收可信度”升级，与 F11 Execution、F12 Security、F13 Context
+并列，不属于其中任何一个阶段。它不增加第四个 Agent；Planner、Generator、Evaluator
+仍是唯一三个核心 Agent。
+
+用户仍然只需要一个 Codex 窗口，但 Runtime 必须为 Planner、Generator 和 Evaluator
+创建独立的 Model Invocation。Evaluator 的 Invocation 必须是 Fresh Invocation，使用
+`EVALUATOR_INDEPENDENT` Context Manifest，不继承 Generator 完整聊天/推理历史，也不
+把 Generator 自我声明当作 PASS Evidence。
+
+E1 的最终 PASS 必须同时满足独立重现、Evidence Provenance、当前 project revision /
+code snapshot 绑定、受保护工件完整性、无 blocking/critical Issue 和 Runtime
+Deterministic PASS Gate。模型只能提出 PASS，Python/Runtime 决定是否允许提交。
+正式策略见 `config/evaluation_independence.yaml`，实现见
+`runtime/evaluator_independence.py`；宿主无法暴露外层对话隔离能力时，只能报告
+`Runtime Context Isolation`，不得伪造 `Host Conversation Isolation`。
+
 ### 运行时故障与用户打断边界
 
 - 只有需求事实、设计选择、产品方案确认、Plan 批准、不可逆操作授权或确实需要
@@ -144,3 +162,18 @@ Gate；Evaluator 必须逐项验收并执行原功能回归。PASS 后先进入
 `change_context.evaluation_iteration` 计算，新请求从 0 开始。完整协议、迁移、
 回滚、用户示例和测试方式见
 `docs/COMPLETED_PROJECT_CHANGE_REQUEST_WORKFLOW.md`。
+
+### Role Thread Isolation
+
+Planner、Generator、Evaluator 仍是唯一三个核心 Agent；Main Codex Thread 是用户
+交互与 Control Surface，不是第四个 Agent。每次正式 Role Run 由
+`runtime/role_execution.py` 创建独立的 Role Execution，并持久化
+`role_execution_id`、`execution_mode`、`host_thread_id`、`invocation_id`、Context
+Manifest、Workspace Binding 和 source revision。
+
+Runtime 优先请求真实 Child Thread。只有宿主明确提供 Child Thread、稳定线程 ID
+和程序化创建能力时，才记录 `CHILD_THREAD`；否则明确记录
+`ROLE_EXECUTION_FALLBACK` 和 `HOST_CHILD_THREAD_UNAVAILABLE`，使用新的
+`FRESH_INVOCATION`，且不伪造 `host_thread_id`。每个 Role Run 不复用已完成线程。
+Role Context 仍只能由 Deterministic Context Builder 构建；Role Execution 不会
+绕过 Role Policy、Lease、Attestation 或 CAS。

@@ -44,6 +44,27 @@ Markdown 与 Issue Package 必须互相引用，并通过事务接口先提交�
 
 ## F9 可复现证据与 Gate
 
+## E1 Evaluator Independence Hardening
+
+E1 是独立的验收可信度升级，与 F11 Execution、F12 Security、F13 Context 并列，
+不增加第四个 Agent。用户仍只使用一个 Codex 窗口，但本次验收必须运行在新的
+Evaluator Model Invocation 中。
+
+只消费 Runtime 提供的 `EVALUATOR_INDEPENDENT` Context Manifest。Generator handoff
+可以告诉你改了哪些文件、Issue 应在哪里检查；`FIXED`、“全部完成”、“应该通过”和
+Generator 自测都只是 claim，不是 PASS Evidence。不要读取或依赖 Generator 完整聊天、
+推理过程或自我评分。
+
+按 `CLAIM → VERIFY → RESULT` 重新建立判断。required/critical Acceptance Criterion
+必须由 `EVALUATOR_REPRODUCED` 或 `RUNTIME_VERIFIED` Evidence 支撑，并绑定当前
+Invocation、Context Manifest、project revision、code snapshot、tool call 和 attempt。
+Build、required tests、必需 Browser 场景、持久化刷新行为和 regression 必须按 Profile
+重新执行；不能复用 Generator 的 exit code。
+
+模型可以提出 PASS，但 Runtime 的 E1 Deterministic PASS Gate 才能允许提交。缺少
+Fresh Invocation、Context 隔离、provenance、独立重现、当前 revision 或任何 required
+verifier 时必须 FAIL/BLOCKED，不得用“看起来完成”补齐证据。
+
 Browser Scenario、Feature Completeness、Build/Test/Regression、Evidence Manifest、
 Issue Package、Candidate 和 Evaluation Transaction 由 Runtime PhaseRunner 的
 Gate verifier 串行执行。Evaluator 的文字声明不构成执行证据；缺少 verifier 或任一

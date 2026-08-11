@@ -21,3 +21,14 @@
 - Session DB 存在但项目缺失：抛出 ProjectMissingError。
 - 项目存在但 DB 缺失：报告缺失，不静默创建历史。
 - Lease 过期：新 Worker 事务性接管并递增 `lease_version`。
+
+## Role Execution 崩溃恢复
+
+Role Execution 的 `STARTED` 记录由 Session Store 持久化。恢复时 Runtime 先把它
+标记为 `UNKNOWN_AFTER_CRASH`，同时将仍为 ACTIVE 的 Model Invocation 标记为
+失败；这两个动作都追加幂等事件，不删除历史，也不修改业务 revision。
+
+随后由宿主能力决定恢复路径：可恢复且仍有真实稳定线程的宿主可以显式实现同一
+Role Run 的 resume；当前默认宿主没有该能力，因此下一步应创建新的 Role Execution
+并用同一 Durable Role Run 的 Context Builder 结果重新执行。线程聊天记录消失不会
+导致项目状态丢失。

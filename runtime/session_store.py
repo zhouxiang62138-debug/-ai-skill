@@ -19,7 +19,7 @@ from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
 
-RUNTIME_SCHEMA_VERSION = 3
+RUNTIME_SCHEMA_VERSION = 4
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|api[_-]?key|access[_-]?token|secret|password)"
 )
@@ -208,11 +208,38 @@ class SessionStore:
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
             worker_id TEXT NOT NULL,
             role TEXT NOT NULL,
+            project_id TEXT NOT NULL DEFAULT '',
+            source_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+            source_revision INTEGER NOT NULL DEFAULT 0 CHECK(source_revision >= 0),
             status TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            started_at TEXT NOT NULL DEFAULT '',
             completed_at TEXT,
             result_json TEXT
         );
+        CREATE TABLE IF NOT EXISTS role_executions (
+            role_execution_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL REFERENCES role_runs(run_id),
+            role TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            requested_mode TEXT NOT NULL,
+            host_thread_id TEXT,
+            invocation_id TEXT,
+            context_manifest_id TEXT NOT NULL,
+            workspace_binding_json TEXT NOT NULL,
+            source_revision INTEGER NOT NULL CHECK(source_revision >= 0),
+            status TEXT NOT NULL,
+            fallback_reason TEXT,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            termination_reason TEXT,
+            idempotency_key TEXT NOT NULL,
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE INDEX IF NOT EXISTS role_executions_by_run
+        ON role_executions(session_id, run_id, started_at);
         CREATE TABLE IF NOT EXISTS model_invocations (
             invocation_id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -222,6 +249,12 @@ class SessionStore:
             status TEXT NOT NULL,
             previous_invocation_id TEXT,
             context_id TEXT NOT NULL,
+            context_manifest_id TEXT NOT NULL DEFAULT '',
+            source_revision INTEGER NOT NULL DEFAULT 0 CHECK(source_revision >= 0),
+            model_id TEXT NOT NULL DEFAULT 'unknown',
+            capability_profile TEXT NOT NULL DEFAULT 'unknown',
+            fresh_context_required INTEGER NOT NULL DEFAULT 0 CHECK(fresh_context_required IN (0, 1)),
+            context_isolation TEXT NOT NULL DEFAULT 'RUNTIME_CONTEXT_ONLY',
             started_at TEXT NOT NULL,
             ended_at TEXT,
             handoff_id TEXT,
@@ -250,6 +283,8 @@ class SessionStore:
             project_id TEXT NOT NULL,
             run_id TEXT NOT NULL,
             role TEXT NOT NULL,
+            context_type TEXT NOT NULL DEFAULT 'ROLE_SCOPED',
+            excluded_sources_json TEXT NOT NULL DEFAULT '[]',
             workflow_state TEXT NOT NULL,
             project_revision INTEGER NOT NULL,
             project_state_hash TEXT NOT NULL,
@@ -270,6 +305,9 @@ class SessionStore:
             project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
             context_id TEXT NOT NULL REFERENCES context_manifests(context_id),
             invocation_id TEXT NOT NULL REFERENCES model_invocations(invocation_id),
+            role_execution_id TEXT,
+            host_thread_id TEXT,
+            execution_mode TEXT,
             required_steps_hash TEXT NOT NULL,
             verifier_results_json TEXT NOT NULL,
             evidence_refs_json TEXT NOT NULL,
@@ -297,6 +335,67 @@ class SessionStore:
             for name in ("started_at", "result_hash"):
                 if name not in tool_columns:
                     connection.execute(f"ALTER TABLE tool_calls ADD COLUMN {name} TEXT")
+            invocation_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(model_invocations)")
+            }
+            invocation_migrations = {
+                "context_manifest_id": "TEXT NOT NULL DEFAULT ''",
+                "source_revision": "INTEGER NOT NULL DEFAULT 0",
+                "model_id": "TEXT NOT NULL DEFAULT 'unknown'",
+                "capability_profile": "TEXT NOT NULL DEFAULT 'unknown'",
+                "fresh_context_required": "INTEGER NOT NULL DEFAULT 0",
+                "context_isolation": "TEXT NOT NULL DEFAULT 'RUNTIME_CONTEXT_ONLY'",
+            }
+            for name, definition in invocation_migrations.items():
+                if name not in invocation_columns:
+                    connection.execute(
+                        f"ALTER TABLE model_invocations ADD COLUMN {name} {definition}"
+                    )
+            role_run_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(role_runs)")
+            }
+            role_run_migrations = {
+                "project_id": "TEXT NOT NULL DEFAULT ''",
+                "source_status": "TEXT NOT NULL DEFAULT 'UNKNOWN'",
+                "source_revision": "INTEGER NOT NULL DEFAULT 0",
+                "started_at": "TEXT NOT NULL DEFAULT ''",
+            }
+            for name, definition in role_run_migrations.items():
+                if name not in role_run_columns:
+                    connection.execute(
+                        f"ALTER TABLE role_runs ADD COLUMN {name} {definition}"
+                    )
+            connection.execute(
+                "UPDATE role_runs SET project_id=(SELECT project_id FROM sessions WHERE sessions.session_id=role_runs.session_id) WHERE project_id=''"
+            )
+            connection.execute(
+                "UPDATE role_runs SET started_at=created_at WHERE started_at=''"
+            )
+            phase_attestation_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(phase_attestations)")
+            }
+            phase_attestation_migrations = {
+                "role_execution_id": "TEXT",
+                "host_thread_id": "TEXT",
+                "execution_mode": "TEXT",
+            }
+            for name, definition in phase_attestation_migrations.items():
+                if name not in phase_attestation_columns:
+                    connection.execute(
+                        f"ALTER TABLE phase_attestations ADD COLUMN {name} {definition}"
+                    )
+            context_manifest_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(context_manifests)")
+            }
+            context_manifest_migrations = {
+                "context_type": "TEXT NOT NULL DEFAULT 'ROLE_SCOPED'",
+                "excluded_sources_json": "TEXT NOT NULL DEFAULT '[]'",
+            }
+            for name, definition in context_manifest_migrations.items():
+                if name not in context_manifest_columns:
+                    connection.execute(
+                        f"ALTER TABLE context_manifests ADD COLUMN {name} {definition}"
+                    )
             # v3 保留旧表及全部历史记录，并把它们复制到支持多次 ABORTED 尝试的新表。
             # 旧表不删除，避免为了迁移破坏恢复审计链。
             connection.execute(
@@ -508,6 +607,8 @@ class SessionStore:
         omitted_sources: list[dict[str, Any]],
         created_at: str,
         complete: bool = True,
+        context_type: str = "ROLE_SCOPED",
+        excluded_sources: list[str] | None = None,
     ) -> dict[str, Any]:
         """通过 F10 正式 API 持久化不含正文的 Context Manifest。"""
 
@@ -533,13 +634,19 @@ class SessionStore:
             raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
         if not isinstance(complete, bool):
             raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        if context_type not in {"ROLE_SCOPED", "EVALUATOR_INDEPENDENT"}:
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
+        excluded_sources = list(excluded_sources or [])
+        if any(not isinstance(item, str) or not item for item in excluded_sources):
+            raise RuntimeValidationError("CONTEXT_MANIFEST_INVALID")
         safe_sources = self._validate_context_manifest_sources(sources)
         safe_omitted = self._validate_context_manifest_sources(
             omitted_sources, omitted=True
         )
         sources_json = canonical_json(safe_sources)
         omitted_json = canonical_json(safe_omitted)
-        if _SECRET_PATTERN.search(sources_json + omitted_json):
+        excluded_sources_json = canonical_json(sorted(set(excluded_sources)))
+        if _SECRET_PATTERN.search(sources_json + omitted_json + excluded_sources_json):
             raise RuntimeValidationError("CONTEXT_MANIFEST_SECRET_FORBIDDEN")
         persisted_at = utc_now()
         row_values = (
@@ -548,6 +655,8 @@ class SessionStore:
             project_id,
             run_id,
             role,
+            context_type,
+            excluded_sources_json,
             workflow_state,
             project_revision,
             project_state_hash,
@@ -576,6 +685,7 @@ class SessionStore:
                         """
                         UPDATE context_manifests SET
                             session_id=?, project_id=?, run_id=?, role=?,
+                            context_type=?, excluded_sources_json=?,
                             workflow_state=?, project_revision=?, project_state_hash=?,
                             context_hash=?, context_policy_hash=?, budget_fingerprint=?,
                             sources_json=?, omitted_sources_json=?, complete=?,
@@ -595,6 +705,8 @@ class SessionStore:
                     "project_id",
                     "run_id",
                     "role",
+                    "context_type",
+                    "excluded_sources_json",
                     "workflow_state",
                     "project_revision",
                     "project_state_hash",
@@ -610,6 +722,8 @@ class SessionStore:
                     project_id,
                     run_id,
                     role,
+                    context_type,
+                    excluded_sources_json,
                     workflow_state,
                     project_revision,
                     project_state_hash,
@@ -627,11 +741,12 @@ class SessionStore:
                 """
                 INSERT INTO context_manifests(
                     context_id, session_id, project_id, run_id, role,
+                    context_type, excluded_sources_json,
                     workflow_state, project_revision, project_state_hash,
                     context_hash, context_policy_hash, budget_fingerprint,
                     sources_json, omitted_sources_json, complete, created_at,
                     persisted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 row_values,
             )
@@ -687,10 +802,17 @@ class SessionStore:
         try:
             value["sources"] = json.loads(value.pop("sources_json"))
             value["omitted_sources"] = json.loads(value.pop("omitted_sources_json"))
+            value["excluded_sources"] = json.loads(value.pop("excluded_sources_json"))
         except (KeyError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID") from exc
         if not isinstance(value["sources"], list) or not isinstance(
             value["omitted_sources"], list
+        ):
+            raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID")
+        if value.get("context_type") not in {"ROLE_SCOPED", "EVALUATOR_INDEPENDENT"}:
+            raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID")
+        if not isinstance(value["excluded_sources"], list) or any(
+            not isinstance(item, str) or not item for item in value["excluded_sources"]
         ):
             raise RuntimeStorageError("CONTEXT_MANIFEST_INVALID")
         return value
@@ -936,6 +1058,28 @@ class SessionStore:
             raise RuntimeStorageError(f"Tool Call 不存在：{tool_call_id}")
         return dict(row)
 
+    def get_tool_attempt(self, session_id: str, attempt_id: str) -> dict[str, Any]:
+        """读取属于指定 Session 的 Tool Attempt，供验收证据反查。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT ta.*, tc.session_id, tc.status AS tool_call_status,
+                       tc.result_reference AS tool_call_result_reference,
+                       tc.result_hash AS tool_call_result_hash
+                FROM tool_attempts ta
+                JOIN tool_calls tc ON tc.tool_call_id = ta.tool_call_id
+                WHERE ta.attempt_id = ? AND tc.session_id = ?
+                """,
+                (attempt_id, session_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise RuntimeStorageError(f"Tool Attempt 不存在：{attempt_id}")
+        return dict(row)
+
     def complete_tool_call(
         self,
         session_id: str,
@@ -1028,16 +1172,55 @@ class SessionStore:
             connection.close()
         return [dict(row) for row in rows]
 
-    def create_role_run(self, session_id: str, worker_id: str, role: str) -> str:
+    def create_role_run(
+        self,
+        session_id: str,
+        worker_id: str,
+        role: str,
+        *,
+        project_id: str | None = None,
+        source_status: str = "UNKNOWN",
+        source_revision: int = 0,
+    ) -> str:
         """创建一次可审计角色运行，并记录 ROLE_STARTED。"""
 
         run_id = f"run-{uuid.uuid4().hex}"
+        timestamp = utc_now()
+        session = self.get_session(session_id)
+        if project_id is None:
+            project_id = session.project_id
+        if not isinstance(source_revision, int) or source_revision < 0:
+            raise RuntimeValidationError("ROLE_RUN_SOURCE_REVISION_INVALID")
         with self.transaction(immediate=True) as connection:
             connection.execute(
-                "INSERT INTO role_runs(run_id, session_id, worker_id, role, status, created_at) VALUES (?, ?, ?, ?, 'STARTED', ?)",
-                (run_id, session_id, worker_id, role, utc_now()),
+                """
+                INSERT INTO role_runs(
+                    run_id, session_id, worker_id, role, project_id, source_status,
+                    source_revision, status, created_at, started_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'STARTED', ?, ?)
+                """,
+                (
+                    run_id,
+                    session_id,
+                    worker_id,
+                    role,
+                    project_id,
+                    source_status,
+                    source_revision,
+                    timestamp,
+                    timestamp,
+                ),
             )
-        self.append_event(session_id, EventType.ROLE_STARTED, ActorType.WORKER, worker_id, idempotency_key=f"role-started:{run_id}", correlation_id=run_id, payload={"run_id": run_id, "role": role})
+        self.append_event(
+            session_id,
+            EventType.ROLE_STARTED,
+            ActorType.WORKER,
+            worker_id,
+            idempotency_key=f"role-started:{run_id}",
+            correlation_id=run_id,
+            payload={"run_id": run_id, "role": role},
+            timestamp=timestamp,
+        )
         return run_id
 
     def get_role_run(self, session_id: str, run_id: str) -> dict[str, Any]:
@@ -1052,7 +1235,492 @@ class SessionStore:
             connection.close()
         if row is None:
             raise RuntimeStorageError("ROLE_RUN_MISSING")
-        return dict(row)
+        value = dict(row)
+        # 对外同时暴露规范名称，数据库内部继续兼容既有 run_id。
+        value["role_run_id"] = value["run_id"]
+        value["started_at"] = value.get("started_at") or value.get("created_at")
+        return value
+
+    def create_role_execution(
+        self,
+        session_id: str,
+        run_id: str,
+        role: str,
+        *,
+        project_id: str,
+        source_revision: int,
+        context_manifest_id: str,
+        execution_mode: str,
+        requested_mode: str,
+        host_thread_id: str | None,
+        workspace_binding: dict[str, Any],
+        fallback_reason: str | None,
+        idempotency_key: str,
+        status: str = "STARTED",
+    ) -> dict[str, Any]:
+        """持久化一次 Role Execution，并追加完整生命周期起始事件。"""
+
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                session_id,
+                run_id,
+                role,
+                project_id,
+                context_manifest_id,
+                execution_mode,
+                requested_mode,
+                idempotency_key,
+            )
+        ):
+            raise RuntimeValidationError("ROLE_EXECUTION_INVALID")
+        if not isinstance(source_revision, int) or source_revision < 0:
+            raise RuntimeValidationError("ROLE_EXECUTION_SOURCE_REVISION_INVALID")
+        if execution_mode not in {"CHILD_THREAD", "FRESH_INVOCATION"} or requested_mode not in {"CHILD_THREAD", "FRESH_INVOCATION"}:
+            raise RuntimeValidationError("ROLE_EXECUTION_MODE_INVALID")
+        if status not in {"REQUESTED", "STARTED"}:
+            raise RuntimeValidationError("ROLE_EXECUTION_STATUS_INVALID")
+        if status == "STARTED" and execution_mode == "CHILD_THREAD" and (not isinstance(host_thread_id, str) or not host_thread_id):
+            raise RuntimeValidationError("ROLE_EXECUTION_THREAD_ID_REQUIRED")
+        if status == "REQUESTED" and host_thread_id is not None:
+            raise RuntimeValidationError("ROLE_EXECUTION_REQUESTED_THREAD_ID_FORBIDDEN")
+        if execution_mode == "FRESH_INVOCATION" and host_thread_id is not None:
+            raise RuntimeValidationError("ROLE_EXECUTION_FRESH_THREAD_ID_FORBIDDEN")
+        workspace_json = canonical_json(workspace_binding)
+        if _SECRET_PATTERN.search(workspace_json):
+            raise RuntimeValidationError("ROLE_EXECUTION_SECRET_FORBIDDEN")
+        run = self.get_role_run(session_id, run_id)
+        if run["role"] != role or run["status"] != "STARTED":
+            raise RuntimeValidationError("ROLE_EXECUTION_ROLE_RUN_INVALID")
+        execution_id = stable_id("role-execution", session_id, run_id, idempotency_key)
+        timestamp = utc_now()
+        with self.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                expected = {
+                    "run_id": run_id,
+                    "role": role,
+                    "project_id": project_id,
+                    "execution_mode": execution_mode,
+                    "requested_mode": requested_mode,
+                    "host_thread_id": host_thread_id,
+                    "context_manifest_id": context_manifest_id,
+                    "workspace_binding_json": workspace_json,
+                    "source_revision": source_revision,
+                    "fallback_reason": fallback_reason,
+                }
+                if any(existing[key] != value for key, value in expected.items()):
+                    raise RuntimeValidationError("ROLE_EXECUTION_IDEMPOTENCY_CONFLICT")
+                return self._role_execution_from_row(existing)
+            active = connection.execute(
+                """
+                SELECT role_execution_id FROM role_executions
+                WHERE session_id=? AND run_id=? AND status IN ('REQUESTED', 'STARTED')
+                """,
+                (session_id, run_id),
+            ).fetchone()
+            if active is not None:
+                raise RuntimeValidationError("ROLE_EXECUTION_ALREADY_ACTIVE")
+            connection.execute(
+                """
+                INSERT INTO role_executions(
+                    role_execution_id, session_id, run_id, role, project_id,
+                    execution_mode, requested_mode, host_thread_id, invocation_id,
+                    context_manifest_id, workspace_binding_json, source_revision,
+                    status, fallback_reason, started_at, completed_at,
+                    termination_reason, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+                """,
+                (
+                    execution_id,
+                    session_id,
+                    run_id,
+                    role,
+                    project_id,
+                    execution_mode,
+                    requested_mode,
+                    host_thread_id,
+                    context_manifest_id,
+                    workspace_json,
+                    source_revision,
+                    status,
+                    fallback_reason,
+                    timestamp,
+                    idempotency_key,
+                ),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.ROLE_EXECUTION_REQUESTED,
+                ActorType.ORCHESTRATOR,
+                "role-execution-runtime",
+                idempotency_key=f"role-execution-requested:{execution_id}",
+                correlation_id=run_id,
+                payload={
+                    "role_execution_id": execution_id,
+                    "run_id": run_id,
+                    "role": role,
+                    "requested_mode": requested_mode,
+                    "source_revision": source_revision,
+                },
+                timestamp=timestamp,
+            )
+            if status == "STARTED" and execution_mode == "CHILD_THREAD":
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_THREAD_CREATED,
+                    ActorType.ORCHESTRATOR,
+                    "role-execution-runtime",
+                    idempotency_key=f"role-thread-created:{execution_id}",
+                    correlation_id=run_id,
+                    payload={
+                        "role_execution_id": execution_id,
+                        "run_id": run_id,
+                        "role": role,
+                        "host_thread_id": host_thread_id,
+                    },
+                    timestamp=timestamp,
+                )
+            elif status == "STARTED" and fallback_reason:
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_EXECUTION_FALLBACK,
+                    ActorType.ORCHESTRATOR,
+                    "role-execution-runtime",
+                    idempotency_key=f"role-execution-fallback:{execution_id}",
+                    correlation_id=run_id,
+                    payload={
+                        "role_execution_id": execution_id,
+                        "run_id": run_id,
+                        "role": role,
+                        "actual_mode": execution_mode,
+                        "fallback_reason": fallback_reason,
+                    },
+                    timestamp=timestamp,
+                )
+            if status == "STARTED":
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_EXECUTION_STARTED,
+                    ActorType.ORCHESTRATOR,
+                    "role-execution-runtime",
+                    idempotency_key=f"role-execution-started:{execution_id}",
+                    correlation_id=run_id,
+                    payload={
+                        "role_execution_id": execution_id,
+                        "run_id": run_id,
+                        "role": role,
+                        "execution_mode": execution_mode,
+                        "host_thread_id": host_thread_id,
+                    },
+                    timestamp=timestamp,
+                )
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE role_execution_id=?",
+                (execution_id,),
+            ).fetchone()
+        return self._role_execution_from_row(row)
+
+    def activate_role_execution(
+        self,
+        session_id: str,
+        role_execution_id: str,
+        *,
+        execution_mode: str,
+        host_thread_id: str | None,
+        fallback_reason: str | None,
+    ) -> dict[str, Any]:
+        """完成 REQUESTED → STARTED，确保 Host 创建窗口可恢复。"""
+
+        if execution_mode not in {"CHILD_THREAD", "FRESH_INVOCATION"}:
+            raise RuntimeValidationError("ROLE_EXECUTION_MODE_INVALID")
+        if execution_mode == "CHILD_THREAD" and (not isinstance(host_thread_id, str) or not host_thread_id):
+            raise RuntimeValidationError("ROLE_EXECUTION_THREAD_ID_REQUIRED")
+        if execution_mode == "FRESH_INVOCATION" and host_thread_id is not None:
+            raise RuntimeValidationError("ROLE_EXECUTION_FRESH_THREAD_ID_FORBIDDEN")
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_EXECUTION_MISSING")
+            if row["status"] == "STARTED":
+                if row["execution_mode"] != execution_mode or row["host_thread_id"] != host_thread_id:
+                    raise RuntimeValidationError("ROLE_EXECUTION_ACTIVATION_CONFLICT")
+                return self._role_execution_from_row(row)
+            if row["status"] != "REQUESTED":
+                raise RuntimeValidationError("ROLE_EXECUTION_INVALID_TRANSITION")
+            timestamp = utc_now()
+            connection.execute(
+                "UPDATE role_executions SET execution_mode=?, host_thread_id=?, fallback_reason=?, status='STARTED' WHERE session_id=? AND role_execution_id=?",
+                (execution_mode, host_thread_id, fallback_reason, session_id, role_execution_id),
+            )
+            if execution_mode == "CHILD_THREAD":
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_THREAD_CREATED,
+                    ActorType.ORCHESTRATOR,
+                    "role-execution-runtime",
+                    idempotency_key=f"role-thread-created:{role_execution_id}",
+                    correlation_id=row["run_id"],
+                    payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"], "host_thread_id": host_thread_id},
+                    timestamp=timestamp,
+                )
+            elif fallback_reason:
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_EXECUTION_FALLBACK,
+                    ActorType.ORCHESTRATOR,
+                    "role-execution-runtime",
+                    idempotency_key=f"role-execution-fallback:{role_execution_id}",
+                    correlation_id=row["run_id"],
+                    payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"], "actual_mode": execution_mode, "fallback_reason": fallback_reason},
+                    timestamp=timestamp,
+                )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.ROLE_EXECUTION_STARTED,
+                ActorType.ORCHESTRATOR,
+                "role-execution-runtime",
+                idempotency_key=f"role-execution-started:{role_execution_id}",
+                correlation_id=row["run_id"],
+                payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"], "execution_mode": execution_mode, "host_thread_id": host_thread_id},
+                timestamp=timestamp,
+            )
+            updated = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+        return self._role_execution_from_row(updated)
+
+    @staticmethod
+    def _role_execution_from_row(row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            raise RuntimeStorageError("ROLE_EXECUTION_MISSING")
+        value = dict(row)
+        value["role_run_id"] = value["run_id"]
+        value["workspace_binding"] = json.loads(value.pop("workspace_binding_json"))
+        return value
+
+    def get_role_execution(self, session_id: str, role_execution_id: str) -> dict[str, Any]:
+        """读取并校验同一 Session 的 Role Execution。"""
+
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._role_execution_from_row(row)
+
+    def list_role_executions(self, session_id: str, *, run_id: str | None = None) -> list[dict[str, Any]]:
+        """按启动顺序列出 Role Execution，供 inspect 和恢复使用。"""
+
+        connection = self._connect()
+        try:
+            if run_id is None:
+                rows = connection.execute(
+                    "SELECT * FROM role_executions WHERE session_id=? ORDER BY started_at",
+                    (session_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM role_executions WHERE session_id=? AND run_id=? ORDER BY started_at",
+                    (session_id, run_id),
+                ).fetchall()
+        finally:
+            connection.close()
+        return [self._role_execution_from_row(row) for row in rows]
+
+    def active_role_executions(self, session_id: str) -> list[dict[str, Any]]:
+        """返回尚未结束的 Role Execution。"""
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND status IN ('REQUESTED', 'STARTED') ORDER BY started_at",
+                (session_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [self._role_execution_from_row(row) for row in rows]
+
+    def get_active_role_execution(self, session_id: str, run_id: str) -> dict[str, Any] | None:
+        executions = self.list_role_executions(session_id, run_id=run_id)
+        active = [item for item in executions if item["status"] in {"REQUESTED", "STARTED"}]
+        if len(active) > 1:
+            raise RuntimeValidationError("ROLE_EXECUTION_MULTIPLE_ACTIVE")
+        return active[0] if active else None
+
+    def bind_role_execution_invocation(
+        self, session_id: str, role_execution_id: str, invocation_id: str
+    ) -> dict[str, Any]:
+        """原子绑定 Invocation；不允许跨 Run、跨 Role 或二次改绑。"""
+
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_EXECUTION_MISSING")
+            if row["status"] != "STARTED":
+                raise RuntimeValidationError("ROLE_EXECUTION_NOT_ACTIVE")
+            if row["invocation_id"] is not None:
+                if row["invocation_id"] != invocation_id:
+                    raise RuntimeValidationError("ROLE_EXECUTION_INVOCATION_REBIND_FORBIDDEN")
+                return self._role_execution_from_row(row)
+            invocation = connection.execute(
+                "SELECT run_id, role, context_id, source_revision FROM model_invocations WHERE session_id=? AND invocation_id=?",
+                (session_id, invocation_id),
+            ).fetchone()
+            if invocation is None:
+                raise RuntimeStorageError("MODEL_INVOCATION_MISSING")
+            if invocation["run_id"] != row["run_id"] or invocation["role"] != row["role"] or invocation["context_id"] != row["context_manifest_id"] or int(invocation["source_revision"]) != int(row["source_revision"]):
+                raise RuntimeValidationError("ROLE_EXECUTION_INVOCATION_MISMATCH")
+            connection.execute(
+                "UPDATE role_executions SET invocation_id=? WHERE session_id=? AND role_execution_id=?",
+                (invocation_id, session_id, role_execution_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+        return self._role_execution_from_row(updated)
+
+    def complete_role_execution(
+        self, session_id: str, role_execution_id: str, *, termination_reason: str = "completed"
+    ) -> dict[str, Any]:
+        """结束 Role Execution；只有 Runtime 能写入完成状态。"""
+
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_EXECUTION_MISSING")
+            if row["status"] == "COMPLETED":
+                return self._role_execution_from_row(row)
+            if row["status"] not in {"REQUESTED", "STARTED"}:
+                raise RuntimeValidationError("ROLE_EXECUTION_INVALID_TRANSITION")
+            timestamp = utc_now()
+            connection.execute(
+                "UPDATE role_executions SET status='COMPLETED', completed_at=?, termination_reason=? WHERE session_id=? AND role_execution_id=?",
+                (timestamp, termination_reason[:500], session_id, role_execution_id),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.ROLE_THREAD_ARCHIVED,
+                ActorType.ORCHESTRATOR,
+                "role-execution-runtime",
+                idempotency_key=f"role-thread-archived:{role_execution_id}",
+                correlation_id=row["run_id"],
+                payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"]},
+                timestamp=timestamp,
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.ROLE_EXECUTION_COMPLETED,
+                ActorType.ORCHESTRATOR,
+                "role-execution-runtime",
+                idempotency_key=f"role-execution-completed:{role_execution_id}",
+                correlation_id=row["run_id"],
+                payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"]},
+                timestamp=timestamp,
+            )
+            updated = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+        return self._role_execution_from_row(updated)
+
+    def fail_role_execution(
+        self, session_id: str, role_execution_id: str, *, termination_reason: str
+    ) -> dict[str, Any]:
+        """失败或安全终止 Role Execution，保留审计且不提交业务状态。"""
+
+        with self.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeStorageError("ROLE_EXECUTION_MISSING")
+            if row["status"] in {"FAILED", "CANCELLED", "UNKNOWN_AFTER_CRASH"}:
+                return self._role_execution_from_row(row)
+            if row["status"] not in {"REQUESTED", "STARTED"}:
+                raise RuntimeValidationError("ROLE_EXECUTION_INVALID_TRANSITION")
+            timestamp = utc_now()
+            status = "CANCELLED" if termination_reason == "session-paused" else "FAILED"
+            connection.execute(
+                "UPDATE role_executions SET status=?, completed_at=?, termination_reason=? WHERE session_id=? AND role_execution_id=?",
+                (status, timestamp, termination_reason[:500], session_id, role_execution_id),
+            )
+            self._append_event_in_transaction(
+                connection,
+                session_id,
+                EventType.ROLE_EXECUTION_CANCELLED if status == "CANCELLED" else EventType.ROLE_EXECUTION_FAILED,
+                ActorType.ORCHESTRATOR,
+                "role-execution-runtime",
+                idempotency_key=f"role-execution-{status.lower()}:{role_execution_id}",
+                correlation_id=row["run_id"],
+                payload={"role_execution_id": role_execution_id, "run_id": row["run_id"], "role": row["role"], "reason": termination_reason[:500]},
+                timestamp=timestamp,
+            )
+            updated = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                (session_id, role_execution_id),
+            ).fetchone()
+        return self._role_execution_from_row(updated)
+
+    def recover_interrupted_role_executions(self, session_id: str) -> list[dict[str, Any]]:
+        """崩溃后保留 Role Run，先把未结束 Execution 标成未知。"""
+
+        recovered: list[dict[str, Any]] = []
+        with self.transaction(immediate=True) as connection:
+            rows = connection.execute(
+                "SELECT * FROM role_executions WHERE session_id=? AND status IN ('REQUESTED', 'STARTED') ORDER BY started_at",
+                (session_id,),
+            ).fetchall()
+            timestamp = utc_now()
+            for row in rows:
+                connection.execute(
+                    "UPDATE role_executions SET status='UNKNOWN_AFTER_CRASH', completed_at=?, termination_reason=? WHERE session_id=? AND role_execution_id=?",
+                    (timestamp, "host-crash", session_id, row["role_execution_id"]),
+                )
+                self._append_event_in_transaction(
+                    connection,
+                    session_id,
+                    EventType.ROLE_EXECUTION_FAILED,
+                    ActorType.ORCHESTRATOR,
+                    "recovery-runtime",
+                    idempotency_key=f"role-execution-unknown-after-crash:{row['role_execution_id']}",
+                    correlation_id=row["run_id"],
+                    payload={"role_execution_id": row["role_execution_id"], "run_id": row["run_id"], "role": row["role"], "status": "UNKNOWN_AFTER_CRASH"},
+                    timestamp=timestamp,
+                )
+                updated = connection.execute(
+                    "SELECT * FROM role_executions WHERE session_id=? AND role_execution_id=?",
+                    (session_id, row["role_execution_id"]),
+                ).fetchone()
+                recovered.append(self._role_execution_from_row(updated))
+        return recovered
 
     def create_model_invocation(
         self,
@@ -1064,14 +1732,45 @@ class SessionStore:
         idempotency_key: str,
         previous_invocation_id: str | None = None,
         started_at: str | None = None,
+        source_revision: int | None = None,
+        context_manifest_id: str | None = None,
+        model_id: str = "unknown",
+        capability_profile: str = "unknown",
+        fresh_context_required: bool | None = None,
+        context_isolation: str = "RUNTIME_CONTEXT_ONLY",
     ) -> dict[str, Any]:
         """创建独立于 Durable Runtime Session 的模型 Invocation。"""
 
         if not all(isinstance(value, str) and value for value in (run_id, role, context_id, idempotency_key)):
             raise RuntimeValidationError("MODEL_INVOCATION_INVALID")
+        context_manifest_id = context_manifest_id or context_id
+        fresh_context_required = role == "evaluator" if fresh_context_required is None else fresh_context_required
+        if (
+            (source_revision is not None and (not isinstance(source_revision, int) or source_revision < 0))
+            or not isinstance(context_manifest_id, str)
+            or not context_manifest_id
+            or not isinstance(model_id, str)
+            or not model_id
+            or not isinstance(capability_profile, str)
+            or not capability_profile
+            or not isinstance(fresh_context_required, bool)
+            or context_isolation not in {"RUNTIME_CONTEXT_ONLY", "HOST_AND_RUNTIME"}
+        ):
+            raise RuntimeValidationError("MODEL_INVOCATION_METADATA_INVALID")
         role_run = self.get_role_run(session_id, run_id)
         if role_run["role"] != role:
             raise RuntimeValidationError("MODEL_INVOCATION_ROLE_MISMATCH")
+        context = self.get_context_manifest(session_id, context_manifest_id)
+        if source_revision is None:
+            source_revision = int(context["project_revision"])
+        if (
+            context["context_id"] != context_id
+            or context["run_id"] != run_id
+            or int(context["project_revision"]) != source_revision
+        ):
+            raise RuntimeValidationError("MODEL_INVOCATION_CONTEXT_REVISION_MISMATCH")
+        if role == "evaluator" and not fresh_context_required:
+            raise RuntimeValidationError("EVALUATOR_FRESH_INVOCATION_REQUIRED")
         if previous_invocation_id is not None and not previous_invocation_id:
             raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_INVALID")
         invocation_id = stable_id("model-invocation", session_id, run_id, idempotency_key)
@@ -1088,6 +1787,12 @@ class SessionStore:
                         "run_id": run_id,
                         "role": role,
                         "context_id": context_id,
+                        "context_manifest_id": context_manifest_id,
+                        "source_revision": source_revision,
+                        "model_id": model_id,
+                        "capability_profile": capability_profile,
+                        "fresh_context_required": int(fresh_context_required),
+                        "context_isolation": context_isolation,
                         "previous_invocation_id": previous_invocation_id,
                     }.items()
                 ):
@@ -1102,6 +1807,13 @@ class SessionStore:
                     raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_INVALID")
                 if previous["status"] != "ROLLED_OVER":
                     raise RuntimeValidationError("MODEL_INVOCATION_PREVIOUS_NOT_ROLLED_OVER")
+            if role == "evaluator":
+                active = connection.execute(
+                    "SELECT invocation_id FROM model_invocations WHERE session_id=? AND status='ACTIVE'",
+                    (session_id,),
+                ).fetchone()
+                if active is not None:
+                    raise RuntimeValidationError("EVALUATOR_FRESH_INVOCATION_REQUIRED")
             sequence_row = connection.execute(
                 "SELECT COALESCE(MAX(invocation_sequence), 0) + 1 AS next_sequence FROM model_invocations WHERE session_id=?",
                 (session_id,),
@@ -1111,12 +1823,16 @@ class SessionStore:
                 """
                 INSERT INTO model_invocations(
                     invocation_id, session_id, run_id, role, invocation_sequence,
-                    status, previous_invocation_id, context_id, started_at,
+                    status, previous_invocation_id, context_id, context_manifest_id,
+                    source_revision, model_id, capability_profile,
+                    fresh_context_required, context_isolation, started_at,
                     ended_at, handoff_id, idempotency_key
-                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL, NULL, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
                 """,
                 (invocation_id, session_id, run_id, role, sequence,
-                 previous_invocation_id, context_id, timestamp, idempotency_key),
+                 previous_invocation_id, context_id, context_manifest_id,
+                 source_revision, model_id, capability_profile,
+                 int(fresh_context_required), context_isolation, timestamp, idempotency_key),
             )
             self._append_event_in_transaction(
                 connection,
@@ -1132,6 +1848,9 @@ class SessionStore:
                     "role": role,
                     "previous_invocation_id": previous_invocation_id,
                     "context_id": context_id,
+                    "source_revision": source_revision,
+                    "fresh_context_required": fresh_context_required,
+                    "context_isolation": context_isolation,
                 },
                 timestamp=timestamp,
             )
@@ -1167,6 +1886,9 @@ class SessionStore:
         required_steps_hash: str,
         verifier_results: Mapping[str, Any],
         idempotency_key: str,
+        role_execution_id: str | None = None,
+        host_thread_id: str | None = None,
+        execution_mode: str | None = None,
     ) -> dict[str, Any]:
         """由 Runtime 创建追加式 Phase Attestation，不接受模型提供的 ID 或摘要。"""
 
@@ -1189,6 +1911,20 @@ class SessionStore:
             raise RuntimeValidationError("ATTESTATION_RUN_ROLE_MISMATCH")
         if invocation["context_id"] != context_id:
             raise RuntimeValidationError("ATTESTATION_CONTEXT_MISMATCH")
+        if role_execution_id is not None:
+            execution = self.get_role_execution(session_id, role_execution_id)
+            if (
+                execution["run_id"] != run_id
+                or execution["role"] != role
+                or execution["context_manifest_id"] != context_id
+                or int(execution["source_revision"]) != project_revision
+                or execution.get("invocation_id") != invocation_id
+                or execution["execution_mode"] != execution_mode
+                or execution.get("host_thread_id") != host_thread_id
+            ):
+                raise RuntimeValidationError("ATTESTATION_ROLE_EXECUTION_MISMATCH")
+        elif host_thread_id is not None or execution_mode is not None:
+            raise RuntimeValidationError("ATTESTATION_ROLE_EXECUTION_METADATA_INVALID")
         context = self.get_context_manifest(session_id, context_id)
         if context["session_id"] != session_id or int(context["project_revision"]) != project_revision:
             raise RuntimeValidationError("ATTESTATION_REVISION_MISMATCH")
@@ -1204,6 +1940,9 @@ class SessionStore:
             "project_revision": project_revision,
             "context_id": context_id,
             "invocation_id": invocation_id,
+            "role_execution_id": role_execution_id,
+            "host_thread_id": host_thread_id,
+            "execution_mode": execution_mode,
             "required_steps_hash": required_steps_hash,
             "verifier_results": safe_results,
             "evidence_refs": evidence_refs,
@@ -1225,10 +1964,11 @@ class SessionStore:
                 """
                 INSERT INTO phase_attestations(
                     attestation_id, session_id, run_id, role, project_revision,
-                    context_id, invocation_id, required_steps_hash,
+                    context_id, invocation_id, role_execution_id, host_thread_id,
+                    execution_mode, required_steps_hash,
                     verifier_results_json, evidence_refs_json, idempotency_key,
                     attestation_hash, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     attestation_id,
@@ -1238,6 +1978,9 @@ class SessionStore:
                     project_revision,
                     context_id,
                     invocation_id,
+                    role_execution_id,
+                    host_thread_id,
+                    execution_mode,
                     required_steps_hash,
                     results_json,
                     refs_json,

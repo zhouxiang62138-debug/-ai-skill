@@ -176,6 +176,8 @@ class ContextPackage:
     max_source_inline_bytes: int
     max_sources: int
     context_hash: str
+    context_type: str = "ROLE_SCOPED"
+    excluded_sources: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -233,6 +235,12 @@ class ContextPackage:
         if self.omitted_source_count != len(self.omitted_sources):
             raise RuntimeValidationError("CONTEXT_BUDGET_METADATA_INVALID")
         _hash(self.context_hash, "context_hash")
+        if self.context_type not in {"ROLE_SCOPED", "EVALUATOR_INDEPENDENT"}:
+            raise RuntimeValidationError("CONTEXT_TYPE_INVALID")
+        if not isinstance(self.excluded_sources, tuple) or any(
+            not isinstance(item, str) or not item for item in self.excluded_sources
+        ):
+            raise RuntimeValidationError("CONTEXT_EXCLUDED_SOURCES_INVALID")
 
     @property
     def manifest(self) -> dict[str, Any]:
@@ -265,6 +273,8 @@ class ContextPackage:
             "max_source_inline_bytes": self.max_source_inline_bytes,
             "max_sources": self.max_sources,
             "context_hash": self.context_hash,
+            "context_type": self.context_type,
+            "excluded_sources": list(self.excluded_sources),
         }
 
     def to_dict(self) -> dict[str, Any]:

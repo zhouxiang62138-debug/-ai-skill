@@ -90,6 +90,19 @@ Evaluator 每轮还可在 `evaluation/candidates/` 追加 Candidate。Runtime �
 问题、回归通过、完整性和浏览器验收满足条件的记录纳入最佳候选；Evaluator 的恢复建议
 不直接修改代码，实际 Snapshot restore 只能由 Runtime/Snapshot Service 执行。
 
+## E1 Evaluator Independence Hardening
+
+E1 是验收可信度升级，与 F11 Execution、F12 Security、F13 Context 并列。用户只需
+一个 Codex 窗口，但 Generator 完成后，Runtime 必须关闭其 Invocation，并为 Evaluator
+创建新的 Invocation。Evaluator Context 由 Context Builder 生成，包含获批标准、当前
+实现和必要 handoff 定位信息，但排除 Generator 完整聊天、推理和自我评价。
+
+Evaluator 的 required/critical Acceptance Criterion 必须由
+`EVALUATOR_REPRODUCED` 或 `RUNTIME_VERIFIED` Evidence 支撑，并绑定当前
+`project_revision`、`code_snapshot_hash`、`tool_call_id` 和 `attempt_id`。Generator
+的 `FIXED` 或“全部测试通过”只属于 claim，不能单独支撑 PASS。即使模型返回 PASS，
+缺少 E1 独立证据、必需重现、保护工件或 Gate 任一失败时，Runtime 仍拒绝 PASS 提交。
+
 Evaluator 对可返工 FAIL 递增 `current_iteration` 并路由；达到 5 时，必须写入 `status: WAITING_FOR_USER`、`next_role: null` 和 `blocked_reason: maximum_iterations_reached`。
 
 旧状态只读迁移：

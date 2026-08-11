@@ -34,3 +34,35 @@ expected revision，完成角色工作后由正式 Phase Runner 生成 Attestati
 `next_state` 不被接受。`status`、`next_role` 和 `active_module` 不属于业务
 `changed_fields`，由 Runtime 按目标状态路由自动派生。暂停和恢复后都会撤销旧 Lease，
 恢复步骤会签发新的 Lease Token。
+
+## Role Execution Request
+
+正式 Role Run 先由 Context Builder 生成 Role-scoped Manifest，再由
+`RoleExecutionBroker` 创建新的 Role Execution。它会记录：
+
+```text
+role_execution_id
+role_run_id
+execution_mode
+host_thread_id（仅真实 Child Thread）
+invocation_id
+context_manifest_id
+workspace_binding
+source_revision
+```
+
+首选模式是 `CHILD_THREAD`。宿主没有可验证的 Child Thread 能力时，实际模式必须
+变为 `FRESH_INVOCATION`，并追加 `ROLE_EXECUTION_FALLBACK`；不允许用随机字符串
+伪造 thread ID。提交前 Phase Attestation 必须绑定同一 Role Execution、Invocation、
+Context Manifest、source revision 和 execution mode。
+
+进入等待态前不得保留活动 Role Execution；暂停会安全取消活动 execution、撤销
+Lease 并保留 Durable State。
+
+## E1 Evaluator 独立性边界
+
+Orchestrator 保持三个核心 Agent，不创建 Reviewer 或 QA Agent。Role Run 进入
+Evaluator 时，PhaseRunner 先由 Deterministic Context Builder 生成
+`EVALUATOR_INDEPENDENT` Manifest，再创建 Fresh Model Invocation；Evaluator 的
+结构化结果必须经过 E1 Verifier、Evidence Provenance 和当前 revision/code snapshot
+校验。模型输出 `PASS` 不能绕过 Runtime Gate。

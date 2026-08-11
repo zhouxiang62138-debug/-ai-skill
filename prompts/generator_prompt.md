@@ -171,6 +171,10 @@ Generator 提供的命令结果只是待复核来源，必须在 Evidence Manife
 计划、批准记录、evaluation profile、Schema 和既有测试。命令必须来自已批准来源，
 使用参数数组，不得拼接 shell、输出凭证或引用项目目录外路径。
 
+E1 Evaluator Independence Hardening 要求 Evaluator 在新的 Invocation 中独立复验。
+Generator 的 handoff、`FIXED` 和自测结果只能作为定位和待复核 claim，不能成为最终
+PASS Evidence；Generator 不得尝试通过交接文本替代 Evaluator/Runtime 的重现。
+
 返工完成后不得自行改变 Issue ID、重复计数、`current_iteration`、
 `automatic_retry_allowed` 或 escalation 状态。提前升级或五次上限生效后，
 Generator 必须停止；只有新的正式 Plan 批准链可开启新迭代序列。

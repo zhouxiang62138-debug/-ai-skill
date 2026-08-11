@@ -23,13 +23,19 @@ from .recovery import RecoveryManager
 from .role_selector import Selection, select_role
 from .session_store import SessionStore
 from .attestation import attestation_hash
+from .role_execution import RoleExecutionBroker, RoleExecutionHost, RoleExecutionPolicy
 
 
 class Orchestrator:
     """定位项目、管理 Lease、选角、Checkpoint 和恢复。"""
 
     def __init__(
-        self, project_root: str | Path, *, control_plane_home: str | Path | None = None
+        self,
+        project_root: str | Path,
+        *,
+        control_plane_home: str | Path | None = None,
+        role_execution_host: RoleExecutionHost | None = None,
+        role_execution_policy: RoleExecutionPolicy | None = None,
     ) -> None:
         self.root = Path(project_root).resolve()
         self.project_yaml = self.root / "project.yaml"
@@ -47,6 +53,9 @@ class Orchestrator:
         self.leases = LeaseManager(self.store)
         self.cas = ProjectStateCAS(self.store, self.leases)
         self.recovery = RecoveryManager(self.store, self.cas)
+        self.role_execution_broker = RoleExecutionBroker(
+            self.store, host=role_execution_host, policy=role_execution_policy
+        )
 
     def start(
         self,
@@ -124,7 +133,14 @@ class Orchestrator:
             open_transaction_ids=[],
         )
         run_id = (
-            self.store.create_role_run(session.session_id, worker_id, selection.target)
+            self.store.create_role_run(
+                session.session_id,
+                worker_id,
+                selection.target,
+                project_id=str(state["project_id"]),
+                source_status=str(state["status"]),
+                source_revision=int(projection["revision"]),
+            )
             if selection.kind == "ROLE" and selection.target is not None
             else None
         )
@@ -173,7 +189,7 @@ class Orchestrator:
             self,
             model_adapter,
             phase_steps=phase_steps,
-            verifier_registry=RuntimeVerifierRegistry(self.root),
+            verifier_registry=RuntimeVerifierRegistry(self.root, self.store),
         )
         return runner.run(
             str(started["session_id"]),
@@ -206,6 +222,9 @@ class Orchestrator:
             ),
             "project_runtime": runtime_projection(state),
             "selection": select_role(state),
+            "role_execution_capabilities": self.role_execution_broker.capabilities().to_dict(),
+            "active_role_executions": self.store.active_role_executions(session_id),
+            "role_executions": self.store.list_role_executions(session_id),
         }
 
     def commit_step(self, session_id: str, run_id: str, lease_token: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -236,6 +255,12 @@ class Orchestrator:
         attestation = self.store.get_phase_attestation(session_id, str(result["attestation_id"]))
         if attestation["run_id"] != run_id or attestation["role"] != run["role"]:
             raise RuntimeValidationError("PHASE_ATTESTATION_RUN_MISMATCH")
+        active_execution = self.store.get_active_role_execution(session_id, run_id)
+        if active_execution is not None:
+            if attestation.get("role_execution_id") != active_execution["role_execution_id"]:
+                raise RuntimeValidationError("ROLE_EXECUTION_ATTESTATION_REQUIRED")
+            if attestation.get("execution_mode") != active_execution["execution_mode"] or attestation.get("host_thread_id") != active_execution.get("host_thread_id"):
+                raise RuntimeValidationError("ROLE_EXECUTION_ATTESTATION_MISMATCH")
         if int(attestation["project_revision"]) != int(result["expected_revision"]):
             raise RuntimeValidationError("PHASE_ATTESTATION_REVISION_MISMATCH")
         invocation = self.store.get_model_invocation(session_id, str(attestation["invocation_id"]))
@@ -249,12 +274,34 @@ class Orchestrator:
                 "project_revision": int(attestation["project_revision"]),
                 "context_id": attestation["context_id"],
                 "invocation_id": attestation["invocation_id"],
+                "role_execution_id": attestation.get("role_execution_id"),
+                "host_thread_id": attestation.get("host_thread_id"),
+                "execution_mode": attestation.get("execution_mode"),
                 "required_steps_hash": attestation["required_steps_hash"],
                 "verifier_results": attestation["verifier_results"],
                 "evidence_refs": attestation["evidence_refs"],
                 "idempotency_key": attestation["idempotency_key"],
             }
         )
+        if expected_hash != attestation["attestation_hash"] and not any(
+            attestation.get(field)
+            for field in ("role_execution_id", "host_thread_id", "execution_mode")
+        ):
+            # 兼容 schema v3/v4 迁移前已经落盘的旧 Attestation 摘要。
+            expected_hash = attestation_hash(
+                {
+                    "session_id": attestation["session_id"],
+                    "run_id": attestation["run_id"],
+                    "role": attestation["role"],
+                    "project_revision": int(attestation["project_revision"]),
+                    "context_id": attestation["context_id"],
+                    "invocation_id": attestation["invocation_id"],
+                    "required_steps_hash": attestation["required_steps_hash"],
+                    "verifier_results": attestation["verifier_results"],
+                    "evidence_refs": attestation["evidence_refs"],
+                    "idempotency_key": attestation["idempotency_key"],
+                }
+            )
         if expected_hash != attestation["attestation_hash"]:
             raise RuntimeValidationError("PHASE_ATTESTATION_TAMPERED")
         if any(item.get("passed") is not True for item in attestation["verifier_results"].values()):
@@ -453,6 +500,7 @@ class Orchestrator:
     def pause(self, session_id: str) -> None:
         """暂停 Session，不改变业务状态。"""
 
+        self.role_execution_broker.cancel_active(session_id, reason="session-paused")
         self.store.set_session_status(session_id, "PAUSED")
         self.leases.revoke_for_lifecycle(session_id, reason="session-paused")
         self.store.append_event(

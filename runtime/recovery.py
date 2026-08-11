@@ -47,6 +47,9 @@ class RecoveryManager:
             payload={"project_revision": runtime_projection(state)["revision"]},
         )
         revision_actions = self.cas.recover_pending(project_yaml, session_id)
+        interrupted_role_executions = self.store.recover_interrupted_role_executions(
+            session_id
+        )
         interrupted_model_invocations = self.store.recover_interrupted_model_invocations(
             session_id
         )
@@ -77,6 +80,7 @@ class RecoveryManager:
                     recovered_evaluations.append(f"recovered:{evaluation_id}")
         result = {
             "revision_actions": revision_actions,
+            "interrupted_role_executions": interrupted_role_executions,
             "interrupted_model_invocations": interrupted_model_invocations,
             "completed_tool_calls": completed_tools,
             "interrupted_tool_calls": interrupted_tools,
@@ -95,6 +99,7 @@ class RecoveryManager:
             correlation_id=session_id,
             payload={
                 "revision_action_count": len(revision_actions),
+                "interrupted_role_execution_count": len(interrupted_role_executions),
                 "interrupted_model_invocation_count": len(interrupted_model_invocations),
                 "tool_call_count": len(completed_tools),
                 "interrupted_tool_call_count": len(interrupted_tools),

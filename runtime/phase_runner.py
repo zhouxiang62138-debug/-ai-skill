@@ -14,12 +14,22 @@ from scripts.project_state import ProjectStateError, load_project_state, parse_p
 
 from .context import ContextBuildRequest, ContextBuilder
 from .contract_preflight import run_contract_preflight
+from .evaluator_independence import (
+    EvaluatorIndependencePolicy,
+    code_snapshot_hash,
+    validate_evaluator_context,
+)
 from .errors import RuntimeValidationError
 from .attestation import required_steps_hash
 from .project_revision import runtime_projection
 from .reference_contract import (
     build_reference_contract_for_project,
     reference_contract_context_hash,
+)
+from .role_execution import (
+    ExecutionMode,
+    RoleExecutionRequest,
+    WorkspaceBinding,
 )
 from .verifiers import RuntimeVerifierRegistry
 
@@ -36,6 +46,7 @@ DEFAULT_PHASE_STEPS: dict[str, tuple[str, ...]] = {
         "issue_package",
         "candidate",
         "evaluation_transaction",
+        "evaluator_independence",
     ),
 }
 
@@ -56,6 +67,17 @@ class ModelInvocationRequest:
     phase: str
     context: Mapping[str, Any]
     required_steps: tuple[str, ...]
+    source_revision: int
+    context_manifest_id: str
+    model_id: str
+    capability_profile: str
+    fresh_context_required: bool
+    context_isolation: str
+    excluded_context_sources: tuple[str, ...]
+    code_snapshot_hash: str
+    role_execution_id: str | None = None
+    execution_mode: str = ExecutionMode.FRESH_INVOCATION.value
+    host_thread_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +92,9 @@ class PhaseRunResult:
     failure_reason: str | None = None
     cas_result: Mapping[str, Any] | None = None
     replayed: bool = False
+    role_execution_id: str | None = None
+    execution_mode: str | None = None
+    host_thread_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +108,9 @@ class PhaseRunResult:
             "failure_reason": self.failure_reason,
             "cas_result": dict(self.cas_result) if self.cas_result else None,
             "replayed": self.replayed,
+            "role_execution_id": self.role_execution_id,
+            "execution_mode": self.execution_mode,
+            "host_thread_id": self.host_thread_id,
         }
 
 
@@ -146,6 +174,9 @@ class PhaseRunner:
             failure_reason=value.get("failure_reason"),
             cas_result=value.get("cas_result"),
             replayed=True,
+            role_execution_id=value.get("role_execution_id"),
+            execution_mode=value.get("execution_mode"),
+            host_thread_id=value.get("host_thread_id"),
         )
 
     def _generator_preflight(
@@ -319,6 +350,7 @@ class PhaseRunner:
         context_id: str | None = None,
         invocation_id: str | None = None,
         attestation_id: str | None = None,
+        role_execution_id: str | None = None,
     ) -> PhaseRunResult:
         safe_reason = str(reason)[:1000]
         if invocation_id is not None:
@@ -328,6 +360,14 @@ class PhaseRunner:
                 status="FAILED",
                 result_hash=_digest({"status": "FAILED", "reason": safe_reason}),
             )
+        if role_execution_id is not None:
+            try:
+                self.orchestrator.role_execution_broker.fail(
+                    session_id, role_execution_id, reason=safe_reason
+                )
+            except RuntimeValidationError:
+                # 失败路径自身必须幂等，不能因为线程已被恢复或取消而覆盖原始错误。
+                pass
         result = PhaseRunResult(
             status="FAILED",
             role=role,
@@ -337,6 +377,7 @@ class PhaseRunner:
             attestation_id=attestation_id,
             completed_steps=(),
             failure_reason=safe_reason,
+            role_execution_id=role_execution_id,
         )
         self.orchestrator.fail_step(session_id, run_id, result.to_dict())
         return result
@@ -401,9 +442,20 @@ class PhaseRunner:
                 phase=phase,
                 reason="PHASE_REQUIRED_STEP_UNKNOWN",
             )
+        if resolved_role == "evaluator" and self.verifier_registry is None and not self.gate_verifiers:
+            return self._fail(
+                session_id,
+                run_id,
+                role=resolved_role,
+                phase=phase,
+                reason="EVALUATOR_GATE_VERIFIER_MISSING:" + steps[0],
+            )
         context_id: str | None = None
         invocation_id: str | None = None
         attestation_id: str | None = None
+        role_execution_id: str | None = None
+        execution_mode: str | None = None
+        host_thread_id: str | None = None
         preflight_result: Mapping[str, Any] | None = None
         try:
             if resolved_role == "generator":
@@ -424,15 +476,66 @@ class PhaseRunner:
             )
             if resolved_role == "generator" and preflight_result is not None:
                 self._validate_reference_context(preflight_result, context)
+            if resolved_role == "evaluator":
+                context_valid, context_details = validate_evaluator_context(
+                    context.manifest,
+                    policy=EvaluatorIndependencePolicy.load(),
+                )
+                if not context_valid:
+                    raise RuntimeValidationError(context_details)
             context_id = context.context_id
+            model_id = str(getattr(self.model_adapter, "model_id", "unknown") or "unknown")
+            capability_profile = str(
+                getattr(self.model_adapter, "model_capability_profile", "unknown") or "unknown"
+            )
+            broker = self.orchestrator.role_execution_broker
+            session = self.orchestrator.store.get_session(session_id)
+            workspace_binding = WorkspaceBinding(
+                mode=broker.policy.workspace_mode,
+                project_root=session.project_root,
+                source_revision=context.project_revision,
+            )
+            execution = broker.start_role_execution(
+                RoleExecutionRequest(
+                    session_id=session_id,
+                    run_id=run_id,
+                    role=resolved_role,
+                    project_id=session.project_id,
+                    project_root=session.project_root,
+                    source_revision=context.project_revision,
+                    context_manifest_id=context.context_id,
+                    workspace_binding=workspace_binding,
+                    preferred_mode=broker.policy.preferred_for(resolved_role),
+                    fallback_mode=broker.policy.fallback_mode,
+                ),
+                idempotency_key=f"role-execution:{run_id}:{phase}",
+            )
+            role_execution_id = str(execution["role_execution_id"])
+            execution_mode = str(execution["execution_mode"])
+            host_thread_id = execution.get("host_thread_id")
+            context_isolation = (
+                "HOST_AND_RUNTIME"
+                if execution_mode == ExecutionMode.CHILD_THREAD.value
+                else "RUNTIME_CONTEXT_ONLY"
+            )
+            # 每个 Role Run 都是新的 Execution Context；Evaluator 仍额外受 E1 约束。
+            fresh_context_required = True
+            current_code_snapshot_hash = code_snapshot_hash(self.orchestrator.root)
             invocation = self.orchestrator.store.create_model_invocation(
                 session_id,
                 run_id,
                 resolved_role,
                 context.context_id,
                 idempotency_key=idempotency_key or f"phase:{run_id}:{phase}",
+                source_revision=context.project_revision,
+                context_manifest_id=context.context_id,
+                model_id=model_id,
+                capability_profile=capability_profile,
+                fresh_context_required=fresh_context_required,
+                context_isolation=context_isolation,
             )
             invocation_id = str(invocation["invocation_id"])
+            broker.bind_invocation(session_id, role_execution_id, invocation_id)
             request = ModelInvocationRequest(
                 session_id=session_id,
                 run_id=run_id,
@@ -441,8 +544,19 @@ class PhaseRunner:
                 phase=phase,
                 context=context.manifest,
                 required_steps=steps,
+                source_revision=context.project_revision,
+                context_manifest_id=context.context_id,
+                model_id=model_id,
+                capability_profile=capability_profile,
+                fresh_context_required=fresh_context_required,
+                context_isolation=context_isolation,
+                excluded_context_sources=tuple(context.excluded_sources),
+                code_snapshot_hash=current_code_snapshot_hash,
+                role_execution_id=role_execution_id,
+                execution_mode=execution_mode,
+                host_thread_id=host_thread_id,
             )
-            response = self.model_adapter.invoke(request)
+            response = broker.invoke(session_id, role_execution_id, self.model_adapter, request)
             if not isinstance(response, Mapping):
                 raise RuntimeValidationError("MODEL_OUTPUT_INVALID")
             forbidden = {
@@ -470,8 +584,6 @@ class PhaseRunner:
                     "PHASE_REQUIRED_STEP_MISSING:" + ",".join(missing)
                 )
             verifier_results: dict[str, Any] = {}
-            if resolved_role == "evaluator" and self.verifier_registry is None and not self.gate_verifiers:
-                raise RuntimeValidationError("EVALUATOR_GATE_VERIFIER_MISSING:" + steps[0])
             if self.verifier_registry is None and not self.test_only_verifiers:
                 raise RuntimeValidationError("RUNTIME_VERIFIER_REGISTRY_REQUIRED")
             for step in steps:
@@ -517,6 +629,9 @@ class PhaseRunner:
                 required_steps_hash=required_steps_hash(steps),
                 verifier_results=verifier_results,
                 idempotency_key=f"phase-attestation:{idempotency_key or run_id}:{phase}",
+                role_execution_id=role_execution_id,
+                host_thread_id=host_thread_id,
+                execution_mode=execution_mode,
             )
             attestation_id = str(attestation["attestation_id"])
             cas_result: Mapping[str, Any] | None = None
@@ -541,12 +656,16 @@ class PhaseRunner:
                 attestation_id=attestation_id,
                 completed_steps=tuple(completed),
                 cas_result=cas_result,
+                role_execution_id=role_execution_id,
+                execution_mode=execution_mode,
+                host_thread_id=host_thread_id,
             )
             self.orchestrator.store.complete_model_invocation(
                 session_id,
                 invocation_id,
                 result_hash=_digest(result.to_dict()),
             )
+            broker.complete(session_id, role_execution_id)
             if cas_result is None:
                 self.orchestrator.store.complete_role_run(session_id, run_id, result.to_dict())
                 self.orchestrator.leases.release(
@@ -566,6 +685,7 @@ class PhaseRunner:
                 context_id=context_id,
                 invocation_id=invocation_id,
                 attestation_id=attestation_id,
+                role_execution_id=role_execution_id,
             )
 
 

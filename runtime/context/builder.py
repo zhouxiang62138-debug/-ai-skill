@@ -127,6 +127,14 @@ class ContextBuilder:
             request.role, candidates
         )
         budget = self._context_policy.budget_for(request.role)
+        context_type = (
+            "EVALUATOR_INDEPENDENT" if request.role == "evaluator" else "ROLE_SCOPED"
+        )
+        excluded_sources = (
+            tuple(sorted(self._context_policy.evaluator_excluded_source_labels))
+            if request.role == "evaluator"
+            else ()
+        )
         budget_fingerprint = hashlib.sha256(
             _canonical(budget.to_dict()).encode("utf-8")
         ).hexdigest()
@@ -149,6 +157,8 @@ class ContextBuilder:
             "context_policy_hash": self._context_policy.policy_hash,
             "budget_fingerprint": budget_fingerprint,
             "budget_config": budget.to_dict(),
+            "context_type": context_type,
+            "excluded_sources": list(excluded_sources),
             "budget_limit": budget.max_context_bytes,
             "budget_used": budget_used,
             "inline_bytes": budget_used,
@@ -190,6 +200,8 @@ class ContextBuilder:
             max_source_inline_bytes=budget.max_source_inline_bytes,
             max_sources=budget.max_sources,
             context_hash=context_hash,
+            context_type=context_type,
+            excluded_sources=excluded_sources,
         )
         self._store.save_context_manifest(
             context_id=package.context_id,
@@ -197,6 +209,8 @@ class ContextBuilder:
             project_id=package.project_id,
             run_id=package.run_id,
             role=package.role,
+            context_type=package.context_type,
+            excluded_sources=list(package.excluded_sources),
             workflow_state=package.workflow_state,
             project_revision=package.project_revision,
             project_state_hash=package.project_state_hash,
@@ -454,6 +468,12 @@ class ContextBuilder:
         sources: list[ContextSource] = []
         seen: set[tuple[str, str]] = set()
         for rule in self._context_policy.rules_for(role):
+            if (
+                role == "evaluator"
+                and rule.source_type != "state_reference"
+                and self._context_policy.evaluator_source_excluded(rule.field, rule.reference)
+            ):
+                continue
             if rule.source_type == "project_state":
                 reference = _normalize_reference(rule.reference)
                 source = self._read_file_source(role, root, reference, rule)
@@ -482,6 +502,10 @@ class ContextBuilder:
                 if not isinstance(value, str):
                     raise RuntimeValidationError("CONTEXT_STATE_REFERENCE_INVALID")
                 reference = _normalize_reference(value)
+                if role == "evaluator" and self._context_policy.evaluator_source_excluded(
+                    rule.field, reference
+                ):
+                    continue
                 source = self._read_file_source(role, root, reference, rule)
             else:
                 value = state.get(rule.field or "")
@@ -535,6 +559,10 @@ class ContextBuilder:
                 if role == "generator" and "/evidence/" in normalized:
                     raise RuntimeValidationError("CONTEXT_GENERATOR_REFERENCE_SCOPE")
         for reference in normalized_additional:
+            if role == "evaluator" and self._context_policy.evaluator_source_excluded(
+                None, reference
+            ):
+                raise RuntimeValidationError("CONTEXT_EVALUATOR_SOURCE_EXCLUDED")
             source = self._read_file_source(
                 role,
                 root,
