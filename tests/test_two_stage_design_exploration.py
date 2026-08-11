@@ -120,18 +120,32 @@ def write_selected_round(root: Path) -> None:
 
 
 class TwoStageDesignExplorationTests(unittest.TestCase):
+    def test_feedback_default_stays_in_direction_comparison(self) -> None:
+        decision = classify_feedback("确认这个设计。", ROUND_001)
+        self.assertNotEqual("prototype_confirmed", decision.action)
+
     def test_comparison_round_uses_three_docs_and_one_shared_preview(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_two_stage_") as directory:
             root = Path(directory)
             write_comparison_round(root)
             self.assertEqual(
                 [],
-                validate_preview_round(
-                    root,
-                    ROUND_001,
-                    preview_mode=DESIGN_PREVIEW_MODE_COMPARISON,
-                ),
+                validate_preview_round(root, ROUND_001),
             )
+
+    def test_comparison_round_rejects_per_direction_high_fidelity_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_two_stage_") as directory:
+            root = Path(directory)
+            write_comparison_round(root)
+            concept_dir = root / ROUND_001 / "concept_01"
+            (concept_dir / "preview.html").write_text("legacy", encoding="utf-8")
+            (concept_dir / "preview.css").write_text("legacy", encoding="utf-8")
+            errors = validate_preview_round(
+                root,
+                ROUND_001,
+                preview_mode=DESIGN_PREVIEW_MODE_COMPARISON,
+            )
+            self.assertTrue(any("方向比较阶段禁止生成" in error for error in errors))
 
     def test_selection_starts_one_selected_prototype_round(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_two_stage_") as directory:
@@ -163,6 +177,24 @@ class TwoStageDesignExplorationTests(unittest.TestCase):
                 [f"{ROUND_001}/concept_02"],
                 selected["selected_design_concept"]["concept_refs"],
             )
+            self.assertIsNone(selected["approved_proposal"])
+            self.assertEqual(
+                "selected_prototype_requested", selected["design_feedback_status"]
+            )
+
+    def test_selected_prototype_round_rejects_extra_direction_directories(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="test_two_stage_") as directory:
+            root = Path(directory)
+            write_selected_round(root)
+            extra = root / ROUND_002 / "concept_01"
+            extra.mkdir(parents=True)
+            (extra / "concept.md").write_text("旧方向", encoding="utf-8")
+            errors = validate_preview_round(
+                root,
+                ROUND_002,
+                preview_mode=DESIGN_PREVIEW_MODE_SELECTED,
+            )
+            self.assertTrue(any("只能包含 selected_concept" in error for error in errors))
 
     def test_selected_prototype_requires_explicit_confirmation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_two_stage_") as directory:
@@ -213,6 +245,8 @@ class TwoStageDesignExplorationTests(unittest.TestCase):
                 new_proposal_reference="memory/proposals/product_proposal_v002.md",
             )
             self.assertEqual("WAITING_FOR_PRODUCT_REVIEW", integrated["status"])
+            self.assertNotEqual("approved", integrated["user_approval_status"])
+            self.assertIsNone(integrated["approved_proposal"])
 
     def test_selected_prototype_cannot_integrate_before_confirmation(self) -> None:
         state = base_state()

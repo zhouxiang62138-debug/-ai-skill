@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/intent-analysis-v1.schema.json",
+  "title": "Initial intent analysis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intent_id", "project_id", "source_request_ref", "created_at", "known_facts", "unknown_facts", "candidates"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "intent_id": {"type": "string", "pattern": "^INTENT-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "source_request_ref": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]},
+    "project_category": {"$ref": "#/$defs/epistemic_value"},
+    "domain": {"$ref": "#/$defs/epistemic_value"},
+    "likely_product_type": {"$ref": "#/$defs/epistemic_value"},
+    "target_problem": {"$ref": "#/$defs/epistemic_value"},
+    "known_facts": {"type": "array", "items": {"$ref": "#/$defs/epistemic_value"}},
+    "unknown_facts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "likely_complexity": {"enum": ["simple", "standard", "deep", "unknown"]},
+    "domain_maturity": {"enum": ["low", "medium", "high", "unknown"]},
+    "research_value": {"enum": ["low", "medium", "high", "unknown"]},
+    "risk_level": {"enum": ["low", "medium", "high", "regulated", "unknown"]},
+    "candidates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core_workflows", "data_model", "integrations", "nonfunctional_requirements", "design_uncertainty"],
+      "properties": {
+        "core_workflows": {"type": "array", "items": {"$ref": "#/$defs/epistemic_value"}},
+        "data_model": {"type": "array", "items": {"$ref": "#/$defs/epistemic_value"}},
+        "integrations": {"type": "array", "items": {"$ref": "#/$defs/epistemic_value"}},
+        "nonfunctional_requirements": {"type": "array", "items": {"$ref": "#/$defs/epistemic_value"}},
+        "design_uncertainty": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  },
+  "$defs": {
+    "epistemic_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "epistemic_status"],
+      "properties": {
+        "value": {},
+        "epistemic_status": {"enum": ["fact", "candidate", "hypothesis", "inference"]},
+        "source_refs": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"enum": ["high", "medium", "low", null]}
+      }
+    }
+  }
+}

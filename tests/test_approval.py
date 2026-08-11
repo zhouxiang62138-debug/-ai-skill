@@ -71,6 +71,8 @@ def product_review_state() -> dict:
         "design_exploration_required": True,
         "exploration_trigger_reasons": ["visual_preferences_undecided"],
         "design_review_status": "integrated_into_proposal",
+        # 该夹具覆盖旧审批快照；旧三套完整预览必须显式标注为兼容模式。
+        "design_preview_mode": "legacy_full",
         "design_preview_round": 1,
         "active_design_preview_round": ROUND,
         "exploration_generation_attempt": 1,

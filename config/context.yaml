@@ -32,6 +32,36 @@ roles:
         priority: REQUIRED
         delivery_mode: INLINE
       - source_type: state_reference
+        field: intent_analysis_ref
+        reason: 初始意图与事实、候选、未知的边界
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: research_requirement_ref
+        reason: Research Gate、研究必要性与预算
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_research_round
+        reason: 当前研究摘要、来源与发现
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: coverage_map_ref
+        reason: 需求覆盖图与已知缺口
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: gap_analysis_ref
+        reason: 缺口分类与用户决策边界
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: opportunity_map_ref
+        reason: 仅作为候选机会输入，不自动升级为需求
+        priority: NORMAL
+        delivery_mode: INLINE
+      - source_type: state_reference
         field: active_reference_synthesis
         reason: Planner reads the active reference synthesis
         priority: HIGH
@@ -277,6 +307,42 @@ modules:
       - source_type: reference_catalog
         field: registered_references
         reason: 已登记引用及范围状态；原始描述只通过受控引用读取
+        priority: HIGH
+        delivery_mode: INLINE
+  domain_research:
+    max_context_bytes: 131072
+    max_inline_bytes: 98304
+    max_sources: 16
+    max_source_inline_bytes: 32768
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前研究状态、研究预算与 F10 Runtime 投影
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: 研究只读取已登记需求事实，不改写用户原话
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: intent_analysis_ref
+        reason: 研究目标来自可追溯的初始意图分析
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: research_requirement_ref
+        reason: Research Gate 与预算约束
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_research_round
+        reason: 当前研究轮次摘要与既有研究输出
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_value
+        field: research_status
+        reason: 研究服务可用性与完成状态
         priority: HIGH
         delivery_mode: INLINE
   reference_analysis:

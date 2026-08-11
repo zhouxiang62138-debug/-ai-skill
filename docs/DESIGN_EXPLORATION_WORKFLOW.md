@@ -57,7 +57,7 @@ Planner 记录产品确认并生成正式产品规格与待审核 Plan
 进入 Generator
 ```
 
-设计方向选择、高保真确认和产品方案批准是三个不同事件：
+设计方向选择、Selected Prototype 确认、产品方案批准和 Plan 批准是四个不同事件：
 
 1. 用户选择设计方向，只允许 Planner 为选中结果生成一套高保真预览。
 2. 用户确认高保真预览，只表示 Planner 可以据此整合产品方案。
@@ -101,12 +101,12 @@ INTAKE
 持久化为 `WAITING_FOR_PLAN_REVIEW`。用户再明确批准当前 Plan 后，才持久化为
 `APPROVED_FOR_IMPLEMENTATION`。
 
-## 5. 三套产品路线的差异要求
+## 5. 三个方向的差异要求
 
-每轮必须恰好输出 3 个方向。三个方案不能只是换颜色或换名称，而应是三套
-完整、可比较的产品路线。每两套路线在产品定位、核心优势、特色功能和主要
-用户路径四个维度中至少有两项不同；视觉语言、信息密度、布局方式和交互重点
-也应服务于对应产品定位。
+方向比较轮次必须恰好输出 3 个轻量方向。三个方向不能只是换颜色或换名称，
+而应在产品定位、核心优势、特色功能和主要用户路径四个维度中至少有两项不同；
+视觉语言、信息密度、布局方式和交互重点也应服务于对应产品定位。完整产品路线
+和高保真页面只在用户选定方向后的 `selected_prototype` 阶段生成。
 
 可使用但不限于以下方向：
 
@@ -125,18 +125,26 @@ Planner 应根据产品场景调整方向。例如儿童产品、医疗工具和
 第二阶段只为选中或融合后的结果生成一个 `selected_concept`。下面的完整内容和
 浏览器验证要求只适用于该单一高保真预览。
 
-每个 `concept.md` 必须包含：
+第一阶段的每个 `concept.md` 使用 `templates/design_direction.md`，只包含：
 
-1. 方案名称
-2. 一句话概念和产品定位
-3. 设计理念、目标用户和主要使用场景
-4. 核心优势、限制与取舍
-5. UI 与视觉方向
-6. 页面结构、页面职责和导航
-7. 首页与关键功能页说明
-8. 基础功能、特色功能、MVP 和后续扩展
-9. 主要用户路径
-10. 适用建议、开发复杂度和首版风险
+1. 方案名称、一句话概念和产品定位
+2. 核心优势、限制与取舍
+3. 页面结构
+4. 方案特色功能
+5. 主要用户路径
+
+第二阶段的 `selected_concept/concept.md` 使用 `templates/design_concept.md`，
+必须包含：
+
+1. 方案名称、一句话概念和产品定位
+2. 设计理念、目标用户和主要使用场景
+3. 核心优势、限制与取舍
+4. UI 与视觉方向
+5. 页面结构、页面职责和导航
+6. 首页与关键功能页说明
+7. 基础功能、特色功能、MVP 和后续扩展
+8. 主要用户路径
+9. 适用建议、开发复杂度和首版风险
 
 建议补充：
 
@@ -148,8 +156,8 @@ Planner 应根据产品场景调整方向。例如儿童产品、医疗工具和
 - 无障碍注意事项
 - 与当前产品方案版本的关联
 
-`preview.html` 与 `preview.css` 应形成可独立打开的静态预览，至少展示首页、
-一个关键功能页和关键导航关系。HTML 必须包含
+只有第二阶段的 `selected_concept/preview.html` 与 `preview.css` 才形成可独立打开
+的静态预览，至少展示首页、一个关键功能页和关键导航关系。HTML 必须包含
 `data-preview-page="home"`、`data-preview-page="key-feature"` 和
 `data-preview-nav` 标记。它们属于设计验证工件，不是生产代码，不得放入
 `code/`，也不得被 Generator 直接视为已批准实现。
@@ -365,13 +373,13 @@ selected_design_concept:
 
 建议在“产品确认规则”中增加以下硬性规则：
 
-- 当需求符合 Design Exploration 触发条件时，Planner 必须在产品方案草稿后生成同一轮 3 套不同的完整产品路线。
+- 当需求符合 Design Exploration 触发条件时，Planner 必须在产品方案草稿后先生成同一轮 3 个轻量方向和一个共用比较页；用户选择后再生成唯一的高保真原型。
 - Planner 在 `DESIGN_EXPLORATION` 中只允许写入 `artifacts/design_previews/`；不得借此修改 `code/`。
-- 每个方向必须包含规定的设计说明和可独立打开的静态预览。
+- 第一阶段方向只需包含规定的比较说明；可独立打开的静态预览只属于第二阶段的 `selected_concept`。
 - 设计预览、用户反馈、设计选择记录和新版产品方案均为追加式历史工件，禁止覆盖。
 - 用户可以单选、融合、修改或要求新一轮方向；Planner 必须按选择创建决策记录。
 - 用户选择设计方向不等于批准产品方案。
-- 未明确选择设计方向且未明确确认整合后的产品方案时，禁止生成正式计划，禁止进入 Generator。
+- 未明确选择设计方向、未明确确认单一高保真预览或未明确确认整合后的产品方案时，禁止生成正式计划，禁止进入 Generator。
 - 如果用户明确同意跳过设计探索，必须记录跳过决定；不得由 Planner 自行跳过。
 - Generator 不得读取未选中的设计预览作为需求来源；只能依据 `approved_proposal`、正式计划和对应的设计选择记录实施。
 
@@ -394,15 +402,20 @@ Planner 读取 `project.yaml` 和当前需求后，先判断是否命中设计�
 
 先创建 `product_proposal_v<nnn>.md` 草稿，覆盖产品定位、用户画像、用户痛点、核心功能、页面结构、UI 初步方向、技术建议、MVP 范围和后续扩展。此时不得创建正式计划。
 
-### 12.3 三方案预览
+### 12.3 两阶段预览
 
-进入 `DESIGN_EXPLORATION` 后，一次生成同轮次 3 个有实质差异的设计方向。每个方向同时生成：
+进入 `DESIGN_EXPLORATION` 后，先生成 3 个有实质差异的轻量方向和一个共用比较页：
 
-- `concept.md`
-- `preview.html`
-- `preview.css`
+```text
+round_<nnn>/
+├── concept_01/concept.md
+├── concept_02/concept.md
+├── concept_03/concept.md
+├── comparison.html
+└── comparison.css
+```
 
-生成完成后设置：
+比较页完成后设置：
 
 ```yaml
 status: WAITING_FOR_DESIGN_REVIEW
@@ -411,12 +424,23 @@ active_design_preview_round: artifacts/design_previews/round_<nnn>
 next_role: planner
 ```
 
-然后停止，等待用户输入。
+然后停止，等待用户选择方向。选择记录创建后，必须递增轮次并只生成：
+
+```text
+round_<nnn+1>/selected_concept/
+├── concept.md
+├── preview.html
+└── preview.css
+```
+
+该轮只执行完整 Browser QA；完成后再次进入 `WAITING_FOR_DESIGN_REVIEW`，等待
+用户明确确认高保真预览。
 
 ### 12.4 用户反馈处理
 
-- 用户单选或融合：创建 `design-selection-<nnn>.md`，设置 `direction_selected`，进入 `PLANNING_REVISION`。
-- 用户要求调整或新方向：记录反馈，递增 `design_preview_round`，返回 `DESIGN_EXPLORATION`，生成新的 3 个方向。
+- 用户单选或融合：创建 `design-selection-<nnn>.md`，设置 `direction_selected`，递增轮次，进入唯一 `selected_prototype` 生成。
+- 用户确认高保真预览：进入 `PLANNING_REVISION`，整合新版产品方案。
+- 用户要求调整或新方向：记录反馈，递增 `design_preview_round`，返回 `DESIGN_EXPLORATION`；只有全部否定才重新生成 3 个方向。
 - 用户表达含糊：保持 `WAITING_FOR_DESIGN_REVIEW`，不得推定选择。
 
 ### 12.5 整合与最终确认
@@ -447,19 +471,19 @@ Prompt 中应明确区分：
 
 ## 13. 其他配套文件的后续调整范围
 
-虽然本次只要求说明 `AGENTS.md` 和 `planner_prompt.md`，真正实施时还需要同步更新以下文件，避免规则互相冲突：
+以下文件共同构成当前协议的实现与验证面，修改 Design Exploration 时必须同步检查：
 
 - `SKILL.md`：在产品确认流程资源说明中加入 Design Exploration。
 - `docs/PLANNER_APPROVAL_WORKFLOW.md`：扩展状态机、人工确认门禁和交互示例。
 - `docs/workflow_protocol.md`：加入 `DESIGN_EXPLORATION`、`WAITING_FOR_DESIGN_REVIEW` 的角色路由。
-- `config/workflow.yaml`：注册新状态及修改/重探路由。
+- `config/workflow.yaml`：声明两阶段工件、Browser QA 和 Legacy 兼容范围。
 - `config/role_policies.yaml`：允许 Planner 仅写 `artifacts/design_previews/`，允许 Generator 读取已批准的设计选择记录和所选预览。
 - `templates/project.yaml`：升级 schema 并加入设计状态字段。
 - `templates/product_proposal.md`：加入设计探索关联、所选设计方向和整合说明。
-- 新增设计概念模板，例如 `templates/design_concept.md`。
-- 新增设计选择记录模板，例如 `templates/design_selection.md`。
+- `templates/design_direction.md`：第一阶段轻量方向模板。
+- `templates/design_concept.md`：第二阶段高保真原型模板。
 
-这些文件必须在用户确认本草案后再逐项修改。
+这些文件必须保持与本 Canonical Protocol 一致；它们不是额外的 Agent 或批准 Gate。
 
 ## 14. 示例
 
@@ -468,19 +492,27 @@ Prompt 中应明确区分：
 Planner：
 
 1. 生成 `product_proposal_v001.md` 草稿。
-2. 生成 `round_001`：
+2. 生成 `round_001` 的轻量方向比较：
    - `concept_01`：极简专业风
    - `concept_02`：年轻活泼风
    - `concept_03`：深色数据仪表盘风
-3. 进入 `WAITING_FOR_DESIGN_REVIEW` 并等待。
+3. 生成共用 `comparison.html` / `comparison.css`，执行批量 smoke check，进入
+   `WAITING_FOR_DESIGN_REVIEW` 并等待。
 
 用户：“首页用方案一，但统计页想用方案三，配色不要太暗。”
 
 Planner：
 
-1. 创建 `design-selection-001.md`，记录融合选择。
-2. 创建整合后的 `product_proposal_v002.md`。
-3. 进入 `WAITING_FOR_PRODUCT_REVIEW` 并等待最终确认。
+1. 创建 `design-feedback-001.md` 和 `design-selection-001.md`，记录融合选择。
+2. 生成 `round_002/selected_concept/` 的唯一高保真预览并完成 Browser QA。
+3. 进入 `WAITING_FOR_DESIGN_REVIEW`，等待用户确认高保真预览。
+
+用户：“确认这个高保真设计。”
+
+Planner：
+
+1. 创建整合后的 `product_proposal_v002.md`。
+2. 进入 `WAITING_FOR_PRODUCT_REVIEW` 并等待产品方案确认。
 
 用户：“确认整合后的产品方案。”
 
@@ -505,8 +537,8 @@ Planner：
 本流程已由用户明确确认。状态机、角色规则、Prompt、项目模板与设计模板应以本文件为实施依据，并保持跨文件一致。
 ## R4 Reference-Guided Exploration
 
-当项目存在当前 `active_reference_synthesis` 且其中包含设计相关决策时，Design Exploration 仍沿用 Planner 的三方向、三文件和用户审核流程。Planner 只读取 `active_requirements`、当前 Product Proposal、当前 synthesis 的设计决策子集和必要的历史反馈，不重新解释 URL、原图、HTML 或全量 Finding。
+当项目存在当前 `active_reference_synthesis` 且其中包含设计相关决策时，Design Exploration 仍沿用 Planner 的两阶段方向比较、选中原型和用户审核流程。Planner 只读取 `active_requirements`、当前 Product Proposal、当前 synthesis 的设计决策子集和必要的历史反馈，不重新解释 URL、原图、HTML 或全量 Finding。
 
 本轮策略由 Reference mode 与 Scope 确定性分配：`reference_faithful`、`reference_adapted`、`reference_inspired`（inspiration 模式不得生成 faithful 重建）。每个 `concept.md` 都要保存当前 `REFSYN`、所引用的 `REFDEC`、Adopted/Adapted/Not Used、Explicit Exclusions 和 Original Design Decisions；预览 HTML/CSS 需声明概念和策略绑定。技术性或未具备语义能力的 Reference 不触发视觉引导。
 
-硬排除、显式用户需求和已确认 Product Proposal 优先于 Reference。选择、混搭、拒绝全部方向、修改、恢复和新轮次继续使用现有追加式 Feedback/Selection 记录，并分别经过 Product Approval 与 Plan Approval；本流程不新增 Agent 或状态。
+硬排除、显式用户需求和已确认 Product Proposal 优先于 Reference。选择、混搭、拒绝全部方向、修改、恢复和新轮次继续使用现有追加式 Feedback/Selection 记录；方向选择后先经过 Selected Prototype Confirmation，再经过 Product Approval 与 Plan Approval。本流程不新增 Agent 或状态。

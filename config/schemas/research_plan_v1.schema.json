@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/research-plan-v1.schema.json",
+  "title": "Domain research plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "research_id", "project_id", "round", "status", "queries", "target_domains", "budget", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "research_id": {"type": "string", "pattern": "^RSRCH-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "round": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["planned", "running", "completed", "partially_completed", "unavailable", "blocked", "superseded"]},
+    "queries": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "target_domains": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "max_queries", "max_sources", "max_same_domain_sources"],
+      "properties": {
+        "profile": {"enum": ["simple", "standard", "deep"]},
+        "max_queries": {"type": "integer", "minimum": 1},
+        "max_sources": {"type": "integer", "minimum": 1},
+        "max_same_domain_sources": {"type": "integer", "minimum": 1}
+      }
+    },
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

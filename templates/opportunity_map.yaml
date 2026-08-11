@@ -1,0 +1,11 @@
+schema_version: 1
+opportunity_id: OPP-001
+project_id: <project_id>
+creativity_profile: balanced
+candidates: []
+governance_policy:
+  never_auto_promote_to_requirement: true
+  user_goal_check_required: true
+  scope_impact_check_required: true
+created_at: <ISO-8601 timestamp>
+supersedes: null

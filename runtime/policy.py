@@ -249,17 +249,25 @@ def load_runtime_routes() -> dict[str, dict[str, Any]]:
         next_role = route.get("next_role")
         active_module = route.get("active_module")
         transition_actor = route.get("transition_actor")
+        allowed_active_modules = route.get("allowed_active_modules")
         if next_role is not None and not isinstance(next_role, str):
             raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
         if active_module is not None and not isinstance(active_module, str):
             raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
         if transition_actor is not None and not isinstance(transition_actor, str):
             raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
+        if allowed_active_modules is None:
+            allowed_active_modules = [active_module] if active_module is not None else []
+        if not isinstance(allowed_active_modules, list) or not all(
+            isinstance(item, str) and item for item in allowed_active_modules
+        ):
+            raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
         routes[status] = {
             "next_role": next_role,
             "active_module": active_module,
             "transition_actor": transition_actor,
             "wait_for_user": bool(route.get("wait_for_user", False)),
+            "allowed_active_modules": tuple(allowed_active_modules),
         }
     return routes
 
@@ -301,12 +309,14 @@ def assert_workflow_lifecycle(
     if source_route is None or target_route is None:
         raise RuntimeValidationError("WORKFLOW_ROUTE_CONFIG_INVALID")
 
-    expected_actor = (
-        source_route["transition_actor"]
-        or source_route["active_module"]
-        or source_route["next_role"]
+    expected_actors = (
+        [source_route["transition_actor"]]
+        if source_route["transition_actor"]
+        else list(source_route.get("allowed_active_modules") or [])
+        if source_route.get("active_module") is not None
+        else [source_route["next_role"]]
     )
-    if actor != expected_actor:
+    if actor not in expected_actors:
         raise RuntimeValidationError("WORKFLOW_ACTOR_MISMATCH")
 
     lifecycle_fields = load_lifecycle_fields()

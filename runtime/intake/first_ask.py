@@ -24,6 +24,14 @@ from runtime.orchestrator import Orchestrator
 from runtime.project_revision import runtime_projection
 from runtime.reference_analysis.artifacts import ReferenceArtifactStore
 from runtime.reference_analysis.errors import ReferenceAnalysisError
+from runtime.requirements_discovery import (
+    DiscoveryArtifactStore,
+    analyze_initial_intent,
+    apply_question_answers,
+    evaluate_research_necessity,
+    run_discovery_cycle,
+    empty_requirements_snapshot,
+)
 from scripts.project_state import load_project_state
 from scripts.reference_protocol import DOMAINS, load_reference_config
 
@@ -362,6 +370,223 @@ class FirstAskIntakeModule:
         _write_append_only(self.path_policy, self.root, requirement_ref, yaml.safe_dump(base, allow_unicode=True, sort_keys=False))
         return requirement_ref, version
 
+    def _discovery_store(self) -> DiscoveryArtifactStore:
+        return DiscoveryArtifactStore(self.root, actor=self.module_name, path_policy=self.path_policy)
+
+    def _next_discovery_ref(self, prefix: str, store: DiscoveryArtifactStore) -> str:
+        number = store.next_number("memory/requirements", rf"{re.escape(prefix)}-(\d{{3}})\.yaml")
+        return f"memory/requirements/{prefix}-{number:03d}.yaml"
+
+    def _write_discovery_round_anchor(self, round_number: int) -> str:
+        store = self._discovery_store()
+        reference = f"memory/research/domain/round_{round_number:03d}/research-round.yaml"
+        store.write(
+            reference,
+            {
+                "schema_version": 1,
+                "round": round_number,
+                "status": "planned",
+                "created_at": _now(),
+                "trust_boundary": "研究轮次锚点，不代表研究已经成功完成。",
+            },
+        )
+        return reference
+
+    def _new_discovery_snapshot(
+        self,
+        state: Mapping[str, Any],
+        *,
+        user_text: str,
+        request_ref: str,
+        registered: Iterable[Mapping[str, Any]],
+        version: int,
+    ) -> dict[str, Any]:
+        snapshot = empty_requirements_snapshot(
+            str(state["project_id"]),
+            version=version,
+            request_ref=request_ref,
+            user_text=user_text,
+            created_at=_now(),
+        )
+        references: list[dict[str, Any]] = []
+        for source in registered:
+            references.append(
+                {
+                    "reference_id": source.get("reference_id"),
+                    "source_ref": source.get("_artifact_ref"),
+                    "scope_ref": source.get("scope_ref"),
+                    "source_type": source.get("source_type"),
+                    "reference_mode": source.get("reference_mode"),
+                    "requested_scope": dict(source.get("requested_scope") or {}),
+                    "explicit_inclusions": list(source.get("explicit_inclusions") or []),
+                    "explicit_exclusions": list(source.get("explicit_exclusions") or []),
+                    "status": "registered",
+                    "context": dict(source.get("context") or {}),
+                }
+            )
+        snapshot["references"] = references
+        return snapshot
+
+    def _load_discovery_snapshot(self, reference: str) -> dict[str, Any]:
+        return self._discovery_store().read(reference)
+
+    def _run_discovery_artifacts(
+        self,
+        state: Mapping[str, Any],
+        snapshot: Mapping[str, Any],
+        *,
+        requirements_ref: str,
+        request_text: str,
+        round_number: int,
+        research_status: str,
+        intent: Mapping[str, Any] | None = None,
+        research_requirement: Mapping[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """写入本轮发现工件，并返回新需求快照与发现周期结果。"""
+
+        store = self._discovery_store()
+        project_id = str(state["project_id"])
+        cycle = run_discovery_cycle(
+            snapshot,
+            project_id=project_id,
+            requirements_ref=requirements_ref,
+            request_text=request_text,
+            round_number=round_number,
+            history_question_keys=[
+                str(value.get("last_question_key"))
+                for value in snapshot.values()
+                if isinstance(value, Mapping) and value.get("last_question_key")
+            ],
+            research_status=research_status,
+            intent=intent,
+            research_requirement=research_requirement,
+            created_at=_now(),
+        )
+        artifact_specs = (
+            ("intent-analysis", cycle["intent"]),
+            ("research-requirement", cycle["research_requirement"]),
+            ("coverage-map", cycle["coverage"]),
+            ("gap-analysis", cycle["gaps"]),
+            ("question-set", cycle["question_set"]),
+            ("sufficiency-evaluation", cycle["sufficiency"]),
+        )
+        refs: dict[str, str] = {}
+        for prefix, value in artifact_specs:
+            reference = self._next_discovery_ref(prefix, store)
+            store.write(reference, value)
+            refs[prefix] = reference
+
+        updated = copy.deepcopy(dict(snapshot))
+        discovery = dict(updated.get("discovery") or {})
+        discovery.update(
+            {
+                "schema_version": 1,
+                "status": "ready" if cycle["sufficiency"]["decision"] == "sufficient_for_planning" else "interviewing",
+                "intent_analysis_ref": refs["intent-analysis"],
+                "research_requirement_ref": refs["research-requirement"],
+                "research_status": research_status,
+                "active_research_round": state.get("active_research_round"),
+                "research_refs": [state.get("active_research_round")] if state.get("active_research_round") else [],
+                "coverage_map_ref": refs["coverage-map"],
+                "gap_analysis_ref": refs["gap-analysis"],
+                "question_set_ref": refs["question-set"],
+                "sufficiency_evaluation_ref": refs["sufficiency-evaluation"],
+                "opportunity_map_ref": state.get("opportunity_map_ref"),
+            }
+        )
+        updated["discovery"] = discovery
+        updated["discovery_status"] = discovery["status"]
+        updated["requirements_status"] = cycle["sufficiency"]["decision"]
+        updated["completion_assessment"] = {
+            "critical_fields_ready": not bool(cycle["sufficiency"]["blocking_items"]),
+            "blocking_fields": list(cycle["sufficiency"]["blocking_items"]),
+            "visual_undecided_routed": bool(cycle["sufficiency"]["routed_to_design_exploration"]),
+            "notes": "由确定性 Sufficiency Gate 生成；研究证据不自动升级为用户需求。",
+        }
+        updated["undecided_items"] = [
+            {
+                "field": item,
+                "routing": "design_exploration",
+                "source_ref": refs["sufficiency-evaluation"],
+            }
+            for item in cycle["sufficiency"]["routed_to_design_exploration"]
+        ]
+        updated["source_interviews"] = list(updated.get("source_interviews") or [])
+        updated["discovery_artifact_refs"] = refs
+        return updated, {**cycle, "refs": refs}
+
+    def _write_discovery_snapshot(self, snapshot: Mapping[str, Any], *, version: int, supersedes: str | None) -> str:
+        store = self._discovery_store()
+        reference = f"memory/requirements/requirements_v{version:03d}.yaml"
+        content = copy.deepcopy(dict(snapshot))
+        content["schema_version"] = 2
+        content["requirement_version"] = version
+        content["created_at"] = _now()
+        content["supersedes"] = supersedes
+        store.write(reference, content)
+        return reference
+
+    def _commit_discovery_projection(
+        self,
+        state: Mapping[str, Any],
+        *,
+        target: str,
+        requirements_ref: str,
+        requirements_version: int,
+        cycle: Mapping[str, Any],
+        research_status: str,
+        worker_id: str,
+    ) -> tuple[str, str | None]:
+        sufficiency = cycle["sufficiency"]
+        changed: dict[str, Any] = {
+            "active_requirements": requirements_ref,
+            "requirements_version": requirements_version,
+            "requirements_status": sufficiency["decision"],
+            "requirements_discovery_status": "researching" if target == "REQUIREMENT_RESEARCH" else "interviewing" if target == "WAITING_FOR_REQUIREMENTS" else "ready",
+            "research_status": research_status,
+            "intent_analysis_ref": cycle["refs"]["intent-analysis"],
+            "research_requirement_ref": cycle["refs"]["research-requirement"],
+            "coverage_map_ref": cycle["refs"]["coverage-map"],
+            "gap_analysis_ref": cycle["refs"]["gap-analysis"],
+            "question_set_ref": cycle["refs"]["question-set"],
+            "sufficiency_evaluation_ref": cycle["refs"]["sufficiency-evaluation"],
+            "active_interview": cycle["refs"]["question-set"],
+            "intake_round": int(state.get("intake_round") or 0) + 1,
+        }
+        if target == "REFERENCE_ANALYSIS":
+            changed["reference_status"] = "ready"
+        if target == "REQUIREMENT_RESEARCH":
+            changed["active_research_round"] = str(
+                cycle.get("research_round_ref")
+                or self._write_discovery_round_anchor(int(state.get("intake_round") or 0) + 1)
+            )
+        elif state.get("active_research_round"):
+            changed["active_research_round"] = state.get("active_research_round")
+        projection = runtime_projection(state)
+        started = self.orchestrator.start(worker_id=worker_id, allow_user_input_module=True)
+        if started["selection"].kind != "MODULE" or started["selection"].target != self.module_name:
+            raise RuntimeValidationError("FIRST_ASK_MODULE_NOT_SELECTED")
+        try:
+            self.orchestrator.commit_module_step(
+                str(started["session_id"]),
+                self.module_name,
+                {
+                    "project_yaml": str(self.root / "project.yaml"),
+                    "source_status": str(state["status"]),
+                    "target_status": target,
+                    "changed_fields": changed,
+                    "expected_revision": int(projection["revision"]),
+                    "idempotency_key": f"first-ask-discovery:{projection['revision']}:{requirements_ref}:{target}",
+                },
+                worker_id=worker_id,
+                lease_version=int(started["lease_version"]),
+                lease_token=str(started["lease_token"] or ""),
+            )
+        finally:
+            self.orchestrator.leases.release(str(started["session_id"]), worker_id, int(started["lease_version"]), str(started["lease_token"] or ""))
+        next_role = "planner" if target == "PLANNING" else None
+        return target, next_role
+
     def _route(self, state: Mapping[str, Any], *, requirements_ref: str | None, requirements_version: int, has_references: bool, worker_id: str) -> tuple[str, str | None]:
         status = str(state.get("status"))
         if status not in {"INTAKE", "WAITING_FOR_REQUIREMENTS"}:
@@ -440,11 +665,122 @@ class FirstAskIntakeModule:
                 registered.append(store.register_source(source, context=context, requested_scope=candidate.requested_scope))
             except ReferenceAnalysisError:
                 raise
+        active_sources = self._existing_for_request(store, context, request_hash)
+        requirement_version = int(state.get("requirements_version") or 0)
+        discovery_status = str(state.get("requirements_discovery_status") or "not_started")
+        if state.get("requirements_status") != "sufficient_for_planning":
+            discovery_store = self._discovery_store()
+            current_ref = state.get("active_requirements")
+            answering_existing = (
+                isinstance(current_ref, str)
+                and bool(current_ref)
+                and isinstance(state.get("question_set_ref"), str)
+                and state.get("status") in {"INTAKE", "WAITING_FOR_REQUIREMENTS"}
+                and discovery_status in {"researching", "interviewing", "sufficiency_check"}
+            )
+            if answering_existing:
+                base_snapshot = self._load_discovery_snapshot(str(current_ref))
+                base_snapshot["active_ref"] = str(current_ref)
+                question_set = discovery_store.read(str(state["question_set_ref"]))
+                snapshot = apply_question_answers(
+                    base_snapshot,
+                    question_set,
+                    user_text,
+                    interview_ref=request_ref,
+                )
+                request_text = str((base_snapshot.get("original_request") or {}).get("text") or user_text)
+            else:
+                snapshot = self._new_discovery_snapshot(
+                    state,
+                    user_text=user_text,
+                    request_ref=request_ref,
+                    registered=registered,
+                    version=requirement_version + 1,
+                )
+                request_text = user_text
+            requirement_version += 1
+            requirement_ref_candidate = f"memory/requirements/requirements_v{requirement_version:03d}.yaml"
+            research_status = str(state.get("research_status") or "not_started")
+            if research_status == "not_started":
+                research_status = "not_required"
+            prior_intent = None
+            prior_gate = None
+            if answering_existing:
+                try:
+                    prior_intent = discovery_store.read(str(state.get("intent_analysis_ref"))) if state.get("intent_analysis_ref") else None
+                    prior_gate = discovery_store.read(str(state.get("research_requirement_ref"))) if state.get("research_requirement_ref") else None
+                except RuntimeValidationError:
+                    prior_intent = None
+                    prior_gate = None
+            updated_snapshot, cycle = self._run_discovery_artifacts(
+                state,
+                snapshot,
+                requirements_ref=requirement_ref_candidate,
+                request_text=request_text,
+                round_number=int(state.get("intake_round") or 0) + 1,
+                research_status=research_status,
+                intent=prior_intent,
+                research_requirement=prior_gate,
+            )
+            gate_decision = str(cycle["research_requirement"].get("decision") or "optional")
+            if gate_decision == "required" and research_status in {"not_required", "unavailable", "blocked"} and state.get("status") == "INTAKE" and not answering_existing:
+                # 首轮必须先完成 Research Gate；不可用时由 Domain Research 明确记录 unavailable。
+                research_status = "planned"
+                updated_snapshot["discovery"]["research_status"] = research_status
+                target = "REQUIREMENT_RESEARCH"
+            elif cycle["sufficiency"]["decision"] == "sufficient_for_planning":
+                target = "REFERENCE_ANALYSIS" if (registered or active_sources) else "PLANNING"
+            else:
+                target = "WAITING_FOR_REQUIREMENTS"
+            if target == "REQUIREMENT_RESEARCH":
+                research_round_ref = self._write_discovery_round_anchor(int(state.get("intake_round") or 0) + 1)
+                updated_snapshot["discovery"]["active_research_round"] = research_round_ref
+                updated_snapshot["discovery"]["research_refs"] = [research_round_ref]
+                cycle["research_round_ref"] = research_round_ref
+            requirements_ref = self._write_discovery_snapshot(
+                updated_snapshot,
+                version=requirement_version,
+                supersedes=str(current_ref) if answering_existing else None,
+            )
+            if target == "REQUIREMENT_RESEARCH":
+                # 研究阶段不直接让用户等一个不明确的空转状态。
+                cycle["refs"] = dict(cycle["refs"])
+                target, next_role = self._commit_discovery_projection(
+                    state,
+                    target=target,
+                    requirements_ref=requirements_ref,
+                    requirements_version=requirement_version,
+                    cycle=cycle,
+                    research_status=research_status,
+                    worker_id=worker_id or "first-ask-worker",
+                )
+            else:
+                target, next_role = self._commit_discovery_projection(
+                    state,
+                    target=target,
+                    requirements_ref=requirements_ref,
+                    requirements_version=requirement_version,
+                    cycle=cycle,
+                    research_status=research_status,
+                    worker_id=worker_id or "first-ask-worker",
+                )
+            activation = None
+            if target == "REFERENCE_ANALYSIS":
+                from runtime.reference_analysis import ReferenceAnalysisModule
+
+                activation = ReferenceAnalysisModule(self.root, orchestrator=self.orchestrator).activate(worker_id=worker_id or "reference-analysis-worker")
+            return FirstAskResult(request_hash, request_ref, tuple(str(item["reference_id"]) for item in registered), requirements_ref, target, False, activation)
+
         requirements_ref = None
         requirement_version = int(state.get("requirements_version") or 0)
         if registered:
-            requirements_ref, requirement_version = self._write_requirements_snapshot(state, user_text, request_ref, registered)
-        active_sources = self._existing_for_request(store, context, request_hash)
+            # 保留已有 Reference Analysis 合同：需求已足够时仍登记引用到传统快照。
+            requirements_ref, requirement_version = self._write_requirements_snapshot(
+                state,
+                user_text,
+                request_ref,
+                registered,
+            )
         target, next_role = self._route(
             state,
             requirements_ref=requirements_ref,

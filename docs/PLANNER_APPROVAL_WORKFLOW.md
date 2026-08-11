@@ -13,22 +13,22 @@
 | `INTAKE` | 收到初始需求 | First-Ask Intake | 记录原始请求、采访和需求快照 | `memory/requirements/` | `WAITING_FOR_REQUIREMENTS` 或 `PLANNING` |
 | `WAITING_FOR_REQUIREMENTS` | 信息不足 | 用户；回复后恢复 First-Ask | 回答本轮 1～3 个问题 | 新采访和需求快照版本 | `INTAKE` 或 `PLANNING` |
 | `PLANNING` | `active_requirements` 有效且足以规划 | Planner | 创建产品方案草稿并判断设计探索是否必需；禁止创建正式计划 | `memory/proposals/product_proposal_v001.md` | `DESIGN_EXPLORATION`；用户明确同意跳过时可进入 `WAITING_FOR_PRODUCT_REVIEW` |
-| `DESIGN_EXPLORATION` | 产品或设计方向未确定 | Planner | 同一轮生成 3 个有实质差异的完整产品路线及静态预览，并执行确定性校验 | `artifacts/design_previews/round_<nnn>/` | `WAITING_FOR_DESIGN_REVIEW` |
-| `WAITING_FOR_DESIGN_REVIEW` | 已生成 3 个方向 | 用户 | 单选、融合、修改、全部否定、讨论或恢复旧方向 | 每次先创建 `design-feedback-<nnn>.md`；明确选择时再创建 `design-selection-<nnn>.md` | `PLANNING_REVISION`、`DESIGN_EXPLORATION` 或保持等待 |
+| `DESIGN_EXPLORATION` | 产品或设计方向未确定 | Planner | 按当前模式生成方向比较，或在方向选择后只生成一个选中原型，并执行对应确定性校验 | 第一阶段为 3 份 `concept.md` + 共用 `comparison.html`/`comparison.css`；第二阶段为 `selected_concept/` 下的 `concept.md`、`preview.html`、`preview.css` | `WAITING_FOR_DESIGN_REVIEW` |
+| `WAITING_FOR_DESIGN_REVIEW` | 当前比较页或选中原型已完成 | 用户 | 比较、单选、融合、修改、全部否定、讨论、恢复或确认选中原型 | 每次先创建 `design-feedback-<nnn>.md`；明确方向时再创建 `design-selection-<nnn>.md` | 方向选择回到 `DESIGN_EXPLORATION`；原型确认进入 `PLANNING_REVISION`；讨论保持等待 |
 | `WAITING_FOR_PRODUCT_REVIEW` | 已生成整合方案 | 用户 | 审核、明确确认或提出修改意见 | 产品批准后生成批准记录、正式产品规格和待审核 Plan | `PLANNING_REVISION` 或 `WAITING_FOR_PLAN_REVIEW` |
 | `WAITING_FOR_PLAN_REVIEW` | 产品已批准且待审核 Plan 完整 | 用户 | 审核技术方案、任务、测试、验收和回滚 | Plan 批准记录或严格递增的新 Plan 版本 | `PLANNING_REVISION` 或 `APPROVED_FOR_IMPLEMENTATION` |
-| `PLANNING_REVISION` | 用户选择设计方向或提出修改 | Planner | 整合设计选择并创建完整的新方案版本 | `memory/proposals/product_proposal_v<nnn>.md` | `WAITING_FOR_PRODUCT_REVIEW`；需要重新探索时进入 `DESIGN_EXPLORATION` |
+| `PLANNING_REVISION` | 用户确认选中原型或提出产品方案修改 | Planner | 整合已确认设计并创建完整的新方案版本 | `memory/proposals/product_proposal_v<nnn>.md` | `WAITING_FOR_PRODUCT_REVIEW`；需要重新探索时进入 `DESIGN_EXPLORATION` |
 | `APPROVED_FOR_IMPLEMENTATION` | 用户分别批准产品方案和当前开发 Plan | Generator | 校验完整来源链 | 产品批准、产品规格、获批 Plan 和 Plan 批准记录均存在 | `IMPLEMENTING` |
 | `IMPLEMENTING` | 所有门禁通过 | Generator | 实施获批计划 | `code/`、`artifacts/`、交接记录 | `EVALUATING` |
 
 ## Planner 行为规则
 
-收到简单需求（例如“我要做一个记账 App”）时，First-Ask 必须先创建结构化需求快照。只有 `requirements_status: sufficient_for_planning` 且 `active_requirements` 有效后，Planner 才能使用 `templates/product_proposal.md` 创建 `memory/proposals/product_proposal_v001.md`。如果需求快照把视觉偏好标记为 `undecided` 或设计规范不完整，Planner 必须生成一轮 3 套不同的完整产品路线。每个方向使用 `templates/design_concept.md`，并提供可独立打开的 `preview.html` 和 `preview.css`。
+收到简单需求（例如“我要做一个记账 App”）时，First-Ask 必须先创建结构化需求快照。只有 `requirements_status: sufficient_for_planning` 且 `active_requirements` 有效后，Planner 才能使用 `templates/product_proposal.md` 创建 `memory/proposals/product_proposal_v001.md`。如果需求快照把视觉偏好标记为 `undecided` 或设计规范不完整，Planner 必须先进入两阶段设计探索：第一阶段使用 `templates/design_direction.md` 生成 3 个轻量方向和一个共用比较页；用户明确选定方向后，第二阶段才使用 `templates/design_concept.md` 生成一个 `selected_concept` 高保真预览。
 
 三个方向不能只是换色或换名称，必须在产品定位、核心优势、特色功能、主要
-用户路径或信息架构中至少形成两项可验证差异。每个 `concept.md` 必须使用
-`templates/design_concept.md` 的完整章节，覆盖产品路线、页面、功能、UI、
-适用建议、复杂度和首版风险。
+用户路径或信息架构中至少形成两项可验证差异。第一阶段的每个 `concept.md` 使用
+`templates/design_direction.md` 的轻量章节；完整产品、页面、功能、UI、适用建议、
+复杂度和首版风险只属于第二阶段的 `selected_concept/concept.md`。
 
 进入 `WAITING_FOR_DESIGN_REVIEW` 前必须运行
 `scripts/exploration.py <项目根>/project.yaml`。生成最多自动尝试两次；
@@ -43,8 +43,9 @@
 选择记录；恢复旧方向通过新的选择记录引用历史工件，不得回写旧记录。整合后的
 产品方案版本必须严格递增一位，禁止覆盖或跳号。
 
-选择设计方向只允许 Planner 整合新的产品方案版本。未经用户对整合后的
-`active_proposal` 作出明确确认，严禁生成正式产品规格或待审核 Plan。
+方向选择只允许 Planner 生成唯一的 Selected Prototype。只有用户明确确认该高保真
+预览后，Planner 才能整合新的产品方案版本；未经用户对整合后的 `active_proposal`
+作出明确确认，严禁生成正式产品规格或待审核 Plan。
 
 用户明确批准产品方案时，Planner 使用 `templates/product_approval.md` 创建
 产品批准记录，再生成正式产品规格和待审核 Plan，进入
@@ -76,9 +77,10 @@ active_proposal: memory/proposals/product_proposal_v002.md
 approved_proposal: null
 proposal_version: 2
 design_exploration_required: true
+design_preview_mode: selected_prototype
 design_review_status: integrated_into_proposal
-design_preview_round: 1
-active_design_preview_round: artifacts/design_previews/round_001
+design_preview_round: 2
+active_design_preview_round: artifacts/design_previews/round_002
 selected_design_concept:
   mode: blend
   concept_refs:
@@ -144,21 +146,20 @@ memory/
 ├── plans/
 │   └── plan-001.md
 └── decisions/
+    ├── design-feedback-001.md
     ├── design-selection-001.md
     └── product-approval-001.md
 
 artifacts/
 └── design_previews/
-    └── round_001/
-        ├── concept_01/
-        │   ├── concept.md
-        │   ├── preview.html
-        │   └── preview.css
-        ├── concept_02/
-        │   ├── concept.md
-        │   ├── preview.html
-        │   └── preview.css
-        └── concept_03/
+    ├── round_001/
+    │   ├── concept_01/concept.md
+    │   ├── concept_02/concept.md
+    │   ├── concept_03/concept.md
+    │   ├── comparison.html
+    │   └── comparison.css
+    └── round_002/
+        └── selected_concept/
             ├── concept.md
             ├── preview.html
             └── preview.css
@@ -174,7 +175,14 @@ Planner：生成 `product_proposal_v001.md` 草稿，再生成 `round_001` 的 3
 
 用户：“首页用方案一，统计页用方案三，但配色不要太暗。”
 
-Planner：创建 `design-selection-001.md` 和整合后的 `product_proposal_v002.md`，进入 `WAITING_FOR_PRODUCT_REVIEW` 并等待。
+Planner：创建 `design-feedback-001.md` 和 `design-selection-001.md`，在
+`round_002/selected_concept/` 生成唯一高保真预览，完成完整 Browser QA，进入
+`WAITING_FOR_DESIGN_REVIEW` 等待高保真确认。
+
+用户：“确认这个高保真设计。”
+
+Planner：基于确认的原型创建整合后的 `product_proposal_v002.md`，进入
+`WAITING_FOR_PRODUCT_REVIEW` 并等待产品方案确认。
 
 用户：“确认整合后的方案。”
 
@@ -187,6 +195,6 @@ Planner：创建 `plan-approval-001.md`，设置 `APPROVED_FOR_IMPLEMENTATION`
 和 `next_role: generator`。
 ## Reference-Guided Design Exploration 补充规则
 
-Reference-guided 只改变 Planner 生成三条设计路线时的受控输入，不改变既有状态机。只有当前 synthesis 中存在设计相关 REFDEC 才启用；technical-only、unsupported image semantics 和无 active synthesis 继续走普通 Design Exploration。
+Reference-guided 只改变 Planner 生成方向比较和选中原型时的受控输入，不改变既有状态机。只有当前 synthesis 中存在设计相关 REFDEC 才启用；technical-only、unsupported image semantics 和无 active synthesis 继续走普通两阶段 Design Exploration。
 
 三条概念必须分别声明策略、当前 `REFSYN` 和可追溯 `REFDEC`，并记录 Adopted、Adapted、Not Used、Explicit Exclusions 与 Original Design Decisions。用户选择或混搭后仍先生成新的 Product Proposal，随后等待 Product Review；Product Approval 与 Plan Approval 仍是独立门禁。

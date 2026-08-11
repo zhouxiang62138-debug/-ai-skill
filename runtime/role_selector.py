@@ -31,13 +31,14 @@ def select_role(state: dict[str, Any]) -> Selection:
     ):
         return Selection("WAIT", None, f"status:{status}")
     if route["active_module"] is not None:
-        if module != route["active_module"]:
+        allowed_modules = tuple(route.get("allowed_active_modules") or (route["active_module"],))
+        if module not in allowed_modules:
             raise RuntimeValidationError(
-                f"状态 {status} 要求 active_module={route['active_module']}，实际为 {module}"
+                f"状态 {status} 要求 active_module 属于 {allowed_modules}，实际为 {module}"
             )
         if next_role is not None:
             raise RuntimeValidationError("First-Ask Module 不得同时声明 next_role")
-        return Selection("MODULE", str(route["active_module"]), "configured_active_module")
+        return Selection("MODULE", str(module), "configured_active_module")
     expected = route["next_role"]
     if next_role != expected:
         raise RuntimeValidationError(

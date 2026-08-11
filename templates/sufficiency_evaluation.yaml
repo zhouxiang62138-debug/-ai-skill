@@ -1,0 +1,12 @@
+schema_version: 1
+evaluation_id: SUFF-001
+project_id: <project_id>
+decision: waiting_user
+blocking_items: []
+resolved_items: []
+safe_assumptions: []
+routed_to_design_exploration: []
+input_snapshot_hash: <sha256>
+rules_version: 1
+created_at: <ISO-8601 timestamp>
+supersedes: null

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/coverage-map-v1.schema.json",
+  "title": "Requirement coverage map v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "coverage_id", "project_id", "requirements_ref", "items", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "coverage_id": {"type": "string", "pattern": "^COV-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "requirements_ref": {"type": "string", "minLength": 1},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "status", "importance", "decision_impact", "architecture_impact", "workflow_impact", "safe_assumption_available", "source_refs", "research_refs"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "value": {},
+        "status": {"enum": ["answered", "assumed", "undecided", "not_applicable", "unanswered", "conflicting", "requires_user_decision"]},
+        "importance": {"enum": ["critical", "high", "medium", "low"]},
+        "decision_impact": {"enum": ["critical", "high", "medium", "low"]},
+        "architecture_impact": {"enum": ["critical", "high", "medium", "low"]},
+        "workflow_impact": {"enum": ["critical", "high", "medium", "low"]},
+        "irreversibility": {"enum": ["high", "medium", "low"]},
+        "dependency_count": {"type": "integer", "minimum": 0},
+        "risk": {"enum": ["high", "medium", "low"]},
+        "safe_assumption_available": {"type": "boolean"},
+        "source_refs": {"type": "array", "items": {"type": "string"}},
+        "research_refs": {"type": "array", "items": {"type": "string"}},
+        "last_question_key": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

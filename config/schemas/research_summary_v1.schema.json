@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/research-summary-v1.schema.json",
+  "title": "Domain research summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "research_id", "project_id", "round", "status", "plan_ref", "source_refs", "finding_refs", "query_count", "source_count", "created_at", "trust_boundary"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "research_id": {"type": "string", "pattern": "^RSRCH-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "round": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["planned", "running", "completed", "partially_completed", "unavailable", "blocked", "not_required"]},
+    "plan_ref": {"type": "string", "minLength": 1},
+    "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "finding_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "opportunity_map_ref": {"type": ["string", "null"]},
+    "query_count": {"type": "integer", "minimum": 0},
+    "source_count": {"type": "integer", "minimum": 0},
+    "created_at": {"type": "string", "minLength": 1},
+    "trust_boundary": {"type": "string", "minLength": 1}
+  }
+}

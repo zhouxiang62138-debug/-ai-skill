@@ -121,6 +121,19 @@
         "selected_prototype"
       ]
     },
+    "design_review_status": {
+      "enum": [
+        null,
+        "not_started",
+        "generating",
+        "waiting_user_selection",
+        "waiting_selected_prototype_confirmation",
+        "revision_requested",
+        "direction_selected",
+        "integrated_into_proposal",
+        "skipped_by_user"
+      ]
+    },
     "design_feedback_round": {
       "type": "integer",
       "minimum": 0
@@ -155,7 +168,8 @@
     "proposal_version": { "type": "integer", "minimum": 0 },
     "product_spec_version": { "type": "integer", "minimum": 0 },
     "plan_version": { "type": "integer", "minimum": 0 },
-    "design_preview_round": { "type": "integer", "minimum": 0 }
+    "design_preview_round": { "type": "integer", "minimum": 0 },
+    "active_design_preview_round": { "type": ["string", "null"] }
   },
   "additionalProperties": true
 }

@@ -118,9 +118,11 @@ Planner 默认先生成一轮 3 个轻量产品方向：每个方向只写 `conc
 用户单选、融合、修改或恢复方向后，Planner 开启新轮次，只为选中结果生成一套
 `selected_concept/concept.md`、`preview.html` 与 `preview.css`，完整浏览器验证
 也只执行这一套。用户明确确认该高保真预览后，Planner 才将其整合进新的产品
-方案版本并再次等待产品确认；方向选择、高保真确认和产品确认是三个不同门禁。
+方案版本并再次等待产品确认；方向选择、高保真确认、产品确认和 Plan 确认是四个
+不同门禁。
 
-设计说明使用 `templates/design_concept.md`，每次用户反馈使用
+第一阶段方向说明使用 `templates/design_direction.md`；选中方向后的完整原型说明
+使用 `templates/design_concept.md`。每次用户反馈使用
 `templates/design_feedback.md`，明确选择使用
 `templates/design_selection.md`，跳过设计探索时使用
 `templates/design_skip_decision.md`。预览仅写入项目的

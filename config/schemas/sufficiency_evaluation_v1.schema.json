@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/sufficiency-evaluation-v1.schema.json",
+  "title": "Deterministic requirement sufficiency evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evaluation_id", "project_id", "decision", "blocking_items", "resolved_items", "rules_version", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evaluation_id": {"type": "string", "pattern": "^SUFF-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "decision": {"enum": ["sufficient_for_planning", "waiting_user", "blocked"]},
+    "blocking_items": {"type": "array", "items": {"type": "string"}},
+    "resolved_items": {"type": "array", "items": {"type": "string"}},
+    "safe_assumptions": {"type": "array", "items": {"type": "string"}},
+    "routed_to_design_exploration": {"type": "array", "items": {"type": "string"}},
+    "input_snapshot_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "rules_version": {"type": "integer", "minimum": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

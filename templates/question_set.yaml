@@ -1,0 +1,9 @@
+schema_version: 1
+question_set_id: QSET-001
+project_id: <project_id>
+round: 1
+gap_ref: memory/requirements/gaps-001.yaml
+topic: null
+questions: []
+created_at: <ISO-8601 timestamp>
+supersedes: null

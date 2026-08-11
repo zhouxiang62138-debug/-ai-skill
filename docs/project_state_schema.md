@@ -74,8 +74,11 @@ v4 新增：
 - `WAITING_FOR_PLAN_REVIEW` 状态的数据约束。
 - 产品探索触发原因、生成尝试次数和错误记录。
 
-F4 使用 `scripts/exploration.py` 校验同一轮恰好三套完整产品路线、必需文件、
-预览标记和路线差异，并给出中断恢复动作。探索生成最多自动尝试两次。
+F4 使用 `scripts/exploration.py` 按 `design_preview_mode` 校验工件：新项目的
+`direction_comparison` 是三份方向 `concept.md` 加一个共用比较页，只做结构、
+标记、差异性和批量 smoke check；`selected_prototype` 是唯一
+`selected_concept` 的完整三文件预览，并执行完整 Browser QA。`legacy_full` 只
+作为旧项目兼容模式保留。探索生成最多自动尝试两次。
 
 F5 使用 `scripts/feedback.py` 把用户反馈分类为单选、修改、混搭、全部否定、
 继续讨论、恢复、含糊或冲突，并生成确定性候选状态。每次反馈和明确选择使用

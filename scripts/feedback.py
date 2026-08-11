@@ -138,7 +138,7 @@ def classify_feedback(
     text: str,
     current_round: str,
     *,
-    preview_mode: str = DESIGN_PREVIEW_MODE_LEGACY,
+    preview_mode: str = DESIGN_PREVIEW_MODE_COMPARISON,
 ) -> FeedbackDecision:
     raw = text.strip()
     if not raw:

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/research-requirement-v1.schema.json",
+  "title": "Research necessity decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "requirement_id", "project_id", "decision", "reasons", "target_domains", "expected_value", "budget_profile", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "requirement_id": {"type": "string", "pattern": "^RREQ-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "decision": {"enum": ["required", "optional", "not_required"]},
+    "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "target_domains": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "expected_value": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "budget_profile": {"enum": ["simple", "standard", "deep"]},
+    "privacy_redaction": {"enum": ["applied", "not_needed"]},
+    "source_policy": {"const": "tiered"},
+    "input_intent_ref": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

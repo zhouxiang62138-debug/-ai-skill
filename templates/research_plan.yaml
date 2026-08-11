@@ -1,0 +1,14 @@
+schema_version: 1
+research_id: RSRCH-001
+project_id: <project_id>
+round: 1
+status: planned
+queries: []
+target_domains: []
+budget:
+  profile: standard
+  max_queries: 8
+  max_sources: 12
+  max_same_domain_sources: 3
+created_at: <ISO-8601 timestamp>
+supersedes: null

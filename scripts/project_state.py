@@ -388,12 +388,35 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         "selected_prototype",
     }:
         errors.append("design_preview_mode 无效")
+    if version == 7 and design_preview_mode == "legacy_full":
+        migration = state.get("schema_migration")
+        if not (
+            isinstance(migration, dict)
+            and migration.get("from_version") in {3, 4, 5, 6}
+            and migration.get("to_version") == 7
+        ):
+            errors.append(
+                "schema_version=7 新项目不得使用 legacy_full；"
+                "该模式只允许来自 v3-v6 到 v7 的迁移兼容路径"
+            )
 
     if status == "INTAKE":
         if state.get("active_module") != "first_ask_intake":
             errors.append("$.active_module 在 INTAKE 中必须是 first_ask_intake")
         if state.get("next_role") is not None:
             errors.append("$.next_role 在 INTAKE 中必须是 null")
+
+    if status == "REQUIREMENT_RESEARCH":
+        if state.get("active_module") != "domain_research":
+            errors.append("$.active_module 在 REQUIREMENT_RESEARCH 中必须是 domain_research")
+        if state.get("next_role") is not None:
+            errors.append("$.next_role 在 REQUIREMENT_RESEARCH 中必须是 null")
+        if state.get("research_status") not in {"planned", "running"}:
+            errors.append("REQUIREMENT_RESEARCH 要求 research_status 为 planned 或 running")
+        if not state.get("active_research_round"):
+            errors.append("REQUIREMENT_RESEARCH 必须绑定 active_research_round")
+        if state.get("active_plan") is not None:
+            errors.append("REQUIREMENT_RESEARCH 期间 active_plan 必须为 null")
 
     if state.get("current_iteration") == 5 and status in {"IMPLEMENTING", "EVALUATING"}:
         errors.append("current_iteration 达到 5 后不得继续自动实现或评估")
@@ -674,6 +697,14 @@ def validate_project_state(
                     pass
         for field in (
             "active_requirements",
+            "intent_analysis_ref",
+            "research_requirement_ref",
+            "active_research_round",
+            "coverage_map_ref",
+            "gap_analysis_ref",
+            "question_set_ref",
+            "sufficiency_evaluation_ref",
+            "opportunity_map_ref",
             "active_proposal",
             "approved_proposal",
             "product_approval_record",
@@ -716,7 +747,8 @@ def validate_project_state(
                 and state.get("design_review_status") in {"generating", "revision_requested"}
             ):
                 # 生成态先提交“本轮要生成到哪里”，随后才创建目录和工件。
-                # 完成态仍由 exploration.finalize_preview_round 强制校验三案齐全。
+                # 完成态仍由 exploration.finalize_preview_round 按当前模式校验：
+                # 方向比较是三案，选中原型是单一 selected_concept，旧项目走兼容规则。
                 continue
             if not candidate.exists():
                 errors.append(f"$.{field} 指向不存在的文件：{reference}")

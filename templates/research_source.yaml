@@ -1,0 +1,16 @@
+schema_version: 1
+source_id: RRSRC-001
+research_id: RSRCH-001
+source_type: official_documentation
+tier: tier_1
+authority_level: primary
+title: null
+locator: <https-url-or-approved-source-locator>
+canonical_locator: null
+source_origin: system_discovered
+retrieved_at: <ISO-8601 timestamp>
+content_hash: null
+supported_claims: []
+trust_level: untrusted
+created_at: <ISO-8601 timestamp>
+supersedes: null

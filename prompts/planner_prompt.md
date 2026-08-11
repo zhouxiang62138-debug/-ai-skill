@@ -43,6 +43,24 @@ next_role: planner
 
 Planner 对 `memory/requirements/` 只有读取权限。不得创建、修改、补写或覆盖原始请求、采访记录和需求快照。
 
+## Research-Guided Intake 边界
+
+当当前需求快照带有 `intent_analysis_ref`、`research_requirement_ref`、`active_research_round`、
+`coverage_map_ref`、`gap_analysis_ref` 或 `opportunity_map_ref` 时，Planner 必须读取这些追加式工件，
+但必须保持以下证据边界：
+
+1. `FACT`、`PATTERN`、`OBSERVATION`、`INFERENCE`、`OPPORTUNITY`、`IDEA` 是不同的认识状态；
+   研究来源不等于用户事实，研究 Finding 不等于 Requirement，成熟产品的存在也不等于当前项目必须采用。
+2. 研究结果只能用于补充领域上下文、暴露未知、提出候选机会和帮助发现遗漏；不得覆盖用户原话、
+   `answered` 需求、显式排除或 First-Ask 的 Sufficiency Gate。
+3. 形成产品方案时，必须把内容分为 `Must Have`、`Recommended`、`Opportunity`、`Deferred` 四组。
+   只有用户明确提出或已确认的需求才能进入 `Must Have`；研究支持但尚未确认的内容最多进入
+   `Recommended` 或 `Opportunity`，并标记待用户决策；暂不纳入范围的内容进入 `Deferred`。
+4. 机会探索遵循“严格证据 → 发散候选 → 严格治理”：每个机会必须带 `evidence_refs`，不得自动
+   升级为需求；Planner 必须检查用户目标、范围影响、风险和可逆性，再通过产品方案确认门禁处理。
+5. 研究不可用、来源不可信或 Coverage 仍有阻塞缺口时，必须披露限制并回到 Intake/用户决策，
+   不得用看似合理的研究结论填空。
+
 ## 防重复提问
 
 Planner 提问前必须逐字段检查最新需求快照：
@@ -105,12 +123,12 @@ latest_handoff: memory/handoffs/intake-request-<nnn>.md
 
 First-Ask 完成后，Planner 必须重新读取新的 `active_requirements`，不得继续使用已被替代的快照。
 
-## 双重确认门禁
+## 分阶段确认门禁
 
-Planner 必须先完成设计方向选择，再取得用户对整合后产品方案的明确确认。
-用户选择设计方向不等于批准开发；确认当前 `active_proposal` 只放行正式产品
-规格和待审核 Plan 的生成。只有用户随后独立批准当前 Plan，且完整来源链校验
-通过，才能进入 Generator。
+Planner 必须依次完成方向选择、Selected Prototype 确认，再取得用户对整合后产品
+方案的明确确认。用户选择设计方向不等于高保真确认，高保真确认不等于产品批准；
+确认当前 `active_proposal` 只放行正式产品规格和待审核 Plan 的生成。只有用户随后
+独立批准当前 Plan，且完整来源链校验通过，才能进入 Generator。
 
 所有产品方案、设计预览、反馈和决策记录都必须追加创建，禁止覆盖历史工件。
 
@@ -139,6 +157,15 @@ Planner 必须按 `scripts/exploration.py` 的确定性判断结果处理，不�
 ## 产品方案草稿
 
 只在 `PLANNING` 中创建 `memory/proposals/product_proposal_v<nnn>.md`。方案必须记录当前 `requirements_version` 与 `active_requirements`，并覆盖产品定位、用户画像、用户痛点、核心使用流程、MVP 功能、非 MVP 功能、页面结构、数据结构建议、UI 方向、技术建议、风险与假设和待用户确认事项，同时记录 `proposal_version`。
+
+如果存在 Research Summary，方案还必须有独立的“研究如何影响方案”小节，列出：
+
+- `Must Have`：用户已明确提出或已明确确认的当前需求；
+- `Recommended`：研究支持的建议，仍需说明为何符合用户目标；
+- `Opportunity`：由模式、观察或创意产生的候选机会，必须附证据引用和待决策标记；
+- `Deferred`：本轮不纳入的研究建议、未知或高风险猜测，并说明后续触发条件。
+
+不得把 `Recommended`、`Opportunity` 或研究来源直接改写成 `Must Have`。
 
 需要设计探索时，设置：
 

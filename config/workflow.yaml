@@ -135,6 +135,7 @@ design_exploration:
   required_concept_count: 3
   maximum_generation_attempts: 2
   default_preview_mode: direction_comparison
+  new_projects_default: direction_comparison
   stages:
     direction_comparison:
       concept_count: 3
@@ -156,11 +157,21 @@ design_exploration:
       requires_explicit_confirmation: true
     legacy_full:
       compatibility_only: true
+      not_for_new_projects: true
       concept_count: 3
+      required_files_per_concept:
+        - concept.md
+        - preview.html
+        - preview.css
+      browser_qa: compatibility_only
+  # 历史配置键保留用于兼容读取；只适用于 legacy_full，不参与新项目路由。
   required_concept_files:
-    - concept.md
-    - preview.html
-    - preview.css
+    compatibility_only: true
+    applies_to: legacy_full
+    files:
+      - concept.md
+      - preview.html
+      - preview.css
   reference_guided:
     enabled: true
     active_input: active_reference_synthesis
@@ -211,7 +222,14 @@ states:
   WAITING_FOR_REQUIREMENTS:
     next_role: null
     active_module: first_ask_intake
+    allowed_active_modules:
+      - first_ask_intake
+      - domain_research
     wait_for_user: true
+  REQUIREMENT_RESEARCH:
+    next_role: null
+    active_module: domain_research
+    wait_for_user: false
   REFERENCE_ANALYSIS:
     next_role: null
     active_module: reference_analysis
@@ -405,8 +423,9 @@ legacy_state_aliases:
 legacy_state_policy: read_only_require_migration
 
 state_transitions:
-  INTAKE: ["INTAKE", "WAITING_FOR_REQUIREMENTS", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
-  WAITING_FOR_REQUIREMENTS: ["INTAKE", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  INTAKE: ["INTAKE", "WAITING_FOR_REQUIREMENTS", "REQUIREMENT_RESEARCH", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_REQUIREMENTS: ["INTAKE", "REQUIREMENT_RESEARCH", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  REQUIREMENT_RESEARCH: ["REQUIREMENT_RESEARCH", "INTAKE", "WAITING_FOR_USER", "BLOCKED"]
   REFERENCE_ANALYSIS: ["REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
   PLANNING: ["PLANNING", "DESIGN_EXPLORATION", "WAITING_FOR_PRODUCT_REVIEW", "WAITING_FOR_PLAN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
   DESIGN_EXPLORATION: ["DESIGN_EXPLORATION", "WAITING_FOR_DESIGN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
@@ -434,6 +453,13 @@ state_guards:
     halt_until_user_input: true
     allowed_next_roles:
       - null
+  REQUIREMENT_RESEARCH:
+    required_active_module: domain_research
+    required_research_status:
+      - planned
+      - running
+    allowed_next_roles:
+      - null
   REFERENCE_ANALYSIS:
     required_requirements_status: sufficient_for_planning
     required_active_requirements: true
@@ -455,7 +481,11 @@ state_guards:
   WAITING_FOR_DESIGN_REVIEW:
     halt_until_user_input: true
     required_complete_preview_round: true
-    required_concept_count: 3
+    required_concept_count: 3  # direction_comparison 的默认值
+    required_concept_count_by_mode:
+      direction_comparison: 3
+      selected_prototype: 1
+      legacy_full: 3
     active_plan_must_be_null: true
   WAITING_FOR_PRODUCT_REVIEW:
     halt_until_user_input: true

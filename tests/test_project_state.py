@@ -23,6 +23,7 @@ from project_state import (  # noqa: E402
     validate_project_state,
     write_project_state_atomic,
 )
+from project_migration import preview_runtime_migration  # noqa: E402
 
 
 def make_v4_state() -> dict:
@@ -77,6 +78,29 @@ class ProjectStateParserTests(unittest.TestCase):
 
 
 class ProjectStateValidationTests(unittest.TestCase):
+    def test_v7_reuses_v6_design_fields_and_rejects_invalid_values(self) -> None:
+        state = preview_runtime_migration(make_v4_state())
+        state["design_review_status"] = "invalid"
+        state["active_design_preview_round"] = 7
+        errors = validate_project_state(state)
+        self.assertTrue(any("design_review_status" in error for error in errors))
+        self.assertTrue(
+            any("active_design_preview_round" in error for error in errors)
+        )
+
+    def test_new_v7_project_cannot_use_legacy_full(self) -> None:
+        state = preview_runtime_migration(make_v4_state())
+        state.pop("schema_migration", None)
+        state.pop("schema_migration_record", None)
+        state["design_preview_mode"] = "legacy_full"
+        errors = validate_project_state(state)
+        self.assertTrue(any("legacy_full" in error for error in errors))
+
+    def test_migrated_v7_project_can_use_legacy_full(self) -> None:
+        state = preview_runtime_migration(make_v4_state())
+        state["design_preview_mode"] = "legacy_full"
+        self.assertEqual([], validate_project_state(state))
+
     def test_unknown_schema_is_rejected(self) -> None:
         state = make_v4_state()
         state["schema_version"] = 99

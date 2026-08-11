@@ -44,16 +44,24 @@ Workflow v5 保留 Markdown 验收报告，并新增机器可读
 `partial`、视觉偏好为 `undecided`、需求路由到探索或用户明确请求预览时，
 必须探索。只有设计规范为 `complete` 且用户明确同意时才能跳过。
 
-每轮必须生成恰好三套完整产品路线，并在状态进入
-`WAITING_FOR_DESIGN_REVIEW` 前通过结构、预览标记和路线差异校验。生成中断时
-只补齐缺失工件；已有无效工件不得覆盖。自动生成最多尝试两次，超过后进入
-`WAITING_FOR_USER`。
+新项目默认使用两阶段 Design Exploration。第一阶段每轮生成恰好三份轻量
+`concept.md`、一个共用 `comparison.html` 和一个共用 `comparison.css`，在进入
+`WAITING_FOR_DESIGN_REVIEW` 前通过结构、比较页标记和路线差异校验，只做批量
+smoke check。用户明确选择方向后，第二阶段新开轮次，只生成
+`selected_concept/` 下的一份 `concept.md`、`preview.html` 和 `preview.css`，
+并只对这一套执行完整 Browser QA。生成中断时只补齐缺失工件；已有无效工件不得
+覆盖。自动生成最多尝试两次，超过后进入 `WAITING_FOR_USER`。
 
 在 `WAITING_FOR_DESIGN_REVIEW` 中，每条用户反馈都先写入追加式
-`design-feedback-<nnn>.md`。明确单选、修改、融合或恢复旧方向后，Planner
-创建追加式设计选择记录并进入 `PLANNING_REVISION`；全部否定或要求查看修改
-预览时，递增 `design_preview_round` 并返回 `DESIGN_EXPLORATION`；讨论、
-含糊或冲突反馈保持等待。设计方向选择不构成开发批准。
+`design-feedback-<nnn>.md`。方向比较阶段的单选、修改、融合或恢复旧方向必须
+创建追加式设计选择记录，递增 `design_preview_round`，回到
+`DESIGN_EXPLORATION` 生成唯一 `selected_concept`；全部否定则开启新的方向比较
+轮次。选中原型阶段只有明确确认或要求修改两类确定动作；确认进入
+`PLANNING_REVISION`，修改则保留历史并生成下一份唯一高保真预览。讨论、含糊或
+冲突反馈保持等待。方向选择和高保真确认都不构成产品批准。
+
+设计方向选择、Selected Prototype Confirmation、Product Approval 和 Plan
+Approval 是四个独立 Gate；任何一个 Gate 都不得替代后续 Gate。
 
 在 `WAITING_FOR_PRODUCT_REVIEW` 中，只有用户对当前 `active_proposal` 给出
 明确确认，Planner 才可把产品批准状态更新为 `approved`，创建产品批准记录、

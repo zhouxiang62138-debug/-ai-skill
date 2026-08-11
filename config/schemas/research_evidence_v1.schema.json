@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/research-evidence-v1.schema.json",
+  "title": "Domain research evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_id", "research_id", "source_id", "evidence_type", "artifact_ref", "integrity", "captured_at", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_id": {"type": "string", "pattern": "^RRE-[0-9]{3}$"},
+    "research_id": {"type": "string", "pattern": "^RSRCH-[0-9]{3}$"},
+    "source_id": {"type": "string", "pattern": "^RRSRC-[0-9]{3}$"},
+    "evidence_type": {"enum": ["url_metadata", "document_fragment", "browser_capture", "text_fragment", "dataset"]},
+    "artifact_ref": {"type": "string", "minLength": 1},
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "sha256"],
+      "properties": {"algorithm": {"const": "sha256"}, "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}}
+    },
+    "captured_at": {"type": "string", "minLength": 1},
+    "locator": {"type": ["string", "null"]},
+    "metadata": {"type": ["object", "null"]},
+    "trust_level": {"const": "untrusted"}
+  }
+}

@@ -21,7 +21,12 @@ except ModuleNotFoundError:  # 允许从仓库根目录以 scripts.exploration �
 
 
 REQUIRED_CONCEPTS = ("concept_01", "concept_02", "concept_03")
-REQUIRED_FILES = ("concept.md", "preview.html", "preview.css")
+# 新协议按阶段区分工件，避免把第一阶段误当成三套高保真预览。
+DIRECTION_REQUIRED_FILES = ("concept.md",)
+SELECTED_PROTOTYPE_REQUIRED_FILES = ("concept.md", "preview.html", "preview.css")
+LEGACY_REQUIRED_FILES = ("concept.md", "preview.html", "preview.css")
+# 保留旧导入名，供历史调用方读取；新逻辑使用上面的阶段常量。
+REQUIRED_FILES = SELECTED_PROTOTYPE_REQUIRED_FILES
 DESIGN_PREVIEW_MODE_LEGACY = "legacy_full"
 DESIGN_PREVIEW_MODE_COMPARISON = "direction_comparison"
 DESIGN_PREVIEW_MODE_SELECTED = "selected_prototype"
@@ -910,7 +915,7 @@ def validate_preview_round(
     source_metadata: Any = None,
     requirements: Mapping[str, Any] | None = None,
     active_synthesis_id: str | None = None,
-    preview_mode: str = DESIGN_PREVIEW_MODE_LEGACY,
+    preview_mode: str = DESIGN_PREVIEW_MODE_COMPARISON,
 ) -> list[str]:
     if preview_mode not in DESIGN_PREVIEW_MODES:
         return [f"未知 design_preview_mode：{preview_mode}"]
@@ -991,7 +996,7 @@ def validate_preview_round(
         if not concept_dir.is_dir():
             errors.append(f"缺少概念目录：{concept_name}")
             continue
-        for file_name in REQUIRED_FILES:
+        for file_name in LEGACY_REQUIRED_FILES:
             file_path = concept_dir / file_name
             if not file_path.is_file():
                 errors.append(f"缺少文件：{concept_name}/{file_name}")
@@ -1150,6 +1155,12 @@ def _validate_direction_comparison_round(
         if not concept_path.is_file():
             errors.append(f"缺少文件：{concept_name}/concept.md")
             continue
+        for forbidden_file in ("preview.html", "preview.css"):
+            if (round_dir / concept_name / forbidden_file).exists():
+                errors.append(
+                    f"方向比较阶段禁止生成：{concept_name}/{forbidden_file}；"
+                    "高保真预览只能位于 selected_concept"
+                )
         concept_text = concept_path.read_text(encoding="utf-8")
         if not concept_text.strip():
             errors.append(f"文件为空：{concept_name}/concept.md")
@@ -1223,10 +1234,25 @@ def _validate_selected_prototype_round(
         return [f"缺少设计预览轮次目录：{round_reference}"]
 
     errors: list[str] = []
+    extra_concepts = sorted(
+        item.name
+        for item in round_dir.iterdir()
+        if item.is_dir() and re.fullmatch(r"concept_\d+", item.name)
+    )
+    if extra_concepts:
+        errors.append(
+            "selected_prototype 轮次只能包含 selected_concept，禁止残留方向目录："
+            + ", ".join(extra_concepts)
+        )
+    for comparison_file in COMPARISON_FILES:
+        if (round_dir / comparison_file).exists():
+            errors.append(
+                f"selected_prototype 轮次禁止包含方向比较工件：{comparison_file}"
+            )
     concept_dir = round_dir / SELECTED_CONCEPT_DIRECTORY
     if not concept_dir.is_dir():
         return [f"缺少概念目录：{SELECTED_CONCEPT_DIRECTORY}"]
-    for file_name in REQUIRED_FILES:
+    for file_name in SELECTED_PROTOTYPE_REQUIRED_FILES:
         path = concept_dir / file_name
         if not path.is_file():
             errors.append(f"缺少文件：{SELECTED_CONCEPT_DIRECTORY}/{file_name}")

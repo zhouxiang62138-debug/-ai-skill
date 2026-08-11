@@ -1,0 +1,13 @@
+schema_version: 1
+requirement_id: RREQ-001
+project_id: <project_id>
+decision: optional
+reasons: []
+target_domains: []
+expected_value: []
+budget_profile: standard
+privacy_redaction: applied
+source_policy: tiered
+input_intent_ref: null
+created_at: <ISO-8601 timestamp>
+supersedes: null

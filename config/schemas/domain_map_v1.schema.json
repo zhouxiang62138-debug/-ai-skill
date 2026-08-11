@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/domain-map-v1.schema.json",
+  "title": "Domain map v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "domain_map_id", "project_id", "research_id", "domains", "patterns", "unknowns", "source_refs", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "domain_map_id": {"type": "string", "pattern": "^DMAP-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "research_id": {"type": "string", "pattern": "^RSRCH-[0-9]{3}$"},
+    "domains": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "patterns": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "unknowns": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "source_refs": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

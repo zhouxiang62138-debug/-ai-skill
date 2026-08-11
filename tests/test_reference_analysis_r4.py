@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts.exploration import (
+    DESIGN_PREVIEW_MODE_LEGACY,
     assign_reference_strategies,
     build_design_exploration_context,
     build_reference_integration_metadata,
@@ -135,7 +136,10 @@ def test_reference_guided_preview_round_preserves_existing_artifact_shape(tmp_pa
             encoding="utf-8",
         )
     assert validate_preview_round(
-        tmp_path, round_reference, reference_synthesis=_synthesis()
+        tmp_path,
+        round_reference,
+        reference_synthesis=_synthesis(),
+        preview_mode=DESIGN_PREVIEW_MODE_LEGACY,
     ) == []
 
 

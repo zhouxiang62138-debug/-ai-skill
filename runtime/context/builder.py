@@ -430,7 +430,7 @@ class ContextBuilder:
         return tuple(unchanged), tuple(added), tuple(modified), tuple(removed)
 
     def _validate_role_run(self, request: ContextBuildRequest, session: Any) -> None:
-        if request.role in {"first_ask_intake", "reference_analysis"}:
+        if request.role in {"first_ask_intake", "domain_research", "reference_analysis"}:
             if session.status not in {"ACTIVE", "PAUSED"}:
                 raise RuntimeValidationError("CONTEXT_MODULE_RUN_INVALID")
             return
@@ -447,8 +447,14 @@ class ContextBuilder:
     def _validate_workflow_role(
         workflow_state: str, role: str, state: dict[str, Any]
     ) -> None:
-        if role in {"first_ask_intake", "reference_analysis"}:
-            allowed_states = {"INTAKE", "WAITING_FOR_REQUIREMENTS"} if role == "first_ask_intake" else {"REFERENCE_ANALYSIS"}
+        if role in {"first_ask_intake", "domain_research", "reference_analysis"}:
+            allowed_states = (
+                {"INTAKE", "WAITING_FOR_REQUIREMENTS"}
+                if role == "first_ask_intake"
+                else {"REQUIREMENT_RESEARCH"}
+                if role == "domain_research"
+                else {"REFERENCE_ANALYSIS"}
+            )
             if workflow_state not in allowed_states or state.get("active_module") != role or state.get("next_role") is not None:
                 raise RuntimeValidationError("CONTEXT_ROLE_STATE_MISMATCH")
             return
@@ -844,7 +850,7 @@ class ContextBuilder:
         )
 
     def _assert_read_path(self, role: str, root: Path, reference: str) -> Path:
-        if role in {"first_ask_intake", "reference_analysis"}:
+        if role in {"first_ask_intake", "domain_research", "reference_analysis"}:
             return self._path_policy.assert_module_path(role, root, reference, operation="read")
         return self._path_policy.assert_path(role, root, reference, operation="read")
 

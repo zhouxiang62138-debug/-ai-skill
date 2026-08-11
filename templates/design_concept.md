@@ -1,5 +1,9 @@
 # 产品与设计探索方案 <编号>
 
+> 本模板只用于第二阶段 `selected_prototype` 的
+> `selected_concept/concept.md`。第一阶段方向比较请使用
+> `templates/design_direction.md`，不要为三个方向分别生成本模板对应的高保真页面。
+
 ## 方案名称
 
 ## 一句话概念
@@ -65,6 +69,7 @@
 
 ## 预览实现约束
 
+- 本方案必须位于 `selected_concept/` 目录。
 - `preview.html` 必须引用同目录 `preview.css`。
 - 首页容器必须标记 `data-preview-page="home"`。
 - 关键功能页容器必须标记 `data-preview-page="key-feature"`。

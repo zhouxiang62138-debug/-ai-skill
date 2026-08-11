@@ -34,6 +34,13 @@ network_policy:
         - 443
       operations:
         - read
+    domain_research_public_web:
+      hosts:
+        - example.com
+      ports:
+        - 443
+      operations:
+        - read
   roles:
     generator:
       services:
@@ -41,6 +48,9 @@ network_policy:
     reference_analysis:
       services:
         - reference_public_web
+    first_ask_intake:
+      services:
+        - domain_research_public_web
 
 external_tool_policy:
   default: deny
@@ -60,12 +70,15 @@ external_tool_policy:
 module_authorization:
   allowed_modules:
     - first_ask_intake
+    - domain_research
     - reference_analysis
     - change_request
   allowed_state_sources:
     first_ask_intake:
       - INTAKE
       - WAITING_FOR_REQUIREMENTS
+    domain_research:
+      - REQUIREMENT_RESEARCH
     reference_analysis:
       - REFERENCE_ANALYSIS
     change_request:
@@ -98,15 +111,21 @@ modules:
     capabilities:
       - filesystem.read
       - filesystem.write
+      - network.access
+      - browser.access
     reads:
       - project.yaml
       - memory/requirements/
+      - memory/research/
       - memory/references/
+      - artifacts/research/
       - artifacts/references/
       - memory/handoffs/intake-request-*.md
     writes:
       - memory/requirements/
+      - memory/research/
       - memory/references/
+      - artifacts/research/
       - project.yaml
     prohibited:
       - code/
@@ -145,6 +164,30 @@ modules:
       - prompts/
     read_exceptions:
       - memory/requirements/
+  domain_research:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
+      - network.access
+      - browser.access
+    reads:
+      - project.yaml
+      - memory/requirements/
+      - memory/research/
+      - artifacts/research/
+    writes:
+      - memory/research/
+      - artifacts/research/
+      - project.yaml
+    prohibited:
+      - code/
+      - memory/proposals/
+      - memory/specifications/
+      - memory/plans/
+      - artifacts/design_previews/
+      - evaluation/
+      - config/
+      - prompts/
   change_request:
     reads:
       - project.yaml
@@ -176,6 +219,7 @@ roles:
     reads:
       - project.yaml
       - memory/requirements/
+      - memory/research/
       - memory/references/
       - memory/proposals/
       - memory/specifications/
@@ -298,6 +342,20 @@ field_ownership:
     - active_interview
     - intake_round
     - reference_status
+    - requirements_discovery_status
+    - research_status
+    - intent_analysis_ref
+    - research_requirement_ref
+    - active_research_round
+    - coverage_map_ref
+    - gap_analysis_ref
+    - question_set_ref
+    - sufficiency_evaluation_ref
+  domain_research:
+    - requirements_discovery_status
+    - research_status
+    - active_research_round
+    - opportunity_map_ref
   reference_analysis:
     - reference_analysis_status
     - active_reference_synthesis
