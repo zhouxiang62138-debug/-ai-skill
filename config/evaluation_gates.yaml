@@ -40,6 +40,12 @@ gates:
     pass_when: score_meets_profile_and_no_critical_stub
     evidence_required: true
     skip_allowed: true
+  - id: GATE-REFERENCE-CONFORMANCE
+    required: false
+    trigger: approved_reference_contract_has_bindings
+    pass_when: every_approved_reference_binding_has_independent_conformance_evidence
+    evidence_required: true
+    skip_allowed: false
   - id: GATE-REGRESSION
     required: true
     trigger: always
@@ -96,3 +102,18 @@ evidence_missing_routes:
   generator_omission: GENERATOR
   evaluator_environment: SYSTEM_OR_USER
   profile_gap: PLANNER
+
+reference_conformance:
+  contract_source: approved_reference_contract
+  raw_reference_access: false
+  result_values:
+    - PASS
+    - FAIL
+    - BLOCKED
+    - NOT_APPLICABLE
+    - NOT_EVALUATED
+  capability_statuses:
+    - available
+    - unavailable
+    - not_required
+  visual_provider: unavailable

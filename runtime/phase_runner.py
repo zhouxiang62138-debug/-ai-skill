@@ -10,13 +10,17 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
 from scripts.approval import validate_generator_gate
-from scripts.project_state import load_project_state, parse_project_yaml
+from scripts.project_state import ProjectStateError, load_project_state, parse_project_yaml
 
 from .context import ContextBuildRequest, ContextBuilder
 from .contract_preflight import run_contract_preflight
 from .errors import RuntimeValidationError
 from .attestation import required_steps_hash
 from .project_revision import runtime_projection
+from .reference_contract import (
+    build_reference_contract_for_project,
+    reference_contract_context_hash,
+)
 from .verifiers import RuntimeVerifierRegistry
 
 
@@ -152,7 +156,7 @@ class PhaseRunner:
         approved_plan: str | None,
         approved_requirements: set[str],
         approved_acceptance_criteria: set[str],
-    ) -> None:
+    ) -> Mapping[str, Any]:
         state = load_project_state(root / "project.yaml")
         errors = validate_generator_gate(state, root)
         if errors:
@@ -203,6 +207,61 @@ class PhaseRunner:
         if not contract.passed:
             raise RuntimeValidationError(
                 "GENERATOR_PREFLIGHT_FAILED:contract:" + ";".join(contract.errors)
+            )
+        try:
+            reference_contract = build_reference_contract_for_project(root)
+        except ProjectStateError as exc:
+            raise RuntimeValidationError(
+                "GENERATOR_PREFLIGHT_FAILED:reference_contract:" + str(exc)
+            ) from exc
+        evidence_refs = ["runtime:generator_preflight"]
+        if reference_contract is not None:
+            evidence_refs.append(
+                "runtime:approved-reference-contract:"
+                + str(reference_contract["contract_hash"])
+            )
+        return {
+            "passed": True,
+            "evidence_refs": evidence_refs,
+            "reference_contract": reference_contract,
+            "reference_contract_hash": (
+                reference_contract["contract_hash"]
+                if reference_contract is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _validate_reference_context(
+        preflight: Mapping[str, Any],
+        context: Any,
+    ) -> None:
+        """确保 Context 中的契约与 Generator Preflight 是同一版本。"""
+
+        contract = preflight.get("reference_contract")
+        sources = [
+            source
+            for source in getattr(context, "sources", ())
+            if getattr(source, "source_type", None) == "approved_reference_bindings"
+        ]
+        if contract is None:
+            if sources:
+                raise RuntimeValidationError(
+                    "GENERATOR_PREFLIGHT_FAILED:reference_contract_context_unexpected"
+                )
+            return
+        if len(sources) != 1:
+            raise RuntimeValidationError(
+                "GENERATOR_PREFLIGHT_FAILED:reference_contract_context_missing"
+            )
+        source = sources[0]
+        expected_hash = reference_contract_context_hash(contract)
+        if (
+            source.content_hash != expected_hash
+            or str(contract["contract_id"]) not in source.reference
+        ):
+            raise RuntimeValidationError(
+                "GENERATOR_PREFLIGHT_FAILED:reference_contract_context_mismatch"
             )
 
     @staticmethod
@@ -345,9 +404,10 @@ class PhaseRunner:
         context_id: str | None = None
         invocation_id: str | None = None
         attestation_id: str | None = None
+        preflight_result: Mapping[str, Any] | None = None
         try:
             if resolved_role == "generator":
-                self._generator_preflight(
+                preflight_result = self._generator_preflight(
                     Path(self.orchestrator.root),
                     feature=feature,
                     approved_plan=approved_plan,
@@ -362,6 +422,8 @@ class PhaseRunner:
                     tuple(additional_references),
                 )
             )
+            if resolved_role == "generator" and preflight_result is not None:
+                self._validate_reference_context(preflight_result, context)
             context_id = context.context_id
             invocation = self.orchestrator.store.create_model_invocation(
                 session_id,
@@ -389,6 +451,8 @@ class PhaseRunner:
                 "runtime",
                 "schema_version",
                 "cas_commit",
+                "reference_contract",
+                "approved_reference_contract",
             }
             illegal = sorted(forbidden & set(response))
             if illegal:
@@ -410,9 +474,6 @@ class PhaseRunner:
                 raise RuntimeValidationError("EVALUATOR_GATE_VERIFIER_MISSING:" + steps[0])
             if self.verifier_registry is None and not self.test_only_verifiers:
                 raise RuntimeValidationError("RUNTIME_VERIFIER_REGISTRY_REQUIRED")
-            preflight_result: Mapping[str, Any] | None = None
-            if resolved_role == "generator":
-                preflight_result = {"passed": True, "evidence_refs": ["runtime:generator_preflight"]}
             for step in steps:
                 if self.verifier_registry is not None:
                     verdict = self.verifier_registry.verify(

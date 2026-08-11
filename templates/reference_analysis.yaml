@@ -1,0 +1,76 @@
+schema_version: 1
+analysis_id: REFAN-001
+reference_id: REF-001
+source_artifact_ref: memory/references/reference-001/source-001.yaml
+scope_ref: memory/references/reference-001/scope-001.yaml
+analysis_version: 1
+status: pending_analysis
+domains:
+  product:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  information_architecture:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  navigation:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  interaction:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  layout:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  visual_style:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  components:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  design_tokens:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  motion:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  content_style:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  brand:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+  technical_architecture:
+    status: not_requested
+    finding_ids: []
+    evidence_refs: []
+    note: null
+evidence_refs: []
+created_at: <ISO-8601 timestamp>
+supersedes: null
+context:
+  type: project
+  project_id: <project_id>
+  change_request_id: null
+trust_level: untrusted

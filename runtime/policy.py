@@ -58,6 +58,23 @@ def _load_capability_config(
     return capabilities, role_capabilities
 
 
+def _load_module_capabilities(config_path: str | Path | None = None) -> dict[str, frozenset[str]]:
+    document = parse_project_yaml(_capability_config_path(config_path).read_text(encoding="utf-8"))
+    raw_modules = document.get("modules", {})
+    if not isinstance(raw_modules, dict):
+        raise RuntimeValidationError("CAPABILITY_POLICY_INVALID")
+    capabilities = load_capabilities(config_path)
+    result: dict[str, frozenset[str]] = {}
+    for module, policy in raw_modules.items():
+        if not isinstance(module, str) or not isinstance(policy, dict):
+            raise RuntimeValidationError("CAPABILITY_POLICY_INVALID")
+        values = policy.get("capabilities", [])
+        if not isinstance(values, list) or not all(isinstance(item, str) and item in capabilities for item in values):
+            raise RuntimeValidationError("CAPABILITY_POLICY_INVALID")
+        result[module] = frozenset(values)
+    return result
+
+
 def load_capabilities(config_path: str | Path | None = None) -> frozenset[str]:
     """返回配置声明的全部 Capability 名称。"""
 
@@ -85,6 +102,8 @@ class CapabilityPolicy:
 
     def __init__(self, config_path: str | Path | None = None) -> None:
         self._capabilities, self._role_capabilities = _load_capability_config(config_path)
+        self._subject_capabilities = dict(self._role_capabilities)
+        self._subject_capabilities.update(_load_module_capabilities(config_path))
 
     @property
     def capabilities(self) -> frozenset[str]:
@@ -103,12 +122,12 @@ class CapabilityPolicy:
     ) -> str:
         """允许返回 ALLOW；其余情况以稳定错误拒绝，默认拒绝。"""
 
-        if not isinstance(role, str) or role not in self._role_capabilities:
+        if not isinstance(role, str) or role not in self._subject_capabilities:
             raise RuntimeValidationError("UNKNOWN_ROLE")
         if not isinstance(capability, str) or capability not in self._capabilities:
             raise RuntimeValidationError("UNKNOWN_CAPABILITY")
         _validate_capability_context(resource, action)
-        if capability not in self._role_capabilities[role]:
+        if capability not in self._subject_capabilities[role]:
             raise RuntimeValidationError("CAPABILITY_DENIED")
         return CAPABILITY_ALLOW
 
@@ -179,6 +198,39 @@ def load_lifecycle_fields() -> frozenset[str]:
     ):
         raise RuntimeValidationError("LIFECYCLE_AUTHORITY_POLICY_INVALID")
     return fields
+
+
+def load_module_authorization() -> dict[str, frozenset[str] | tuple[str, ...]]:
+    """读取 Module 白名单及其允许进入的源状态。"""
+
+    document = parse_project_yaml(
+        (_ROOT / "config" / "role_policies.yaml").read_text(encoding="utf-8")
+    )
+    raw = document.get("module_authorization")
+    if not isinstance(raw, dict):
+        raise RuntimeValidationError("MODULE_AUTHORIZATION_POLICY_INVALID")
+    allowed_modules = raw.get("allowed_modules")
+    allowed_sources = raw.get("allowed_state_sources")
+    if (
+        not isinstance(allowed_modules, list)
+        or not allowed_modules
+        or not all(isinstance(item, str) and item for item in allowed_modules)
+        or not isinstance(allowed_sources, dict)
+    ):
+        raise RuntimeValidationError("MODULE_AUTHORIZATION_POLICY_INVALID")
+    result: dict[str, frozenset[str] | tuple[str, ...]] = {
+        "allowed_modules": frozenset(allowed_modules),
+    }
+    for module in allowed_modules:
+        values = allowed_sources.get(module)
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) and item for item in values
+        ):
+            raise RuntimeValidationError("MODULE_AUTHORIZATION_POLICY_INVALID")
+        result[module] = frozenset(values)
+    if set(allowed_sources) != set(allowed_modules):
+        raise RuntimeValidationError("MODULE_AUTHORIZATION_POLICY_INVALID")
+    return result
 
 
 def load_runtime_routes() -> dict[str, dict[str, Any]]:
@@ -258,18 +310,8 @@ def assert_workflow_lifecycle(
         raise RuntimeValidationError("WORKFLOW_ACTOR_MISMATCH")
 
     lifecycle_fields = load_lifecycle_fields()
-    if source_status != target_status:
-        route_fields = {
-            field
-            for field in lifecycle_fields
-            if field in source_route or field in target_route
-        }
-        route_fields.add("status")
-        missing = route_fields - set(changed_fields)
-        if missing:
-            raise RuntimeValidationError(
-                "WORKFLOW_LIFECYCLE_FIELDS_MISSING:" + ",".join(sorted(missing))
-            )
+    # 生命周期值由 Runtime 根据 target route 派生。兼容旧调用方显式携带这些字段，
+    # 但不再要求它们出现，也不会把它们当作角色拥有的业务输入。
     for field in lifecycle_fields - {"status", "active_change_request"}:
         if field in changed_fields and changed_fields[field] != target_route[field]:
             raise RuntimeValidationError("WORKFLOW_ROUTE_MISMATCH:" + field)

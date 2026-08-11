@@ -100,3 +100,20 @@ Runtime/Snapshot Service 执行，验收标准仍来自获批 Requirements、Pla
 WAITING_FOR_USER 和 Planner 路由不增加。第五次必须停止并追加决策摘要。
 只有新的正式 Plan 和新的 Plan 批准记录同时有效，才能开启新序列并把轮次归零；
 历史 Issue、证据、趋势和摘要不得清除。
+
+## R6 Reference Conformance Gate
+
+当当前批准链生成了 `approved_reference_contract` 且包含 `REFDEC-*` 绑定时，Evaluator
+必须在现有 `evidence_manifest` 步骤中逐绑定提交 `reference_conformance`。校验输入只能是
+批准 Product Spec、批准 Plan、批准 Reference Contract、Generator Handoff、Implementation
+Evidence 和本轮 Evaluator/Runtime/Browser 证据；不得重新获取 URL、HTML、截图或原始
+Reference，也不得把 Generator 的声明当作验收证据。
+
+每个绑定必须精确回指其 Acceptance Criteria 和 Plan Task，并登记独立的
+`reference_evidence`。结果只能是 `PASS`、`FAIL`、`BLOCKED` 或 `UNVERIFIED`。视觉语义能力
+当前没有 Vision Provider；需要视觉核对时必须输出 `BLOCKED`，不得伪造视觉 PASS。无批准
+Contract 或 Contract 为空时，Reference Conformance 为 `NOT_APPLICABLE`，不创建失败 Issue。
+
+Reference Conformance 只验证已批准范围：实现错误回 Generator，批准范围或来源冲突回 Planner，
+环境/能力不可用进入 `BLOCKED`。它不新增 Agent、状态或并行评估流程，也不能改变验收阈值、
+产品范围、Plan 或 Retry 计数。

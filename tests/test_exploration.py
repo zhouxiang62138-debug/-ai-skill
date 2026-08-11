@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from exploration import (  # noqa: E402
+    DESIGN_PREVIEW_MODE_LEGACY,
     REQUIRED_CONCEPTS,
     REQUIRED_SECTIONS,
     apply_explicit_skip,
@@ -158,6 +159,7 @@ class ExplorationTransitionTests(unittest.TestCase):
                 decision,
                 active_proposal="memory/proposals/product_proposal_v001.md",
                 round_reference=reference,
+                preview_mode=DESIGN_PREVIEW_MODE_LEGACY,
             )
             self.assertEqual("DESIGN_EXPLORATION", started["status"])
             self.assertEqual(1, started["exploration_generation_attempt"])

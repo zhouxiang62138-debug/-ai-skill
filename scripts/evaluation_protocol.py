@@ -39,6 +39,13 @@ ISSUE_CATEGORIES = (
     "environment_blocker",
     "evidence_missing",
     "unauthorized_change",
+    "reference_missing",
+    "reference_incorrect",
+    "reference_exclusion_violation",
+    "reference_scope_creep",
+    "reference_stale_binding",
+    "reference_evidence_missing",
+    "reference_capability_blocked",
 )
 SEVERITY_LEVELS = ("blocker", "critical", "major", "minor", "observation")
 TRACEABILITY_STATUSES = (
@@ -86,6 +93,12 @@ ROUTE_TABLE = {
     "requirement_ambiguity": ("USER", "WAITING_FOR_USER"),
     "environment_blocker": ("SYSTEM_OR_USER", "BLOCKED"),
     "unauthorized_change": ("GENERATOR", "IMPLEMENTING"),
+    "reference_missing": ("GENERATOR", "IMPLEMENTING"),
+    "reference_incorrect": ("GENERATOR", "IMPLEMENTING"),
+    "reference_exclusion_violation": ("GENERATOR", "IMPLEMENTING"),
+    "reference_scope_creep": ("GENERATOR", "IMPLEMENTING"),
+    "reference_stale_binding": ("GENERATOR", "IMPLEMENTING"),
+    "reference_capability_blocked": ("SYSTEM_OR_USER", "BLOCKED"),
 }
 EVIDENCE_MISSING_ROUTES = {
     "generator_omission": ("GENERATOR", "IMPLEMENTING"),
@@ -168,6 +181,11 @@ def _issue_route(issue: dict[str, Any]) -> tuple[str, str]:
         source = issue.get("evidence_missing_reason")
         if source not in EVIDENCE_MISSING_ROUTES:
             raise ProjectStateError("evidence_missing 必须声明确定性的缺失原因")
+        return EVIDENCE_MISSING_ROUTES[source]
+    if category == "reference_evidence_missing":
+        source = issue.get("reference_evidence_missing_reason", "generator_omission")
+        if source not in EVIDENCE_MISSING_ROUTES:
+            raise ProjectStateError("reference_evidence_missing 必须声明确定性缺失原因")
         return EVIDENCE_MISSING_ROUTES[source]
     try:
         return ROUTE_TABLE[category]
@@ -262,6 +280,12 @@ def _validate_issue(
     if issue.get("category") == "evidence_missing":
         if issue.get("evidence_missing_reason") not in EVIDENCE_MISSING_ROUTES:
             errors.append(f"{prefix}.evidence_missing_reason 枚举无效")
+    if issue.get("category") == "reference_evidence_missing":
+        if issue.get("reference_evidence_missing_reason") not in EVIDENCE_MISSING_ROUTES:
+            errors.append(f"{prefix}.reference_evidence_missing_reason 枚举无效")
+    if str(issue.get("category", "")).startswith("reference_"):
+        if not _is_nonempty_string(issue.get("reference_decision_id")):
+            errors.append(f"{prefix}.reference_decision_id 缺失")
     if issue.get("category") == "unauthorized_change":
         if issue.get("severity") != "blocker" or issue.get("blocking") is not True:
             errors.append(f"{prefix} 未授权修改必须是 blocking blocker")
@@ -614,6 +638,24 @@ def render_evaluation_markdown(package: dict[str, Any]) -> str:
                 f"  - 证据：{', '.join(f'`{ref}`' for ref in item['evidence_refs']) or '无'}",
             ]
         )
+    reference_section = package.get("reference_conformance")
+    if isinstance(reference_section, dict):
+        lines.extend(
+            [
+                "",
+                "## Reference Conformance",
+                "",
+                f"- Gate：`{reference_section.get('result', 'NOT_EVALUATED')}`",
+                f"- Contract：`{reference_section.get('contract_id', 'N/A')}`",
+                f"- Contract Hash：`{reference_section.get('contract_hash', 'N/A')}`",
+            ]
+        )
+        for binding in reference_section.get("binding_results", []):
+            if isinstance(binding, dict):
+                lines.append(
+                    f"- `{binding.get('reference_decision_id')}`：{binding.get('result')}，"
+                    f"类型 `{binding.get('conformance_type')}`，证据 {', '.join(binding.get('evidence_refs', [])) or '缺失'}"
+                )
     lines.extend(
         [
             "",

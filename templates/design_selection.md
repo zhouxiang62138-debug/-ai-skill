@@ -30,3 +30,10 @@
 - 本记录只允许进入 `PLANNING_REVISION`。
 - 本记录不构成产品方案批准。
 - 本记录不允许生成正式 Plan 或进入 Generator。
+## Reference Integration
+
+- Active Reference Synthesis:
+- Adopted Reference Decisions:
+- Adapted Reference Decisions:
+- Not Used Reference Decisions:
+- Reference Explicit Exclusions:

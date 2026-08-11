@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-conformance-v1.schema.json",
+  "title": "Reference Conformance v1",
+  "type": "object",
+  "required": ["contract_id", "contract_hash", "result", "binding_results"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "contract_id": {"type": "string", "pattern": "^reference-contract-[a-f0-9]{12}$"},
+    "contract_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "result": {"enum": ["PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED"]},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "binding_results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/binding"}
+    }
+  },
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "required": [
+        "reference_decision_id",
+        "conformance_type",
+        "result",
+        "capability",
+        "acceptance_refs",
+        "plan_refs",
+        "evidence_refs"
+      ],
+      "properties": {
+        "reference_decision_id": {"type": "string", "pattern": "^REFDEC-[0-9]{3,4}$"},
+        "conformance_type": {"enum": ["structural", "behavioral", "visual", "content", "technical"]},
+        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"]},
+        "capability": {"enum": ["available", "unavailable", "not_required"]},
+        "acceptance_refs": {"type": "array", "items": {"type": "string"}},
+        "plan_refs": {"type": "array", "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "expected": {"type": "string"},
+        "observed": {"type": "string"},
+        "exclusion_checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["result"],
+            "properties": {"result": {"enum": ["PASS", "FAIL", "BLOCKED"]}},
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

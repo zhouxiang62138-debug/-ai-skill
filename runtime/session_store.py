@@ -19,7 +19,7 @@ from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
 
-RUNTIME_SCHEMA_VERSION = 2
+RUNTIME_SCHEMA_VERSION = 3
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|api[_-]?key|access[_-]?token|secret|password)"
 )
@@ -186,6 +186,23 @@ class SessionStore:
             UNIQUE(session_id, new_revision),
             UNIQUE(session_id, idempotency_key)
         );
+        CREATE TABLE IF NOT EXISTS state_revision_attempts (
+            revision_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            expected_revision INTEGER NOT NULL,
+            new_revision INTEGER NOT NULL,
+            before_hash TEXT NOT NULL,
+            after_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            caused_by_event_id TEXT,
+            created_at TEXT NOT NULL,
+            committed_at TEXT,
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS active_state_revision_per_revision
+        ON state_revision_attempts(session_id, new_revision)
+        WHERE status IN ('PENDING', 'COMMITTED');
         CREATE TABLE IF NOT EXISTS role_runs (
             run_id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -280,6 +297,21 @@ class SessionStore:
             for name in ("started_at", "result_hash"):
                 if name not in tool_columns:
                     connection.execute(f"ALTER TABLE tool_calls ADD COLUMN {name} TEXT")
+            # v3 保留旧表及全部历史记录，并把它们复制到支持多次 ABORTED 尝试的新表。
+            # 旧表不删除，避免为了迁移破坏恢复审计链。
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO state_revision_attempts(
+                    revision_id, session_id, expected_revision, new_revision,
+                    before_hash, after_hash, status, idempotency_key,
+                    caused_by_event_id, created_at, committed_at
+                )
+                SELECT revision_id, session_id, expected_revision, new_revision,
+                       before_hash, after_hash, status, idempotency_key,
+                       caused_by_event_id, created_at, committed_at
+                FROM state_revisions
+                """
+            )
             connection.execute(
                 "INSERT OR IGNORE INTO runtime_schema(version, applied_at) VALUES (?, ?)",
                 (RUNTIME_SCHEMA_VERSION, utc_now()),
@@ -1268,7 +1300,7 @@ class SessionStore:
         connection = self._connect()
         try:
             row = connection.execute(
-                "SELECT * FROM state_revisions WHERE session_id=? AND idempotency_key=?",
+                "SELECT * FROM state_revision_attempts WHERE session_id=? AND idempotency_key=?",
                 (session_id, idempotency_key),
             ).fetchone()
         finally:

@@ -16,6 +16,11 @@ active_requirements: null
 active_interview: null
 intake_round: 0
 
+# Reference Analysis Module 最小投影；原始引用与证据不写入 project.yaml
+reference_status: none
+reference_analysis_status: not_started
+active_reference_synthesis: null
+
 active_proposal: null
 approved_proposal: null
 proposal_status: not_started
@@ -44,8 +49,10 @@ product_approval_status: null
 design_exploration_required: null
 exploration_trigger_reasons: []
 design_review_status: not_started
+design_preview_mode: not_started
 design_preview_round: 0
 active_design_preview_round: null
+active_design_reference_synthesis: null
 exploration_generation_attempt: 0
 exploration_error_record: null
 

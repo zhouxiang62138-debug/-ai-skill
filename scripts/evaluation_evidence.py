@@ -21,6 +21,10 @@ from evaluation_protocol import (
     validate_relative_path,
 )
 from project_state import parse_project_yaml, serialize_project_state
+try:
+    from reference_conformance import _reference_evidence_index
+except ImportError:  # 允许作为 scripts 包导入
+    from .reference_conformance import _reference_evidence_index
 
 
 GATE_ORDER = (
@@ -30,13 +34,14 @@ GATE_ORDER = (
     "GATE-REQUIREMENTS",
     "GATE-BROWSER-ACCEPTANCE",
     "GATE-FEATURE-COMPLETENESS",
+    "GATE-REFERENCE-CONFORMANCE",
     "GATE-REGRESSION",
     "GATE-NON_FUNCTIONAL",
     "GATE-EVIDENCE",
 )
 COMMAND_STATUSES = ("PASSED", "FAILED", "BLOCKED", "TIMED_OUT")
 CHECK_RESULTS = ("PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED")
-GATE_RESULTS = ("PASS", "FAIL", "BLOCKED", "SKIPPED")
+GATE_RESULTS = ("PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE")
 SENSITIVE_PATTERN = re.compile(
     r"(?i)(token|secret|password|api[_-]?key|authorization)\s*[:=]\s*([^\s]+)"
 )
@@ -425,6 +430,9 @@ def validate_evidence_manifest(
         | feature_finding_ids
         | feature_observation_ids
     )
+    reference_evidence_index, reference_evidence_errors = _reference_evidence_index(manifest)
+    errors.extend(reference_evidence_errors)
+    known_evidence |= set(reference_evidence_index)
     for current_id, check in checks.items():
         prefix = f"checks[{current_id}]"
         if check.get("gate_id") not in GATE_ORDER:
@@ -459,6 +467,20 @@ def validate_evidence_manifest(
             errors.append(f"{prefix} 必需 PASS Gate 缺少证据")
         if gate.get("result") == "SKIPPED" and not _nonempty(gate.get("skip_reason")):
             errors.append(f"{prefix} 跳过时必须说明原因")
+        if gate.get("result") == "NOT_APPLICABLE" and not _nonempty(gate.get("reason")):
+            errors.append(f"{prefix} N/A 时必须说明适用性原因")
+    reference_section = manifest.get("reference_conformance")
+    if reference_section is not None:
+        if not isinstance(reference_section, dict):
+            errors.append("reference_conformance 必须是对象")
+        else:
+            if reference_section.get("result") not in {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED"}:
+                errors.append("reference_conformance.result 枚举无效")
+            if reference_section.get("result") != "NOT_APPLICABLE":
+                if not isinstance(reference_section.get("contract_id"), str) or not isinstance(reference_section.get("contract_hash"), str):
+                    errors.append("reference_conformance 缺少 Contract 身份")
+                if not isinstance(reference_section.get("binding_results"), list):
+                    errors.append("reference_conformance.binding_results 必须是列表")
     return errors
 
 
@@ -627,8 +649,12 @@ def evaluate_gates(
         required = bool(policy.get("required"))
         current = gate_inputs.get(gate_id)
         if current is None:
-            result = "FAIL" if required else "SKIPPED"
-            reason = "required_gate_not_executed" if required else "not_configured_for_project"
+            if gate_id == "GATE-REFERENCE-CONFORMANCE":
+                result = "NOT_APPLICABLE"
+                reason = "no_approved_reference_contract"
+            else:
+                result = "FAIL" if required else "SKIPPED"
+                reason = "required_gate_not_executed" if required else "not_configured_for_project"
             evidence_refs: list[str] = []
         else:
             result = current.get("result")
@@ -639,6 +665,9 @@ def evaluate_gates(
             if result == "SKIPPED" and required:
                 result = "BLOCKED" if current.get("blocked") else "FAIL"
                 reason = reason or "required_gate_cannot_be_skipped"
+            if result == "NOT_APPLICABLE" and required:
+                result = "FAIL"
+                reason = reason or "required_gate_not_applicable"
             if result == "PASS" and required and not evidence_refs:
                 result = "FAIL"
                 reason = "required_gate_missing_evidence"

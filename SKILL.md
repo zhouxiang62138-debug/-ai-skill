@@ -55,6 +55,20 @@ Evaluator 还可追加 Candidate 验证记录，Runtime 通过 Snapshot Service 
 `LocalCompatibilityEnvironment` 不等于物理 Sandbox。完整当前状态见
 `docs/RUNTIME_CAPABILITY_STATUS.md`。这些能力都不得绕过产品/Plan 批准链。
 
+### 运行时故障与用户打断边界
+
+- 只有需求事实、设计选择、产品方案确认、Plan 批准、不可逆操作授权或确实需要
+  用户补充的外部凭据，才允许暂停并要求用户处理。
+- 路径导入、候选字段校验、Lease、CAS、PENDING/ABORTED revision、浏览器临时视口
+  和可安全重试的工具失败属于 Runtime 内部责任。先记录诊断并自动恢复或换用正式
+  入口，不得把数据库清理、字段补齐或接口选择交给项目用户。
+- 候选状态必须在创建 revision 尝试前完成确定性预检。ABORTED 尝试必须保留审计，
+  但不得占住业务 revision 或要求删除数据库记录后才能继续。
+- 生命周期字段 `status`、`next_role` 与 `active_module` 由 Runtime 按目标路由派生；
+  Planner、Generator、Evaluator 只提交各自拥有的业务字段。
+- 同一内部步骤最多自动修正 2 次；仍失败时只报告一个聚合后的根因、已保留的工件
+  和最小必要用户动作，不逐条播报中间异常。
+
 ## 角色选择
 
 - `first_ask_intake`：读取 `intake/first_ask.md`；它是 Planner 前置模块，不是 Agent，只收集事实、目标和约束并写入当前项目 `memory/requirements/`。
@@ -79,18 +93,21 @@ Planner 在任何开发计划前都必须先产出可审核的产品方案。用
 ### Design Exploration
 
 当用户尚未确定 App 的视觉风格、页面布局，或明确希望先看参考方案时，
-Planner 必须先基于产品方案草稿生成一轮 3 个不同的完整产品路线及静态设计
-预览。三套路线必须在定位、特色功能、主要用户路径或信息架构上存在实质差异，
-不能只换颜色。用户可以单选、融合、修改或要求新一轮方向。设计方向选定后，
-Planner 必须将其整合进新的产品方案版本，并再次等待用户明确确认；选择设计
-方向本身不构成开发批准。
+Planner 默认先生成一轮 3 个轻量产品方向：每个方向只写 `concept.md`，三者
+共用 `comparison.html` 与 `comparison.css`。三套路线必须在定位、特色功能、
+主要用户路径或信息架构上存在实质差异，不能只换颜色。
+
+用户单选、融合、修改或恢复方向后，Planner 开启新轮次，只为选中结果生成一套
+`selected_concept/concept.md`、`preview.html` 与 `preview.css`，完整浏览器验证
+也只执行这一套。用户明确确认该高保真预览后，Planner 才将其整合进新的产品
+方案版本并再次等待产品确认；方向选择、高保真确认和产品确认是三个不同门禁。
 
 设计说明使用 `templates/design_concept.md`，每次用户反馈使用
 `templates/design_feedback.md`，明确选择使用
 `templates/design_selection.md`，跳过设计探索时使用
 `templates/design_skip_decision.md`。预览仅写入项目的
 `artifacts/design_previews/`，不得写入 Skill 目录或项目 `code/`。完整规范
-见 `DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
+见 `docs/DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
 
 - 状态协议与迁移规则：读取 `docs/workflow_protocol.md`。
 - 项目目录、命名和隔离规则：读取 `docs/project_conventions.md`。

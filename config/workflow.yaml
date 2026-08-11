@@ -122,10 +122,57 @@ rework_governance:
 design_exploration:
   required_concept_count: 3
   maximum_generation_attempts: 2
+  default_preview_mode: direction_comparison
+  stages:
+    direction_comparison:
+      concept_count: 3
+      required_files_per_concept:
+        - concept.md
+      shared_preview_files:
+        - comparison.html
+        - comparison.css
+      browser_qa: batched_smoke_only
+      on_selection: selected_prototype
+    selected_prototype:
+      concept_count: 1
+      concept_directory: selected_concept
+      required_files:
+        - concept.md
+        - preview.html
+        - preview.css
+      browser_qa: full
+      requires_explicit_confirmation: true
+    legacy_full:
+      compatibility_only: true
+      concept_count: 3
   required_concept_files:
     - concept.md
     - preview.html
     - preview.css
+  reference_guided:
+    enabled: true
+    active_input: active_reference_synthesis
+    design_relevant_domains:
+      - information_architecture
+      - navigation
+      - interaction
+      - layout
+      - visual_style
+      - components
+      - design_tokens
+      - motion
+    strategies:
+      - reference_faithful
+      - reference_adapted
+      - reference_inspired
+    required_concept_metadata:
+      - Reference Strategy
+      - Referenced Decisions
+      - Adopted Decisions
+      - Adapted Decisions
+      - Not Used Decisions
+      - Explicit Exclusions
+      - Original Design Decisions
 
 change_request:
   version: 1
@@ -153,6 +200,9 @@ states:
     next_role: null
     active_module: first_ask_intake
     wait_for_user: true
+  REFERENCE_ANALYSIS:
+    next_role: null
+    active_module: reference_analysis
   PLANNING:
     next_role: planner
   DESIGN_EXPLORATION:
@@ -223,6 +273,12 @@ failure_routing:
     status: WAITING_FOR_REQUIREMENTS
     next_role: null
     active_module: first_ask_intake
+  reference_analysis_failed:
+    status: WAITING_FOR_USER
+    next_role: null
+  reference_analysis_blocked:
+    status: BLOCKED
+    next_role: null
   product_scope_issue:
     status: PLANNING
     next_role: planner
@@ -337,8 +393,9 @@ legacy_state_aliases:
 legacy_state_policy: read_only_require_migration
 
 state_transitions:
-  INTAKE: ["INTAKE", "WAITING_FOR_REQUIREMENTS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
-  WAITING_FOR_REQUIREMENTS: ["INTAKE", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  INTAKE: ["INTAKE", "WAITING_FOR_REQUIREMENTS", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_REQUIREMENTS: ["INTAKE", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  REFERENCE_ANALYSIS: ["REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
   PLANNING: ["PLANNING", "DESIGN_EXPLORATION", "WAITING_FOR_PRODUCT_REVIEW", "WAITING_FOR_PLAN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
   DESIGN_EXPLORATION: ["DESIGN_EXPLORATION", "WAITING_FOR_DESIGN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
   WAITING_FOR_DESIGN_REVIEW: ["DESIGN_EXPLORATION", "PLANNING_REVISION", "WAITING_FOR_USER", "BLOCKED"]
@@ -351,8 +408,8 @@ state_transitions:
   CHANGE_REQUESTED: ["WAITING_FOR_CHANGE_APPROVAL", "WAITING_FOR_USER", "BLOCKED"]
   WAITING_FOR_CHANGE_APPROVAL: ["IMPLEMENTING", "WAITING_FOR_USER", "BLOCKED"]
   RELEASE_READY: ["ACCEPTED", "WAITING_FOR_USER", "BLOCKED"]
-  WAITING_FOR_USER: ["INTAKE", "PLANNING", "PLANNING_REVISION", "IMPLEMENTING", "EVALUATING", "CHANGE_REQUESTED", "ARCHIVED"]
-  BLOCKED: ["WAITING_FOR_USER", "PLANNING", "IMPLEMENTING", "EVALUATING", "ARCHIVED"]
+  WAITING_FOR_USER: ["INTAKE", "REFERENCE_ANALYSIS", "PLANNING", "PLANNING_REVISION", "IMPLEMENTING", "EVALUATING", "CHANGE_REQUESTED", "ARCHIVED"]
+  BLOCKED: ["WAITING_FOR_USER", "REFERENCE_ANALYSIS", "PLANNING", "IMPLEMENTING", "EVALUATING", "ARCHIVED"]
   ACCEPTED: ["CHANGE_REQUESTED", "ARCHIVED"]
   ARCHIVED: []
 
@@ -365,6 +422,15 @@ state_guards:
     halt_until_user_input: true
     allowed_next_roles:
       - null
+  REFERENCE_ANALYSIS:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+    required_reference_status: provided_or_ready
+    required_reference_analysis_status: running
+    required_active_module: reference_analysis
+    allowed_next_roles:
+      - null
+    active_plan_must_be_null: true
   PLANNING:
     required_requirements_status: sufficient_for_planning
     required_active_requirements: true

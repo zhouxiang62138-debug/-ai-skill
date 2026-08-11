@@ -27,10 +27,20 @@ network_policy:
         - 443
       operations:
         - read
+    reference_public_web:
+      hosts:
+        - example.com
+      ports:
+        - 443
+      operations:
+        - read
   roles:
     generator:
       services:
         - github
+    reference_analysis:
+      services:
+        - reference_public_web
 
 external_tool_policy:
   default: deny
@@ -46,6 +56,23 @@ external_tool_policy:
       tools:
         - git
         - github
+
+module_authorization:
+  allowed_modules:
+    - first_ask_intake
+    - reference_analysis
+    - change_request
+  allowed_state_sources:
+    first_ask_intake:
+      - INTAKE
+      - WAITING_FOR_REQUIREMENTS
+    reference_analysis:
+      - REFERENCE_ANALYSIS
+    change_request:
+      - ACCEPTED
+      - ARCHIVED
+      - CHANGE_REQUESTED
+      - WAITING_FOR_CHANGE_APPROVAL
 
 modules:
   runtime_orchestrator:
@@ -68,12 +95,18 @@ modules:
       - evaluation/issues/
       - releases/
   first_ask_intake:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
     reads:
       - project.yaml
       - memory/requirements/
+      - memory/references/
+      - artifacts/references/
       - memory/handoffs/intake-request-*.md
     writes:
       - memory/requirements/
+      - memory/references/
       - project.yaml
     prohibited:
       - code/
@@ -84,6 +117,34 @@ modules:
       - evaluation/
       - config/
       - prompts/
+  reference_analysis:
+    capabilities:
+      - filesystem.read
+      - filesystem.write
+      - browser.access
+      - network.access
+    reads:
+      - project.yaml
+      - memory/requirements/
+      - memory/references/
+      - artifacts/references/
+      - change_requests/
+    writes:
+      - memory/references/
+      - artifacts/references/
+      - change_requests/
+      - project.yaml
+    prohibited:
+      - code/
+      - memory/requirements/
+      - memory/proposals/
+      - memory/specifications/
+      - memory/plans/
+      - evaluation/
+      - config/
+      - prompts/
+    read_exceptions:
+      - memory/requirements/
   change_request:
     reads:
       - project.yaml
@@ -115,6 +176,7 @@ roles:
     reads:
       - project.yaml
       - memory/requirements/
+      - memory/references/
       - memory/proposals/
       - memory/specifications/
       - memory/decisions/
@@ -235,6 +297,10 @@ field_ownership:
     - active_requirements
     - active_interview
     - intake_round
+    - reference_status
+  reference_analysis:
+    - reference_analysis_status
+    - active_reference_synthesis
   planner:
     - proposal_status
     - proposal_version
@@ -243,6 +309,7 @@ field_ownership:
     - design_exploration_required
     - exploration_trigger_reasons
     - design_review_status
+    - design_preview_mode
     - design_preview_round
     - active_design_preview_round
     - exploration_generation_attempt
@@ -253,6 +320,7 @@ field_ownership:
     - design_feedback_status
     - design_feedback_round
     - exploration_feedback_record
+    - active_design_reference_synthesis
     - user_approval_status
     - product_approval_record
     - approval_revocation_record

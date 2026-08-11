@@ -22,6 +22,7 @@ from .policy import (
     assert_field_ownership,
     assert_workflow_lifecycle,
     load_lifecycle_fields,
+    load_runtime_routes,
 )
 from .session_store import SessionStore, stable_id, utc_now
 
@@ -102,7 +103,7 @@ class ProjectStateCAS:
         connection = self.store.raw_connection()
         try:
             existing = connection.execute(
-                "SELECT * FROM state_revisions WHERE session_id=? AND idempotency_key=?",
+                "SELECT * FROM state_revision_attempts WHERE session_id=? AND idempotency_key=?",
                 (session_id, idempotency_key),
             ).fetchone()
         finally:
@@ -123,18 +124,6 @@ class ProjectStateCAS:
                 session_id, idempotency_key, expected_revision, current_runtime["revision"]
             )
             raise StateConflictError("project.yaml revision 与 expected_revision 不一致")
-        request = self.store.append_event(
-            session_id,
-            EventType.PROJECT_STATE_COMMIT_REQUESTED,
-            ActorType.WORKER,
-            worker_id,
-            idempotency_key=f"{idempotency_key}:requested",
-            correlation_id=idempotency_key,
-            payload={
-                "expected_revision": expected_revision,
-                "before_hash": before_hash,
-            },
-        )
         prepared = copy.deepcopy(next_state)
         prepared["schema_version"] = 7
         prepared["runtime"] = copy.deepcopy(current_runtime)
@@ -149,11 +138,31 @@ class ProjectStateCAS:
             assert_field_ownership(actor_role, current, role_candidate)
         prepared["runtime"]["revision"] = expected_revision + 1
         after_hash = project_state_hash(prepared)
-        revision_id = stable_id("revision", session_id, expected_revision + 1)
+        # 所有可预见的候选错误必须在占用 revision 之前被拒绝。
+        errors = validate_project_state(prepared, path.parent)
+        if errors:
+            raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))
+        request = self.store.append_event(
+            session_id,
+            EventType.PROJECT_STATE_COMMIT_REQUESTED,
+            ActorType.WORKER,
+            worker_id,
+            idempotency_key=f"{idempotency_key}:requested",
+            correlation_id=idempotency_key,
+            payload={
+                "expected_revision": expected_revision,
+                "before_hash": before_hash,
+            },
+        )
+        # revision 是业务版本；revision_id 是一次提交尝试。ABORTED 尝试必须保留，
+        # 但不能阻止同一业务版本用新的候选内容安全重试。
+        revision_id = stable_id(
+            "revision-attempt", session_id, expected_revision + 1, idempotency_key
+        )
         with self.store.transaction(immediate=True) as connection:
             existing = connection.execute(
                 """
-                SELECT * FROM state_revisions
+                SELECT * FROM state_revision_attempts
                 WHERE session_id = ? AND idempotency_key = ?
                 """,
                 (session_id, idempotency_key),
@@ -161,7 +170,7 @@ class ProjectStateCAS:
             if existing is None:
                 connection.execute(
                     """
-                    INSERT INTO state_revisions VALUES
+                    INSERT INTO state_revision_attempts VALUES
                     (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, NULL)
                     """,
                     (
@@ -196,6 +205,7 @@ class ProjectStateCAS:
             raise StateConflictError("写入前复核发现 project.yaml 已变化")
         # 在最后一次原子替换前重新 fencing，防止 Lease 在计算候选状态后失效。
         self.leases.assert_valid(session_id, worker_id, lease_version, lease_token)
+        # 写入前再次校验，防止校验与原子替换之间的工件状态发生变化。
         errors = validate_project_state(prepared, path.parent)
         if errors:
             raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))
@@ -218,7 +228,7 @@ class ProjectStateCAS:
         with self.store.transaction(immediate=True) as connection:
             connection.execute(
                 """
-                UPDATE state_revisions
+                UPDATE state_revision_attempts
                 SET status='COMMITTED', committed_at=?
                 WHERE revision_id=?
                 """,
@@ -259,8 +269,16 @@ class ProjectStateCAS:
             changed_fields,
         )
         candidate = copy.deepcopy(current)
-        candidate.update(copy.deepcopy(changed_fields))
+        business_patch = copy.deepcopy(changed_fields)
+        # 调用方可以暂时携带旧格式生命周期字段，但 Runtime 始终丢弃并按目标路由重建。
+        # 新调用方只需提交业务字段，避免模型和脚本猜测 next_role/active_module。
+        for field in ("status", "next_role", "active_module"):
+            business_patch.pop(field, None)
+        candidate.update(business_patch)
+        target_route = load_runtime_routes()[target_status]
         candidate["status"] = target_status
+        candidate["next_role"] = target_route["next_role"]
+        candidate["active_module"] = target_route["active_module"]
         return self._commit(
             project_yaml,
             candidate,
@@ -300,7 +318,7 @@ class ProjectStateCAS:
         with self.store.transaction(immediate=True) as connection:
             rows = connection.execute(
                 """
-                SELECT * FROM state_revisions
+                SELECT * FROM state_revision_attempts
                 WHERE session_id=? AND status IN ('PENDING', 'COMMITTED')
                 ORDER BY new_revision
                 """,
@@ -314,7 +332,7 @@ class ProjectStateCAS:
                 ):
                     if not committed_now:
                         connection.execute(
-                            """UPDATE state_revisions SET status='COMMITTED', committed_at=?
+                            """UPDATE state_revision_attempts SET status='COMMITTED', committed_at=?
                             WHERE revision_id=?""",
                             (utc_now(), row["revision_id"]),
                         )
@@ -337,7 +355,7 @@ class ProjectStateCAS:
                     and row["before_hash"] == current_hash
                 ):
                     connection.execute(
-                        "UPDATE state_revisions SET status='ABORTED' WHERE revision_id=?",
+                        "UPDATE state_revision_attempts SET status='ABORTED' WHERE revision_id=?",
                         (row["revision_id"],),
                     )
                     actions.append(f"aborted:{row['revision_id']}")

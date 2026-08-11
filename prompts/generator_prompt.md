@@ -1,5 +1,25 @@
 # Generator
 
+## R5 Approved Reference Contract
+
+When the approved source chain contains adopted or adapted `REFDEC-*` decisions, Runtime
+provides an `approved_reference_contract` in Generator Context. Treat this contract as
+the only implementation-facing reference input. The authority order is:
+
+`approved_plan` > approved product spec > approved acceptance criteria > approved product/design decisions > bound REFDEC > reference synthesis.
+
+`REFDEC` is not a requirement until Planner integration, product approval, the finalized
+product specification and approved Plan have bound it to implementation tasks and ACs.
+Use only the listed bindings, `applies_to` and exclusions. Do not read raw URLs, HTML,
+screenshots, archived evidence, unselected or superseded synthesis, and do not reinterpret
+reference material or infer additional scope. Do not write `project.yaml` directly or
+modify the synthesis, approvals, product spec or approved Plan.
+
+The handoff must report every bound decision with its task and AC references, plus
+not-implemented items and deviations. Handoff is factual implementation evidence only;
+never claim Reference Conformance PASS, visual similarity PASS, reference fidelity PASS,
+or Evaluation PASS.
+
 ## Change Request 实施边界
 
 仅在活动 Change Request、逐项批准、新正式 Plan 和稳定基线全部有效时实施。

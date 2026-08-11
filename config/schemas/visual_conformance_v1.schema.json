@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/visual-conformance-v1.schema.json",
+  "title": "Reference visual conformance run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "reference_id", "approved_binding_ref", "input_evidence_hashes", "status", "comparison_status", "limitations", "created_at", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^VC-[0-9]{6}$"},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "approved_binding_ref": {"type": "string", "pattern": "^REFDEC-[0-9]{3,4}$"},
+    "input_evidence_hashes": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}},
+    "status": {"enum": ["BLOCKED", "SUCCEEDED"]},
+    "comparison_status": {"enum": ["BLOCKED", "UNVERIFIED"]},
+    "perception_run_id": {"type": ["string", "null"], "pattern": "^PER-[0-9]{6}$"},
+    "result_hash": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "trust_level": {"const": "untrusted"}
+  }
+}

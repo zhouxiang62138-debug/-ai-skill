@@ -50,6 +50,7 @@ artifact_paths:
   impact_analysis: change_requests/<change_request_id>/impact-analysis-<nnn>.yaml
   approvals: change_requests/<change_request_id>/approvals
   baseline: change_requests/<change_request_id>/baseline/manifest.yaml
+  references: change_requests/<change_request_id>/references
   handoff: change_requests/<change_request_id>/handoffs/generator-handoff.yaml
   evaluations: change_requests/<change_request_id>/evaluations
   releases: releases

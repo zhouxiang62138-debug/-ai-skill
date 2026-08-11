@@ -48,4 +48,9 @@
 - `design_feedback_status`：
 - 是否创建设计选择记录：
 - 是否递增设计预览轮次：
+## Reference 反馈约束
 
+- 当前 Reference Synthesis:
+- 用户要求保留的 Reference Decisions:
+- 用户明确拒绝的 Reference 影响:
+- 下一轮必须继续遵守的 Explicit Exclusions:

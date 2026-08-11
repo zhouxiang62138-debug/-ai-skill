@@ -32,6 +32,24 @@ roles:
         priority: REQUIRED
         delivery_mode: INLINE
       - source_type: state_reference
+        field: active_reference_synthesis
+        reason: Planner reads the active reference synthesis
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: design_reference_subset
+        field: active_reference_synthesis
+        reason: Design Exploration only receives the current synthesis design-decision subset
+        priority: HIGH
+        delivery_mode: INLINE
+        reference_source_reason: Reference Analysis Module 生成的可追溯综合结果；Planner 只读 synthesis
+        reference_source_priority: HIGH
+        reference_source_delivery_mode: INLINE
+      - source_type: state_value
+        field: active_design_reference_synthesis
+        reason: Planner retains the active synthesis as the primary reference source
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
         field: active_proposal
         reason: 当前产品方案
         priority: HIGH
@@ -122,6 +140,11 @@ roles:
         reason: 当前正式产品规格
         priority: HIGH
         delivery_mode: INLINE
+      - source_type: approved_reference_bindings
+        field: active_reference_synthesis
+        reason: Approved Reference decisions bound to the approved product and plan chain
+        priority: REQUIRED
+        delivery_mode: INLINE
       - source_type: state_reference
         field: last_issue_package
         reason: 最新可执行 Evaluator issue package
@@ -178,9 +201,19 @@ roles:
         reason: 当前正式产品规格与验收标准
         priority: HIGH
         delivery_mode: INLINE
+      - source_type: reference_conformance_subset
+        field: active_reference_synthesis
+        reason: Evaluator 仅消费批准 Reference Contract，不读取原始 Reference
+        priority: REQUIRED
+        delivery_mode: INLINE
       - source_type: state_reference
         field: last_generator_response
         reason: Generator 交接记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: latest_handoff
+        reason: Generator Handoff 与实现证据入口
         priority: HIGH
         delivery_mode: INLINE
       - source_type: state_reference
@@ -222,4 +255,48 @@ roles:
         field: evaluation_profile
         reason: 当前验收 Profile
         priority: REQUIRED
+        delivery_mode: INLINE
+
+modules:
+  first_ask_intake:
+    max_context_bytes: 98304
+    max_inline_bytes: 65536
+    max_sources: 12
+    max_source_inline_bytes: 16384
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 Intake 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: 当前需求与原始用户请求
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: reference_catalog
+        field: registered_references
+        reason: 已登记引用及范围状态；原始描述只通过受控引用读取
+        priority: HIGH
+        delivery_mode: INLINE
+  reference_analysis:
+    max_context_bytes: 131072
+    max_inline_bytes: 98304
+    max_sources: 16
+    max_source_inline_bytes: 32768
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 managed project 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: First-Ask 已确认的需求与引用登记
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: reference_catalog
+        field: registered_references
+        reason: 仅提供已登记来源、范围、模式和排除项，不注入原始内容
+        priority: HIGH
         delivery_mode: INLINE

@@ -179,6 +179,28 @@ class ExecutionPathPolicy:
                     raise RuntimeValidationError("ROLE_POLICY_INVALID")
                 parsed[key] = tuple(values)
             self._roles[role] = parsed
+        modules = document.get("modules", {})
+        if not isinstance(modules, dict):
+            raise RuntimeValidationError("MODULE_POLICY_INVALID")
+        self._modules: dict[str, dict[str, tuple[str, ...]]] = {}
+        for module, policy in modules.items():
+            if not isinstance(module, str) or not isinstance(policy, dict):
+                raise RuntimeValidationError("MODULE_POLICY_INVALID")
+            parsed = {}
+            for key in (
+                "reads",
+                "writes",
+                "prohibited",
+                "write_prohibited",
+                "read_exceptions",
+            ):
+                values = policy.get(key, [])
+                if not isinstance(values, list) or not all(
+                    isinstance(value, str) for value in values
+                ):
+                    raise RuntimeValidationError("MODULE_POLICY_INVALID")
+                parsed[key] = tuple(values)
+            self._modules[module] = parsed
 
     @staticmethod
     def _raise_denied(
@@ -316,6 +338,94 @@ class ExecutionPathPolicy:
                 project_root=project_root,
                 path=path,
                 reason_code="ROLE_PATH_DENIED",
+            )
+        return candidate
+
+    def assert_module_path(
+        self, module: str, project_root: str | Path, path: str, *, operation: str
+    ) -> Path:
+        """复用同一套 F11 路径解析，按 modules 配置校验 Module 读写。"""
+
+        if operation not in {"read", "write"}:
+            raise RuntimeValidationError("EXECUTION_PATH_OPERATION_INVALID")
+        policy = self._modules.get(module)
+        if policy is None:
+            self._raise_denied(
+                "MODULE_POLICY_UNKNOWN_ACTOR",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code="MODULE_PATH_DENIED",
+            )
+        try:
+            candidate, relative = self._relative(project_root, path)
+        except RuntimeValidationError as exc:
+            raise self._decorate_relative_denial(
+                exc,
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+            ) from exc
+        root = Path(project_root).resolve()
+        resolved_relative = candidate.relative_to(root).as_posix()
+        if operation == "write" and (
+            relative.casefold() == "project.yaml"
+            or resolved_relative.casefold() == "project.yaml"
+        ):
+            self._raise_denied(
+                "PROJECT_STATE_WRITE_REQUIRES_CAS",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code="PROJECT_YAML_DIRECT_WRITE_DENIED",
+            )
+        reparsed = _reparse_escape_kind(project_root, path)
+        if reparsed is not None:
+            self._raise_denied(
+                "MODULE_REPARSE_POINT_DENIED",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code=f"{reparsed.upper()}_DENIED",
+            )
+        read_exception = operation == "read" and any(
+            _matches(relative, item) for item in policy["read_exceptions"]
+        )
+        if not read_exception and any(
+            _matches(relative, item) for item in policy["prohibited"]
+        ):
+            self._raise_denied(
+                "MODULE_PATH_PROHIBITED",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code="MODULE_PATH_DENIED",
+            )
+        if operation == "write" and any(
+            _matches(relative, item) for item in policy["write_prohibited"]
+        ):
+            self._raise_denied(
+                "MODULE_PATH_WRITE_PROHIBITED",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code="MODULE_PATH_DENIED",
+            )
+        allowed = policy["reads"] if operation == "read" else policy["writes"]
+        if not any(_matches(relative, item) for item in allowed):
+            self._raise_denied(
+                "MODULE_PATH_NOT_ALLOWED",
+                role=module,
+                operation=operation,
+                project_root=project_root,
+                path=path,
+                reason_code="MODULE_PATH_DENIED",
             )
         return candidate
 

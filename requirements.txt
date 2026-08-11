@@ -1,0 +1,2 @@
+# 官方 Codex Python SDK；通过本地 app-server 复用 Codex 登录态。
+openai-codex>=0.144.4,<0.145

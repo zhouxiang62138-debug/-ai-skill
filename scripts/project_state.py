@@ -379,6 +379,15 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     version = state.get("schema_version")
     status = state.get("status")
+    design_preview_mode = state.get("design_preview_mode")
+    if design_preview_mode not in {
+        None,
+        "not_started",
+        "legacy_full",
+        "direction_comparison",
+        "selected_prototype",
+    }:
+        errors.append("design_preview_mode 无效")
 
     if status == "INTAKE":
         if state.get("active_module") != "first_ask_intake":
@@ -403,6 +412,21 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
     if version in {4, 5, 6, 7}:
         if status in {"DESIGN_REVIEW", "PRODUCT_REVIEW", "PLANNING_COMPLETE"}:
             errors.append("v4/v5/v6 新项目不得写入旧状态别名")
+        if status == "REFERENCE_ANALYSIS":
+            if not state.get("active_requirements"):
+                errors.append("REFERENCE_ANALYSIS 必须先绑定 active_requirements")
+            if state.get("requirements_status") != "sufficient_for_planning":
+                errors.append("REFERENCE_ANALYSIS 要求需求已足以规划")
+            if state.get("reference_status") not in {"provided", "ready"}:
+                errors.append("REFERENCE_ANALYSIS 要求 reference_status 为 provided 或 ready")
+            if state.get("reference_analysis_status") not in {"not_started", "running", "blocked"}:
+                errors.append("REFERENCE_ANALYSIS 要求 reference_analysis_status 为 not_started、running 或 blocked")
+            if state.get("active_module") != "reference_analysis":
+                errors.append("REFERENCE_ANALYSIS 的 active_module 必须是 reference_analysis")
+            if state.get("next_role") is not None:
+                errors.append("REFERENCE_ANALYSIS 的 next_role 必须是 null")
+            if state.get("active_plan") is not None:
+                errors.append("REFERENCE_ANALYSIS 期间 active_plan 必须为 null")
         if status == "DESIGN_EXPLORATION":
             for field in ("active_requirements", "active_proposal"):
                 _require(state, field, errors)
@@ -421,14 +445,22 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 errors.append("设计探索期间 active_plan 必须为 null")
             if state.get("next_role") != "planner":
                 errors.append("设计探索期间 next_role 必须是 planner")
+            if design_preview_mode == "selected_prototype":
+                _require(state, "selected_design_concept", errors)
+                _require(state, "design_selection_record", errors)
         if status == "WAITING_FOR_DESIGN_REVIEW":
             _require(state, "active_design_preview_round", errors)
             if state.get("design_exploration_required") is not True:
                 errors.append("等待设计审核时必须启用设计探索")
-            if state.get("design_review_status") != "waiting_user_selection":
+            expected_review_status = (
+                "waiting_selected_prototype_confirmation"
+                if design_preview_mode == "selected_prototype"
+                else "waiting_user_selection"
+            )
+            if state.get("design_review_status") != expected_review_status:
                 errors.append(
-                    "WAITING_FOR_DESIGN_REVIEW 的 design_review_status "
-                    "必须是 waiting_user_selection"
+                    "WAITING_FOR_DESIGN_REVIEW 的 design_review_status 必须与 "
+                    "design_preview_mode 对应"
                 )
             if state.get("active_plan") is not None:
                 errors.append("设计审核期间 active_plan 必须为 null")
@@ -443,6 +475,9 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 "conflicting",
             }:
                 errors.append("等待设计审核时 design_feedback_status 无效")
+            if design_preview_mode == "selected_prototype":
+                _require(state, "selected_design_concept", errors)
+                _require(state, "design_selection_record", errors)
         if status == "PLANNING_REVISION" and state.get("design_review_status") == "direction_selected":
             _require(state, "selected_design_concept", errors)
             _require(state, "design_selection_record", errors)
@@ -451,6 +486,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 "direction_selected",
                 "modification_requested",
                 "blend_selected",
+                "prototype_confirmed",
             }:
                 errors.append("设计方向已选择时 design_feedback_status 无效")
             if state.get("active_plan") is not None:
@@ -663,6 +699,7 @@ def validate_project_state(
             "evidence_manifest",
             "decision_summary_record",
             "schema_migration_record",
+            "active_reference_synthesis",
         ):
             reference = state.get(field)
             if not reference:
@@ -672,6 +709,14 @@ def validate_project_state(
                 candidate.relative_to(root)
             except ValueError:
                 errors.append(f"$.{field} 指向项目目录之外")
+                continue
+            if (
+                field == "active_design_preview_round"
+                and state.get("status") == "DESIGN_EXPLORATION"
+                and state.get("design_review_status") in {"generating", "revision_requested"}
+            ):
+                # 生成态先提交“本轮要生成到哪里”，随后才创建目录和工件。
+                # 完成态仍由 exploration.finalize_preview_round 强制校验三案齐全。
                 continue
             if not candidate.exists():
                 errors.append(f"$.{field} 指向不存在的文件：{reference}")
@@ -710,6 +755,7 @@ V4_DEFAULTS: dict[str, Any] = {
     "exploration_error_record": None,
     "design_feedback_status": "not_started",
     "design_feedback_round": 0,
+    "design_preview_mode": "legacy_full",
     "approval_revocation_record": None,
     "change_request_record": None,
 }

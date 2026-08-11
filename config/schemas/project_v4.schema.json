@@ -101,6 +101,8 @@
         "not_started",
         "waiting_user_feedback",
         "direction_selected",
+        "selected_prototype_requested",
+        "prototype_confirmed",
         "modification_requested",
         "blend_selected",
         "all_rejected",
@@ -108,6 +110,15 @@
         "ambiguous",
         "conflicting",
         "integrated_into_proposal"
+      ]
+    },
+    "design_preview_mode": {
+      "enum": [
+        null,
+        "not_started",
+        "legacy_full",
+        "direction_comparison",
+        "selected_prototype"
       ]
     },
     "design_feedback_round": {

@@ -185,3 +185,8 @@ Planner：记录产品确认，生成正式产品规格和 `plan-001.md`，进�
 
 Planner：创建 `plan-approval-001.md`，设置 `APPROVED_FOR_IMPLEMENTATION`
 和 `next_role: generator`。
+## Reference-Guided Design Exploration 补充规则
+
+Reference-guided 只改变 Planner 生成三条设计路线时的受控输入，不改变既有状态机。只有当前 synthesis 中存在设计相关 REFDEC 才启用；technical-only、unsupported image semantics 和无 active synthesis 继续走普通 Design Exploration。
+
+三条概念必须分别声明策略、当前 `REFSYN` 和可追溯 `REFDEC`，并记录 Adopted、Adapted、Not Used、Explicit Exclusions 与 Original Design Decisions。用户选择或混搭后仍先生成新的 Product Proposal，随后等待 Product Review；Product Approval 与 Plan Approval 仍是独立门禁。

@@ -10,12 +10,14 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+import yaml
+
 from runtime.event_types import ActorType, EventType
 from runtime.errors import RuntimeStorageError, RuntimeValidationError
 from runtime.policy import CapabilityPolicy, load_runtime_routes
 from runtime.project_revision import project_state_hash, runtime_projection
 from runtime.session_store import SessionStore
-from scripts.project_state import load_project_state
+from scripts.project_state import ProjectStateError, load_project_state
 
 from .models import (
     ContextBuildRequest,
@@ -34,7 +36,7 @@ _SECRET_ASSIGNMENT = re.compile(
     r"\s*[:=]\s*[^\s,;]+"
 )
 _SECRET_VALUE = re.compile(
-    r"(?i)(?:bearer\s+\S+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9]+)"
+    r"(?i)(?:bearer\s+\S+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|(?<![A-Za-z0-9_])sk-[A-Za-z0-9]+)"
 )
 
 
@@ -96,7 +98,7 @@ class ContextBuilder:
         if not root.is_dir():
             raise RuntimeValidationError("CONTEXT_PROJECT_BOUNDARY")
 
-        self._path_policy.assert_path(request.role, root, "project.yaml", operation="read")
+        self._assert_read_path(request.role, root, "project.yaml")
         state = load_project_state(project_yaml)
         try:
             runtime = runtime_projection(state)
@@ -207,10 +209,11 @@ class ContextBuilder:
             ],
             created_at=package.created_at,
         )
+        actor_type = ActorType.MODULE if request.role in {"first_ask_intake", "reference_analysis"} else ActorType.ROLE
         self._store.append_event(
             request.session_id,
             EventType.CONTEXT_BUILT,
-            ActorType.ROLE,
+            actor_type,
             request.role,
             idempotency_key=f"context-built:{context_id}",
             correlation_id=request.run_id,
@@ -258,10 +261,11 @@ class ContextBuilder:
             result = self._full_resume(current, None)
         else:
             result = self._resume_from_previous(current, previous)
+        actor_type = ActorType.MODULE if request.role in {"first_ask_intake", "reference_analysis"} else ActorType.ROLE
         self._store.append_event(
             request.session_id,
             EventType.CONTEXT_RESUMED,
-            ActorType.ROLE,
+            actor_type,
             request.role,
             idempotency_key=(
                 f"context-resumed:{current.context_id}:"
@@ -412,6 +416,10 @@ class ContextBuilder:
         return tuple(unchanged), tuple(added), tuple(modified), tuple(removed)
 
     def _validate_role_run(self, request: ContextBuildRequest, session: Any) -> None:
+        if request.role in {"first_ask_intake", "reference_analysis"}:
+            if session.status not in {"ACTIVE", "PAUSED"}:
+                raise RuntimeValidationError("CONTEXT_MODULE_RUN_INVALID")
+            return
         try:
             run = self._store.get_role_run(request.session_id, request.run_id)
         except RuntimeStorageError as exc:
@@ -425,6 +433,11 @@ class ContextBuilder:
     def _validate_workflow_role(
         workflow_state: str, role: str, state: dict[str, Any]
     ) -> None:
+        if role in {"first_ask_intake", "reference_analysis"}:
+            allowed_states = {"INTAKE", "WAITING_FOR_REQUIREMENTS"} if role == "first_ask_intake" else {"REFERENCE_ANALYSIS"}
+            if workflow_state not in allowed_states or state.get("active_module") != role or state.get("next_role") is not None:
+                raise RuntimeValidationError("CONTEXT_ROLE_STATE_MISMATCH")
+            return
         route = load_runtime_routes().get(workflow_state)
         if route is None or route["wait_for_user"] or route["next_role"] != role:
             raise RuntimeValidationError("CONTEXT_ROLE_STATE_MISMATCH")
@@ -444,6 +457,24 @@ class ContextBuilder:
             if rule.source_type == "project_state":
                 reference = _normalize_reference(rule.reference)
                 source = self._read_file_source(role, root, reference, rule)
+            elif rule.source_type == "reference_catalog":
+                source = self._read_reference_catalog(role, root, state, rule)
+            elif rule.source_type == "design_reference_subset":
+                if state.get(rule.field or "") in (None, ""):
+                    continue
+                source = self._read_design_reference_subset(role, root, state, rule)
+            elif rule.source_type == "approved_reference_bindings":
+                if state.get(rule.field or "") in (None, ""):
+                    continue
+                source = self._read_approved_reference_bindings(role, root, rule)
+                if source is None:
+                    continue
+            elif rule.source_type == "reference_conformance_subset":
+                if state.get(rule.field or "") in (None, ""):
+                    continue
+                source = self._read_approved_reference_bindings(role, root, rule)
+                if source is None:
+                    continue
             elif rule.source_type == "state_reference":
                 value = state.get(rule.field or "")
                 if value in (None, ""):
@@ -491,6 +522,18 @@ class ContextBuilder:
         normalized_additional = sorted(
             {_normalize_reference(reference) for reference in additional_references}
         )
+        if role in {"generator", "evaluator"} and state.get("active_reference_synthesis") not in (None, ""):
+            for reference in normalized_additional:
+                normalized = reference.casefold()
+                raw_reference = (
+                    normalized.startswith("memory/references/")
+                    or normalized.startswith("artifacts/references/")
+                    or "/references/" in normalized
+                )
+                if raw_reference:
+                    raise RuntimeValidationError("CONTEXT_GENERATOR_REFERENCE_SCOPE")
+                if role == "generator" and "/evidence/" in normalized:
+                    raise RuntimeValidationError("CONTEXT_GENERATOR_REFERENCE_SCOPE")
         for reference in normalized_additional:
             source = self._read_file_source(
                 role,
@@ -510,6 +553,157 @@ class ContextBuilder:
                 sources.append(source)
                 seen.add(key)
         return sources
+
+    def _read_reference_catalog(
+        self,
+        role: str,
+        root: Path,
+        state: dict[str, Any],
+        rule: ContextSourceRule,
+    ) -> ContextSource:
+        from runtime.reference_analysis.artifacts import ReferenceArtifactStore
+
+        store = ReferenceArtifactStore(root, path_policy=self._path_policy, path_actor=role)
+        context = {"type": "new_project", "project_id": str(state.get("project_id")), "change_request_id": None}
+        records = []
+        for source in store.list_sources(context):
+            locator = source.get("source") if isinstance(source.get("source"), dict) else {}
+            records.append({
+                "reference_id": source.get("reference_id"),
+                "source_type": source.get("source_type"),
+                "reference_mode": source.get("reference_mode"),
+                "requested_scope": source.get("requested_scope"),
+                "explicit_inclusions": source.get("explicit_inclusions"),
+                "explicit_exclusions": source.get("explicit_exclusions"),
+                "status": source.get("status"),
+                "source_ref": source.get("_artifact_ref"),
+                "scope_ref": source.get("scope_ref"),
+                "locator": {key: locator.get(key) for key in ("uri", "artifact_ref", "text_ref", "identifier") if locator.get(key)},
+            })
+        content = _canonical(records)
+        _assert_secret_free(content)
+        raw = content.encode("utf-8")
+        configured_mode = "REFERENCE" if rule.delivery_mode == "REFERENCE" or rule.priority == "REFERENCE_ONLY" else "INLINE"
+        return ContextSource(
+            source_type=rule.source_type,
+            reference="memory/references/reference-catalog",
+            content_hash=hashlib.sha256(raw).hexdigest(),
+            reason=rule.reason,
+            priority=rule.priority,
+            delivery_mode=configured_mode,
+            size=len(raw),
+            original_size=len(raw),
+            included_size=len(raw) if configured_mode == "INLINE" else 0,
+            inline_content=content if configured_mode == "INLINE" else None,
+        )
+
+    def _read_design_reference_subset(
+        self,
+        role: str,
+        root: Path,
+        state: dict[str, Any],
+        rule: ContextSourceRule,
+    ) -> ContextSource:
+        """只把当前 synthesis 的设计决策摘要交给 Planner，不扩散原始 Reference。"""
+
+        pointer = state.get(rule.field or "")
+        if not isinstance(pointer, str):
+            raise RuntimeValidationError("CONTEXT_DESIGN_REFERENCE_POINTER_INVALID")
+        path = self._path_policy.assert_path(role, root, pointer, operation="read")
+        try:
+            synthesis = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeValidationError("CONTEXT_DESIGN_REFERENCE_READ_FAILED") from exc
+        if not isinstance(synthesis, dict):
+            raise RuntimeValidationError("CONTEXT_DESIGN_REFERENCE_INVALID")
+        from scripts.exploration import select_design_reference_decisions
+        from runtime.reference_analysis.artifacts import ReferenceArtifactStore
+
+        try:
+            store = ReferenceArtifactStore(root, path_policy=self._path_policy, path_actor=role)
+            context = {
+                "type": "new_project",
+                "project_id": str(state.get("project_id")),
+                "change_request_id": None,
+            }
+            source_metadata = [
+                item
+                for item in store.list_sources(context)
+                if item.get("reference_id") in set(synthesis.get("source_references", []) or [])
+            ]
+            selected = select_design_reference_decisions(
+                synthesis, source_metadata=source_metadata
+            )
+        except Exception as exc:  # 统一把非当前/损坏 synthesis fail closed
+            raise RuntimeValidationError("CONTEXT_DESIGN_REFERENCE_INVALID") from exc
+        content = _canonical(
+            {
+                "synthesis_id": selected["synthesis_id"],
+                "reference_mode": selected["reference_mode"],
+                "decision_ids": selected["decision_ids"],
+                "design_relevant_decisions": selected["decisions"],
+                "explicit_exclusions": selected["explicit_exclusions"],
+            }
+        )
+        _assert_secret_free(content)
+        raw = content.encode("utf-8")
+        return ContextSource(
+            source_type=rule.source_type,
+            reference=f"{pointer}#design-relevant-decisions",
+            content_hash=hashlib.sha256(raw).hexdigest(),
+            reason=rule.reason,
+            priority=rule.priority,
+            delivery_mode="INLINE",
+            size=len(raw),
+            original_size=len(raw),
+            included_size=len(raw),
+            inline_content=content,
+        )
+
+    def _read_approved_reference_bindings(
+        self,
+        role: str,
+        root: Path,
+        rule: ContextSourceRule,
+    ) -> ContextSource | None:
+        """向 Generator 提供批准后的绑定摘要，不读取原始 Reference 内容。"""
+
+        if role not in {"generator", "evaluator"}:
+            raise RuntimeValidationError("CONTEXT_APPROVED_REFERENCE_ROLE_INVALID")
+        from runtime.reference_contract import (
+            build_reference_contract_for_project,
+            canonical_reference_contract,
+        )
+
+        try:
+            contract = build_reference_contract_for_project(
+                root, path_policy=self._path_policy
+            )
+        except (ProjectStateError, RuntimeValidationError) as exc:
+            raise RuntimeValidationError(
+                "CONTEXT_APPROVED_REFERENCE_CONTRACT_INVALID:" + str(exc)
+            ) from exc
+        if contract is None:
+            return None
+        content = canonical_reference_contract(contract)
+        _assert_secret_free(content)
+        raw = content.encode("utf-8")
+        return ContextSource(
+            source_type=rule.source_type,
+            reference=(
+                f"reference-conformance:{contract['contract_id']}"
+                if role == "evaluator"
+                else f"approved-reference-bindings:{contract['contract_id']}"
+            ),
+            content_hash=hashlib.sha256(raw).hexdigest(),
+            reason=rule.reason,
+            priority=rule.priority,
+            delivery_mode="INLINE",
+            size=len(raw),
+            original_size=len(raw),
+            included_size=len(raw),
+            inline_content=content,
+        )
 
     def _select_sources(
         self,
@@ -592,7 +786,7 @@ class ContextBuilder:
         reference: str,
         rule: ContextSourceRule,
     ) -> ContextSource:
-        candidate = self._path_policy.assert_path(role, root, reference, operation="read")
+        candidate = self._assert_read_path(role, root, reference)
         try:
             raw = candidate.read_bytes()
             content = raw.decode("utf-8")
@@ -620,6 +814,11 @@ class ContextBuilder:
             included_size=size if configured_mode == "INLINE" else 0,
             inline_content=inline_content,
         )
+
+    def _assert_read_path(self, role: str, root: Path, reference: str) -> Path:
+        if role in {"first_ask_intake", "reference_analysis"}:
+            return self._path_policy.assert_module_path(role, root, reference, operation="read")
+        return self._path_policy.assert_path(role, root, reference, operation="read")
 
 
 def build_context(

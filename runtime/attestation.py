@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Mapping
 
 from .errors import RuntimeValidationError
@@ -50,6 +51,51 @@ def validate_verifier_results(value: Mapping[str, Any]) -> tuple[dict[str, Any],
             "evidence_refs": list(refs),
             "details": str(raw.get("details", ""))[:1000],
         }
+        reference_gate = raw.get("reference_gate")
+        if reference_gate is not None:
+            if not isinstance(reference_gate, Mapping):
+                raise RuntimeValidationError("ATTESTATION_REFERENCE_GATE_INVALID")
+            contract_id = reference_gate.get("contract_id")
+            contract_hash = reference_gate.get("contract_hash")
+            binding_results = reference_gate.get("binding_results")
+            if (
+                not isinstance(contract_id, str)
+                or not re.fullmatch(r"reference-contract-[a-f0-9]{12}", contract_id)
+                or not isinstance(contract_hash, str)
+                or not re.fullmatch(r"[a-f0-9]{64}", contract_hash)
+                or reference_gate.get("result") not in {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
+                or not isinstance(binding_results, list)
+            ):
+                raise RuntimeValidationError("ATTESTATION_REFERENCE_GATE_INVALID")
+            safe_bindings: list[dict[str, Any]] = []
+            for binding in binding_results:
+                if not isinstance(binding, Mapping):
+                    raise RuntimeValidationError("ATTESTATION_REFERENCE_BINDING_INVALID")
+                decision_id = binding.get("reference_decision_id")
+                evidence_refs = binding.get("evidence_refs", [])
+                if (
+                    not isinstance(decision_id, str)
+                    or not re.fullmatch(r"REFDEC-[0-9]{3,4}", decision_id)
+                    or binding.get("result") not in {"PASS", "FAIL", "BLOCKED", "UNVERIFIED"}
+                    or not isinstance(evidence_refs, list)
+                    or any(not isinstance(item, str) or not item.strip() for item in evidence_refs)
+                ):
+                    raise RuntimeValidationError("ATTESTATION_REFERENCE_BINDING_INVALID")
+                safe_bindings.append(
+                    {
+                        "reference_decision_id": decision_id,
+                        "result": binding["result"],
+                        "capability": str(binding.get("capability", "")),
+                        "evidence_refs": list(evidence_refs),
+                    }
+                )
+            safe[name]["reference_gate"] = {
+                "gate_id": "GATE-REFERENCE-CONFORMANCE",
+                "contract_id": contract_id,
+                "contract_hash": contract_hash,
+                "result": reference_gate["result"],
+                "binding_results": safe_bindings,
+            }
         evidence.extend(refs)
     return safe, list(dict.fromkeys(evidence))
 

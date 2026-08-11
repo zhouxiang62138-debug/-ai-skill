@@ -1,0 +1,16 @@
+schema_version: 1
+evidence_id: REFEV-001
+reference_id: REF-001
+evidence_type: screenshot
+artifact_ref: artifacts/references/reference-001/evidence/placeholder.png
+integrity:
+  algorithm: sha256
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+viewport:
+  width: 1440
+  height: 1000
+captured_at: null
+source_location: null
+locator: null
+metadata: {}
+trust_level: untrusted

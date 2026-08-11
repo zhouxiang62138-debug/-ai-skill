@@ -71,6 +71,17 @@ NEW_PREVIEW_SIGNALS = (
 )
 SELECTION_SIGNALS = ("选择", "我选", "就按", "采用", "选方案", "用方案")
 BLEND_SIGNALS = ("混搭", "混合", "融合", "结合", "首页用", "统计页用", "配色用", "交互用")
+PROTOTYPE_CONFIRM_SIGNALS = (
+    "确认这个设计",
+    "确认当前设计",
+    "这个设计可以定稿",
+    "按这个设计定稿",
+    "高保真方案通过",
+    "预览确认",
+)
+DESIGN_PREVIEW_MODE_LEGACY = "legacy_full"
+DESIGN_PREVIEW_MODE_COMPARISON = "direction_comparison"
+DESIGN_PREVIEW_MODE_SELECTED = "selected_prototype"
 EXCLUDED_REFERENCE_PATTERN = (
     r"(?:不要|排除|不用|不选|不选择)\s*"
     r"(?:方案|概念|concept[_\s-]*)\s*"
@@ -123,7 +134,12 @@ def _extract_excluded_refs(text: str, current_round: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_concept_ref(current_round, token) for token in tokens))
 
 
-def classify_feedback(text: str, current_round: str) -> FeedbackDecision:
+def classify_feedback(
+    text: str,
+    current_round: str,
+    *,
+    preview_mode: str = DESIGN_PREVIEW_MODE_LEGACY,
+) -> FeedbackDecision:
     raw = text.strip()
     if not raw:
         return FeedbackDecision("ambiguous", (), (), text, reason="empty_feedback")
@@ -149,6 +165,13 @@ def classify_feedback(text: str, current_round: str) -> FeedbackDecision:
     refs = tuple(reference for reference in refs if reference not in set(excluded))
     if any(signal in raw for signal in REJECT_ALL_SIGNALS):
         return FeedbackDecision("reject_all", (), excluded, raw)
+    if preview_mode == DESIGN_PREVIEW_MODE_SELECTED:
+        if any(signal in raw for signal in PROTOTYPE_CONFIRM_SIGNALS):
+            return FeedbackDecision("prototype_confirmed", (), excluded, raw)
+        if any(signal in raw for signal in MODIFICATION_SIGNALS):
+            return FeedbackDecision(
+                "prototype_modify", (), excluded, raw, requires_new_preview=True
+            )
 
     restore = any(signal in raw for signal in RESTORE_SIGNALS)
     discuss = any(signal in raw for signal in DISCUSSION_SIGNALS) or "?" in raw or "？" in raw
@@ -202,7 +225,13 @@ def _validate_concept_refs(refs: tuple[str, ...]) -> None:
             raise ProjectStateError(f"概念引用格式无效：{reference}")
 
 
-def _prepare_new_round(updated: dict[str, Any], next_round_reference: str) -> None:
+def _prepare_new_round(
+    updated: dict[str, Any],
+    next_round_reference: str,
+    *,
+    preview_mode: str,
+    preserve_selection: bool = False,
+) -> None:
     current_reference = updated.get("active_design_preview_round")
     if not current_reference:
         raise ProjectStateError("当前设计预览轮次为空")
@@ -215,15 +244,17 @@ def _prepare_new_round(updated: dict[str, Any], next_round_reference: str) -> No
             "status": "DESIGN_EXPLORATION",
             "next_role": "planner",
             "design_review_status": "revision_requested",
+            "design_preview_mode": preview_mode,
             "design_preview_round": next_number,
             "active_design_preview_round": next_round_reference,
             "exploration_generation_attempt": 0,
-            "selected_design_concept": None,
-            "design_selection_record": None,
             "active_plan": None,
             "approved_proposal": None,
         }
     )
+    if not preserve_selection:
+        updated["selected_design_concept"] = None
+        updated["design_selection_record"] = None
 
 
 def apply_feedback_decision(
@@ -246,13 +277,51 @@ def apply_feedback_decision(
     updated = copy.deepcopy(state)
     updated["exploration_feedback_record"] = feedback_record
     updated["design_feedback_round"] = state.get("design_feedback_round", 0) + 1
+    preview_mode = str(state.get("design_preview_mode") or DESIGN_PREVIEW_MODE_LEGACY)
 
     if decision.action in {"single", "modify", "blend", "restore"}:
         _validate_concept_refs(decision.concept_refs)
-        if decision.action == "modify" and decision.requires_new_preview:
+        if preview_mode == DESIGN_PREVIEW_MODE_COMPARISON:
+            if not selection_record:
+                raise ProjectStateError("方向选择必须创建 design_selection_record")
+            if not next_round_reference:
+                raise ProjectStateError("选择方向后必须提供单一高保真预览的下一轮路径")
+            _require_record(
+                selection_record,
+                r"memory/decisions/design-selection-\d{3}\.md",
+                "selection_record",
+            )
+            mode = {
+                "single": "single",
+                "modify": "modified",
+                "blend": "blend",
+                "restore": "restored",
+            }[decision.action]
+            updated.update(
+                {
+                    "selected_design_concept": {
+                        "mode": mode,
+                        "concept_refs": list(decision.concept_refs),
+                        "integration_notes": decision.raw_text,
+                    },
+                    "design_selection_record": selection_record,
+                }
+            )
+            _prepare_new_round(
+                updated,
+                next_round_reference,
+                preview_mode=DESIGN_PREVIEW_MODE_SELECTED,
+                preserve_selection=True,
+            )
+            updated["design_feedback_status"] = "selected_prototype_requested"
+        elif decision.action == "modify" and decision.requires_new_preview:
             if not next_round_reference:
                 raise ProjectStateError("要求查看修改预览时必须提供下一轮路径")
-            _prepare_new_round(updated, next_round_reference)
+            _prepare_new_round(
+                updated,
+                next_round_reference,
+                preview_mode=preview_mode,
+            )
             updated["design_feedback_status"] = "modification_requested"
         else:
             if not selection_record:
@@ -289,16 +358,71 @@ def apply_feedback_decision(
                     "approved_proposal": None,
                 }
             )
+    elif decision.action == "prototype_confirmed":
+        if preview_mode != DESIGN_PREVIEW_MODE_SELECTED:
+            raise ProjectStateError("只有单一高保真预览可以被确认")
+        if not state.get("selected_design_concept") or not state.get("design_selection_record"):
+            raise ProjectStateError("确认高保真预览前必须保留方向选择来源")
+        updated.update(
+            {
+                "status": "PLANNING_REVISION",
+                "next_role": "planner",
+                "design_review_status": "direction_selected",
+                "design_feedback_status": "prototype_confirmed",
+                "active_plan": None,
+                "approved_proposal": None,
+            }
+        )
+    elif decision.action == "prototype_modify":
+        if preview_mode != DESIGN_PREVIEW_MODE_SELECTED:
+            raise ProjectStateError("prototype_modify 只适用于单一高保真预览")
+        if not next_round_reference:
+            raise ProjectStateError("修改高保真预览时必须提供下一轮路径")
+        if not selection_record:
+            raise ProjectStateError("修改高保真方向必须创建新的 design_selection_record")
+        _require_record(
+            selection_record,
+            r"memory/decisions/design-selection-\d{3}\.md",
+            "selection_record",
+        )
+        updated["design_selection_record"] = selection_record
+        selected = copy.deepcopy(state.get("selected_design_concept"))
+        if not isinstance(selected, dict):
+            raise ProjectStateError("修改高保真预览前缺少 selected_design_concept")
+        selected["mode"] = "modified"
+        selected["integration_notes"] = decision.raw_text
+        updated["selected_design_concept"] = selected
+        _prepare_new_round(
+            updated,
+            next_round_reference,
+            preview_mode=DESIGN_PREVIEW_MODE_SELECTED,
+            preserve_selection=True,
+        )
+        updated["design_feedback_status"] = "modification_requested"
     elif decision.action == "reject_all":
         if not next_round_reference:
             raise ProjectStateError("全部否定后必须提供下一轮路径")
-        _prepare_new_round(updated, next_round_reference)
+        _prepare_new_round(
+            updated,
+            next_round_reference,
+            preview_mode=DESIGN_PREVIEW_MODE_COMPARISON,
+        )
         updated["design_feedback_status"] = "all_rejected"
         reasons = list(updated.get("exploration_trigger_reasons") or [])
         if "user_rejected_all_directions" not in reasons:
             reasons.append("user_rejected_all_directions")
         updated["exploration_trigger_reasons"] = reasons
     elif decision.action in {"discuss", "ambiguous", "conflicting"}:
+        selected_design = (
+            copy.deepcopy(state.get("selected_design_concept"))
+            if preview_mode == DESIGN_PREVIEW_MODE_SELECTED
+            else None
+        )
+        selection_reference = (
+            state.get("design_selection_record")
+            if preview_mode == DESIGN_PREVIEW_MODE_SELECTED
+            else None
+        )
         updated.update(
             {
                 "status": "WAITING_FOR_DESIGN_REVIEW",
@@ -308,8 +432,8 @@ def apply_feedback_decision(
                     "ambiguous": "ambiguous",
                     "conflicting": "conflicting",
                 }[decision.action],
-                "selected_design_concept": None,
-                "design_selection_record": None,
+                "selected_design_concept": selected_design,
+                "design_selection_record": selection_reference,
                 "active_plan": None,
                 "approved_proposal": None,
             }
@@ -332,6 +456,11 @@ def integrate_feedback_into_proposal(
         raise ProjectStateError("只有 PLANNING_REVISION 可以整合设计反馈")
     if state.get("design_review_status") != "direction_selected":
         raise ProjectStateError("尚无可整合的明确设计方向")
+    if (
+        state.get("design_preview_mode") == DESIGN_PREVIEW_MODE_SELECTED
+        and state.get("design_feedback_status") != "prototype_confirmed"
+    ):
+        raise ProjectStateError("单一高保真预览尚未获得用户明确确认")
     match = re.fullmatch(
         r"memory/proposals/product_proposal_v(\d{3})\.md", new_proposal_reference
     )

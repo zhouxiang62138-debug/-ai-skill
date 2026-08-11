@@ -18,6 +18,7 @@ from .control_plane import require_session_database, control_plane_id
 from .event_types import ActorType, EventType
 from .leases import LeaseManager
 from .project_revision import ProjectStateCAS, project_state_hash, runtime_projection
+from .policy import load_module_authorization
 from .recovery import RecoveryManager
 from .role_selector import Selection, select_role
 from .session_store import SessionStore
@@ -47,7 +48,12 @@ class Orchestrator:
         self.cas = ProjectStateCAS(self.store, self.leases)
         self.recovery = RecoveryManager(self.store, self.cas)
 
-    def start(self, *, worker_id: str | None = None) -> dict[str, Any]:
+    def start(
+        self,
+        *,
+        worker_id: str | None = None,
+        allow_user_input_module: bool = False,
+    ) -> dict[str, Any]:
         """注册/恢复 v7 Session 并返回确定性角色运行请求。"""
 
         state = self._validated_state()
@@ -60,6 +66,25 @@ class Orchestrator:
             session_id=str(projection["session_id"]),
         )
         selection = select_role(state)
+        if selection.kind == "MODULE":
+            authorization = load_module_authorization()
+            allowed_modules = authorization["allowed_modules"]
+            if selection.target not in allowed_modules:
+                raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+            if str(state.get("status")) not in authorization[str(selection.target)]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        user_input_module = (
+            allow_user_input_module
+            and selection.kind == "WAIT"
+            and state.get("active_module") == "first_ask_intake"
+        )
+        if user_input_module:
+            selection = Selection("MODULE", "first_ask_intake", "explicit_user_input")
+            authorization = load_module_authorization()
+            if selection.target not in authorization["allowed_modules"]:
+                raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+            if str(state.get("status")) not in authorization[str(selection.target)]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
         if selection.kind == "WAIT":
             return {
                 "session_id": session.session_id,
@@ -257,13 +282,22 @@ class Orchestrator:
         result: dict[str, Any],
         *,
         worker_id: str,
+        lease_version: int | None = None,
+        lease_token: str | None = None,
     ) -> dict[str, Any]:
         """让受信任 Module 复用现有 CAS，不创建额外 Agent 或 CAS。"""
 
-        if module != "change_request":
+        authorization = load_module_authorization()
+        allowed_modules = authorization["allowed_modules"]
+        if module not in allowed_modules:
             raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
-        lease = self.leases.acquire(session_id, worker_id)
-        lease_token = lease.lease_token or ""
+        current_state = load_project_state(self.project_yaml)
+        if str(current_state.get("status")) not in authorization[module]:
+            raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        lease_owned = lease_version is None
+        lease = self.leases.acquire(session_id, worker_id) if lease_owned else None
+        actual_lease_version = lease.lease_version if lease is not None else lease_version
+        actual_lease_token = lease.lease_token if lease is not None else (lease_token or "")
         try:
             required = {
                 "project_yaml",
@@ -275,21 +309,25 @@ class Orchestrator:
             }
             if set(result) != required or not isinstance(result["changed_fields"], dict):
                 raise RuntimeValidationError("MODULE_STEP_RESULT_INVALID")
+            source_status = str(result["source_status"])
+            if source_status not in authorization[module]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
             return self.cas.commit_patch(
                 result["project_yaml"],
                 result["changed_fields"],
-                source_status=str(result["source_status"]),
+                source_status=source_status,
                 target_status=str(result["target_status"]),
                 session_id=session_id,
                 worker_id=worker_id,
                 actor_role=module,
-                lease_version=lease.lease_version,
-                lease_token=lease_token,
+                lease_version=int(actual_lease_version),
+                lease_token=actual_lease_token,
                 expected_revision=int(result["expected_revision"]),
                 idempotency_key=str(result["idempotency_key"]),
             )
         finally:
-            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+            if lease_owned and lease is not None:
+                self.leases.release(session_id, worker_id, lease.lease_version, actual_lease_token)
 
     def commit_module_state(
         self,
@@ -301,13 +339,22 @@ class Orchestrator:
         expected_revision: int,
         idempotency_key: str,
         worker_id: str,
+        lease_version: int | None = None,
+        lease_token: str | None = None,
     ) -> dict[str, Any]:
         """提交 Module 元数据，仍受 F10 ownership、Lease 和 CAS 保护。"""
 
-        if module != "change_request":
+        authorization = load_module_authorization()
+        allowed_modules = authorization["allowed_modules"]
+        if module not in allowed_modules:
             raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
-        lease = self.leases.acquire(session_id, worker_id)
-        lease_token = lease.lease_token or ""
+        current_state = load_project_state(self.project_yaml)
+        if str(current_state.get("status")) not in authorization[module]:
+            raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        lease_owned = lease_version is None
+        lease = self.leases.acquire(session_id, worker_id) if lease_owned else None
+        actual_lease_version = lease.lease_version if lease is not None else lease_version
+        actual_lease_token = lease.lease_token if lease is not None else (lease_token or "")
         try:
             return self.cas.commit(
                 project_yaml,
@@ -315,13 +362,14 @@ class Orchestrator:
                 session_id=session_id,
                 worker_id=worker_id,
                 actor_role=module,
-                lease_version=lease.lease_version,
-                lease_token=lease_token,
+                lease_version=int(actual_lease_version),
+                lease_token=actual_lease_token,
                 expected_revision=expected_revision,
                 idempotency_key=idempotency_key,
             )
         finally:
-            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+            if lease_owned and lease is not None:
+                self.leases.release(session_id, worker_id, lease.lease_version, actual_lease_token)
 
     def commit_role_state(
         self,

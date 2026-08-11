@@ -11,6 +11,9 @@ original_request:
   text: |-
     <逐字保留用户原始请求>
 
+# First-Ask 只登记用户提供的引用、原话和范围；分析结果由 Reference Analysis Module 追加保存
+references: []
+
 # 字段状态：
 # unanswered | answered | assumed | undecided | conflicting |
 # requires_user_decision | not_applicable

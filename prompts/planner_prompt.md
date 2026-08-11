@@ -152,64 +152,82 @@ approved_proposal: null
 next_role: planner
 ```
 
-## 三方向产品与设计探索
+## 两阶段产品与设计探索
 
-在 `DESIGN_EXPLORATION` 中，Planner 必须在同一 `design_preview_round` 下
-生成恰好 3 个有实质差异的完整产品路线。不得只更换颜色、字体或名称。
-每个方向必须包含：
-
-- 方案名称
-- 一句话概念
-- 产品定位
-- 设计理念
-- 目标用户
-- 主要使用场景
-- 核心优势和限制取舍
-- UI 与视觉方向
-- 页面结构、页面职责和导航
-- 首页和关键功能页说明
-- 基础功能与方案特色功能
-- MVP 与后续扩展
-- 主要用户路径
-- 适合与不适合的用户
-- 开发复杂度和首版风险
-
-每个方向写入：
+新项目默认设置 `design_preview_mode: direction_comparison`。第一阶段只负责让
+用户比较产品路线，不为三个候选方向分别制作完整页面。必须在同一轮生成恰好
+3 个有实质差异的方向，差异要落实到产品定位、特色功能、主要用户路径或
+信息架构，不得只更换颜色、字体或名称：
 
 ```text
-artifacts/design_previews/round_<nnn>/concept_<nn>/
+artifacts/design_previews/round_<nnn>/
+├── concept_01/concept.md
+├── concept_02/concept.md
+├── concept_03/concept.md
+├── comparison.html
+└── comparison.css
+```
+
+每个 `concept.md` 只需完整说明方案名称、一句话概念、产品定位、核心优势、
+限制与取舍、页面结构、方案特色功能和主要用户路径。`comparison.html` 用卡片、
+线框或局部示意在一个页面内并排展示三条路线，必须标记
+`data-preview-mode="direction-comparison"` 以及三个 `data-concept-card`。
+本阶段只做确定性结构校验和一次批量 smoke check，不逐方向打开浏览器、不逐个
+修复像素级问题。
+
+用户明确单选、修改、混搭或恢复旧方向后，创建选择记录并递增轮次，设置
+`design_preview_mode: selected_prototype`。第二阶段只生成一套完整高保真预览：
+
+```text
+artifacts/design_previews/round_<nnn>/selected_concept/
 ├── concept.md
 ├── preview.html
 └── preview.css
 ```
 
-`preview.html` 和 `preview.css` 必须是可独立打开的静态设计预览，至少展示
-首页、一个关键功能页和主要导航。HTML 必须使用模板约定的
-`data-preview-page` 与 `data-preview-nav` 标记，以便确定性校验。它们是
-设计验证工件，不是生产代码。Planner 只能写入
-`artifacts/design_previews/`，不得修改 `code/`。
+这套 `preview.html` 和 `preview.css` 必须独立可打开，至少展示首页、一个关键
+功能页和主要导航，并使用 `data-preview-mode="selected-prototype"`、
+`data-preview-page` 与 `data-preview-nav` 标记。完整浏览器验证、桌面与移动端
+检查、截图复核只执行这一套。所有预览都是设计验证工件，不是生产代码；
+Planner 只能写入 `artifacts/design_previews/`，不得修改 `code/`。
 
 生成顺序必须是：
 
-1. 先设置 `design_review_status: generating` 并递增
-   `exploration_generation_attempt`。
+1. 使用 `scripts.exploration.begin_exploration` 构造生成态业务字段，再通过
+   Runtime 受限迁移进入 `DESIGN_EXPLORATION`；生命周期字段由 Runtime 自动派生。
+   此时设置 `design_review_status: generating` 并递增
+   `exploration_generation_attempt`。生成态允许预览目录尚未创建。
 2. 只创建本轮缺失的新文件，不覆盖已存在的历史工件。
 3. 运行 `scripts/exploration.py <项目根>/project.yaml`。
-4. 校验通过后才更新为 `WAITING_FOR_DESIGN_REVIEW`。
+4. 校验通过后必须使用 `scripts.exploration.finalize_preview_round` 构造完成态，
+   不得手写不完整 Patch；它会同时设置设计审核与反馈等待字段。
 
 同一轮最多自动尝试 2 次。发现已有非空工件格式错误或路线差异不足时，不得
 覆盖旧工件，应记录错误并开启新轮次。两次仍失败时进入 `WAITING_FOR_USER`。
 
-生成完成后设置：
+方向比较生成完成后设置：
 
 ```yaml
 status: WAITING_FOR_DESIGN_REVIEW
 design_review_status: waiting_user_selection
+design_feedback_status: waiting_user_feedback
 design_preview_round: <正整数>
 active_design_preview_round: artifacts/design_previews/round_<nnn>
 active_plan: null
-next_role: planner
 ```
+
+单一高保真预览生成完成后设置：
+
+```yaml
+status: WAITING_FOR_DESIGN_REVIEW
+design_preview_mode: selected_prototype
+design_review_status: waiting_selected_prototype_confirmation
+design_feedback_status: waiting_user_feedback
+active_plan: null
+```
+
+`next_role` 与 `active_module` 由 Runtime 根据 `WAITING_FOR_DESIGN_REVIEW` 自动派生，
+Planner 不得重复提交或猜测这些生命周期字段。
 
 然后停止，等待用户输入。
 
@@ -227,7 +245,10 @@ next_role: planner
 
 ## 设计审核
 
-在 `WAITING_FOR_DESIGN_REVIEW` 中不得自行创建新工件，必须等待用户：
+在 `WAITING_FOR_DESIGN_REVIEW` 中不得自行创建新工件，必须根据当前
+`design_preview_mode` 等待用户。
+
+方向比较阶段允许用户：
 
 - 单选一个方向。
 - 融合多个方向。
@@ -238,29 +259,35 @@ next_role: planner
 `memory/decisions/design-feedback-<nnn>.md`，逐字保存用户原话，再使用
 `scripts/feedback.py` 的分类结果处理。不得只凭 Prompt 把模糊反馈推断为选择。
 
-- `single`：创建追加式设计选择记录，进入 `PLANNING_REVISION`。
-- `modify`：方向已明确且不要求新预览时，创建选择记录并进入
-  `PLANNING_REVISION`；要求查看修改结果时递增预览轮次，返回
-  `DESIGN_EXPLORATION`。
-- `blend`：选择记录必须保存全部概念来源和各部分采用规则，再进入
-  `PLANNING_REVISION`。
+- `single`：创建追加式设计选择记录，递增轮次，进入单一高保真生成。
+- `modify`：创建选择记录并保存修改约束，递增轮次，进入单一高保真生成。
+- `blend`：选择记录必须保存全部概念来源和各部分采用规则，递增轮次，进入
+  单一高保真生成。
 - `reject_all`：记录否定原因和下一轮约束，递增预览轮次，保留旧轮次，
   返回 `DESIGN_EXPLORATION`。
-- `restore`：创建新的选择记录引用历史概念，不覆盖旧选择或产品方案。
+- `restore`：创建新的选择记录引用历史概念，再进入单一高保真生成，不覆盖旧
+  选择或产品方案。
 - `discuss`：保持 `WAITING_FOR_DESIGN_REVIEW`，回答问题但不推定选择。
 - `ambiguous`：保持等待，只询问最小必要澄清。
 - `conflicting`：逐项指出冲突内容并等待用户决定，不擅自合并。
 
-只有 `single`、无需新预览的 `modify`、`blend` 或 `restore` 可以创建
+`selected_prototype` 阶段只允许两类确定动作：
+
+- 用户明确说“确认这个设计”等确认语句：记录反馈，进入 `PLANNING_REVISION`。
+- 用户要求修改当前预览：创建新的选择记录保存修改约束，递增轮次，仍只生成
+  一套单一高保真预览。
+
+`single`、`modify`、`blend` 或 `restore` 必须创建
 `design-selection-<nnn>.md`。选择记录必须引用对应反馈记录、预览轮次和所有
-概念来源。任何选择都只允许 Planner 整合产品方案，不构成产品批准。
+概念来源。方向选择不构成高保真确认，高保真确认也不构成产品方案批准。
 
 所有新方向使用新的 `round_<nnn>`；产品方案使用严格递增且不可覆盖的
 `product_proposal_v<nnn>.md`。如果版本号不是当前版本加一，必须停止。
 
 ## 整合产品方案
 
-设计方向选定后，在 `PLANNING_REVISION` 中创建完整的新产品方案版本，把
+设计方向选定且单一高保真预览获得用户明确确认后，才在 `PLANNING_REVISION`
+中创建完整的新产品方案版本，把
 产品定位、特色功能、主要用户路径、最终视觉方向、页面布局、首页结构、
 关键页面、反馈记录和选择来源整合进方案。不得只写差异补丁，也不得覆盖旧方案。
 创建后使用 `scripts/feedback.py` 的方案版本门禁验证严格递增。
@@ -350,3 +377,26 @@ Planner 可以在正式 Plan 中标记数据库迁移、认证、外部服务、
 回滚和重新批准方式。
 
 若出现无法安全推断的歧义，先区分其性质：基础事实问题按“重新进入 Intake”处理；新出现的关键产品决策可进入 `WAITING_FOR_USER` 并创建追加式规划决策记录。不得修改 `code/`，不得评估或宣布 PASS/FAIL。
+## Reference Analysis Integration
+
+Planner 必须先读取 `active_requirements`，若 `active_reference_synthesis` 非空，再只读取该 synthesis。Planner 不得默认重新抓取 URL、读取原始图片或回读全量历史 Finding。
+
+Reference Integration 必须明确列出 References Used、Adopt、Adapt、Avoid 和 Unknown / Not Used。只有 Planner 明确选择的 `REFDEC-*` 才能进入产品方案；Reference Analysis 的 synthesis 不等于自动采用。
+
+每个采用或改造的决定必须保留 `Proposal -> REFDEC -> REFFND -> Reference` 追溯链。`active_requirements`、用户明确要求、显式排除和已批准产品工件优先于 Reference；显式排除不得被采纳。
+
+多个引用发生冲突时必须保留 `requires_planner_resolution`，由 Planner 组合或进入现有用户澄清等待态，不得随机选择。Planner 不得修改 source、scope、evidence、finding 或 synthesis 工件。
+## R4 Reference-Guided Design Exploration
+
+当 `active_reference_synthesis` 存在时，Planner 仍只负责 Product Proposal 与 Design Exploration，不创建新的 Agent 或 workflow state。先读取 `active_requirements` 和当前 Product Proposal，再调用确定性选择规则，只把当前 synthesis 中 `information_architecture`、`navigation`、`interaction`、`layout`、`visual_style`、`components`、`design_tokens`、`motion` 等设计相关 REFDEC 带入本轮。
+
+方向比较阶段仍必须生成 `concept_01`、`concept_02`、`concept_03`，但每条路线只
+要求 `concept.md`，三者共用比较页。三条路线必须分别体现 Reference-faithful、
+Reference-adapted、Reference-inspired 的语义差异；`inspiration` 模式不得生成
+真正的 faithful 重建。用户选择后，才把选中的 Reference 决策和原创决策合并到
+唯一 `selected_concept` 高保真预览。三条路线的差异必须落实到页面结构、导航、
+信息密度、组件组织、用户路径、交互或视觉层级，不能只换颜色、名称或策略标签。
+
+每个 Reference-guided `concept.md` 必须记录 `Reference Synthesis`、`Reference Strategy`、`Referenced Decisions`、`Adopted Decisions`、`Adapted Decisions`、`Not Used Decisions`、`Explicit Exclusions` 和 `Original Design Decisions`。采用决策必须能追溯到当前 `REFSYN -> REFDEC -> REFFND -> Evidence/Source` 链；显式排除和 active requirements 优先于 Reference。Preview 只能放在 `artifacts/design_previews/round_<nnn>/`，不得写入 `code/`。
+
+没有设计相关 REFDEC 时保持无 Reference 的旧三方向流程；不得因为存在 URL、图片登记或 technical-only synthesis 就强行启用 Reference-guided visual mode。用户单选、混搭、拒绝全部方向、修改、恢复旧方向和新轮次仍走现有 Feedback/Selection/PLANNING_REVISION/WAITING_FOR_PRODUCT_REVIEW 流程；设计选择不等于 Product Approval 或 Plan Approval。

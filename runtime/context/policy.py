@@ -91,6 +91,10 @@ class ContextPolicy:
                     "project_state",
                     "state_reference",
                     "state_value",
+                    "reference_catalog",
+                    "design_reference_subset",
+                    "approved_reference_bindings",
+                    "reference_conformance_subset",
                 }:
                     raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
                 if reference is not None and not isinstance(reference, str):
@@ -131,6 +135,41 @@ class ContextPolicy:
             ):
                 raise RuntimeValidationError("CONTEXT_BUDGET_CONFIG_INVALID")
             self._budgets[role] = ContextBudgetConfig(**budget_values)
+
+        raw_modules = document.get("modules", {})
+        if raw_modules is not None and not isinstance(raw_modules, dict):
+            raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+        for module, raw_policy in (raw_modules or {}).items():
+            if module in self._roles or not isinstance(raw_policy, dict) or not isinstance(raw_policy.get("sources"), list):
+                raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+            rules: list[ContextSourceRule] = []
+            for raw_rule in raw_policy["sources"]:
+                if not isinstance(raw_rule, dict):
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                source_type = raw_rule.get("source_type")
+                reference = raw_rule.get("reference")
+                field = raw_rule.get("field")
+                reason = raw_rule.get("reason")
+                priority = raw_rule.get("priority", "NORMAL")
+                delivery_mode = raw_rule.get("delivery_mode", "INLINE")
+                if source_type not in {"project_state", "state_reference", "state_value", "reference_catalog", "design_reference_subset", "approved_reference_bindings", "reference_conformance_subset"}:
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                if source_type == "project_state" and reference != "project.yaml":
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                if source_type != "project_state" and not isinstance(field, str):
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                if reference is not None and not isinstance(reference, str):
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                if not isinstance(reason, str) or not reason:
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                if priority not in _PRIORITIES or delivery_mode not in _DELIVERY_MODES:
+                    raise RuntimeValidationError("CONTEXT_POLICY_INVALID")
+                rules.append(ContextSourceRule(source_type, reference, field, reason, priority, delivery_mode))
+            self._roles[module] = tuple(rules)
+            budget_values = {key: raw_policy.get(key) for key in ("max_context_bytes", "max_inline_bytes", "max_sources", "max_source_inline_bytes")}
+            if not all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in budget_values.values()):
+                raise RuntimeValidationError("CONTEXT_BUDGET_CONFIG_INVALID")
+            self._budgets[module] = ContextBudgetConfig(**budget_values)
 
     @property
     def roles(self) -> frozenset[str]:

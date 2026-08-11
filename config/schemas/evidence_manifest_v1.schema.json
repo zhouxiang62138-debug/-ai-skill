@@ -47,7 +47,23 @@
     "gates": {
       "type": "array",
       "items": {"$ref": "#/$defs/gate"}
-    }
+    },
+    "reference_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "evidence_type", "source", "evaluator_owned", "evidence_refs"],
+        "properties": {
+          "evidence_id": {"type": "string", "pattern": "^REF-EV-[0-9]{3}$"},
+          "evidence_type": {"enum": ["static_check", "runtime_check", "browser_step", "screenshot", "content_check", "technical_check"]},
+          "source": {"enum": ["evaluator", "runtime", "browser", "build_test_regression"]},
+          "evaluator_owned": {"const": true},
+          "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "reference_conformance": {"$ref": "reference_conformance_v1.schema.json"}
   },
   "$defs": {
     "project_path": {
@@ -150,7 +166,7 @@
       "properties": {
         "gate_id": {"type": "string", "pattern": "^GATE-[A-Z_]+$"},
         "required": {"type": "boolean"},
-        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"]},
+        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE"]},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
         "skip_reason": {"type": ["string", "null"]},
         "reason": {"type": ["string", "null"]}

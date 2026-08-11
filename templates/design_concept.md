@@ -70,3 +70,24 @@
 - 关键功能页容器必须标记 `data-preview-page="key-feature"`。
 - 主导航必须包含 `data-preview-nav`。
 - 预览是设计验证工件，不是生产代码。
+
+## Reference Integration
+
+- Reference Synthesis:
+- Reference Mode:
+- Reference Strategy:
+- Strategy Variant:
+
+## Reference Strategy
+
+## Referenced Decisions
+
+## Adopted Decisions
+
+## Adapted Decisions
+
+## Not Used Decisions
+
+## Explicit Exclusions
+
+## Original Design Decisions
