@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "qualification": "F14_FINAL_FULL_SYSTEM",
+  "baseline": {
+    "git_commit": "0fcb6c98ea421b7a930cd564d15da74a03383b3b",
+    "git_tree_hash": "4039f562e38c2d098612f3b0fd8624999c939e66",
+    "working_tree_hash": "ee07f44a11bffeaf3096e36fdd9a56fdf896cb44cab46b15092682803cf1385c",
+    "runtime_schema": 7,
+    "config_hash": "4fe2ff3dd6f4c5d0b9aa89f76f65ad29151107bc5dbb684aeab1f73853684ac6",
+    "workflow_hash": "a2484a0ac476b8f34c173850586dfcf665c1afa5119332788b4e9f03a661c8a8",
+    "role_policy_hash": "0de6f66463fee280476c7269811e759ba5a12310beb7702ba53d3035bd23ab45",
+    "context_policy_hash": "b172d2683b5c283e85a536af79a5382a213674a793e5f1445d4fcc5c96e11b0b",
+    "evaluation_policy_hash": "f6b30b1fe1aab673a58c8e4c9f9c69a5881bb641b8979b931371ed33528240dc",
+    "f14_config_hash": "b387a2b5476762b772d076b657ba26e83c8430ffb94274df9393c858d8432ec2",
+    "python_version": "Python 3.11.15",
+    "platform": "Microsoft Windows NT 10.0.26200.0 / AMD64"
+  },
+  "final_state": {
+    "working_tree_hash_before_report": "be79a3da5a0191c3727c8c619eab1bfd5c7c39c4b99ae76e383c094d80d04be2",
+    "config_hash": "196d6c73c3f55420167587e4d2289b0406d01541572f641bdf2134d9c3c30bc1",
+    "role_policy_hash": "9d7951d816f5a41a83cd0d167b38e27766c26aabe8a88cb76c573156dcd94fe2"
+  },
+  "tests": [
+    {"test_id": "QUAL-BASE-001", "evidence_refs": ["tests/test_context_builder.py", "tests/test_context_budget.py", "tests/test_context_resume.py", "tests/test_formal_context_builder.py"], "metrics": {"passed": 120, "failed": 0, "errors": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-BASE-002", "evidence_refs": ["tests/"], "metrics": {"passed": 497, "failed": 0, "errors": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-BASE-003", "evidence_refs": ["git diff --check"], "metrics": {"diagnostics": 0}, "benchmark_type": "SYNTHETIC", "verdict": "PASS"},
+    {"test_id": "QUAL-E2E-001", "evidence_refs": ["tests/test_stage2_core_e2e.py", "tests/test_stage3_rework_e2e.py", "tests/test_stage4b_change_request_e2e.py", "tests/test_two_stage_design_exploration.py"], "metrics": {"passed": 39, "failed": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-REQ-001", "evidence_refs": ["tests/test_requirement_discovery.py", "runtime/requirements_discovery"], "metrics": {"research_gate": "covered", "question_round_limit": 3, "research_unavailable_status": "unavailable"}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-DESIGN-001", "evidence_refs": ["tests/test_two_stage_design_exploration.py", "tests/test_exploration.py"], "metrics": {"comparison_concepts": 3, "independent_gates": 3}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-APPROVAL-001", "evidence_refs": ["tests/test_approval.py", "config/role_policies.yaml"], "metrics": {"ambiguous_gate_bypasses": 0, "hash_bound_sources": true}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-GEN-001", "evidence_refs": ["scripts/approval.py", "external:test_f14_source_chain_case_*"], "metrics": {"faults": 7, "fail_closed": 7}, "benchmark_type": "SYNTHETIC", "verdict": "PASS"},
+    {"test_id": "QUAL-EVAL-001", "evidence_refs": ["tests/test_evaluator_independence.py", "tests/test_f14_f_benchmark.py"], "metrics": {"critical_detection_difference": 0, "independence_failures": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-RECOVERY-001", "evidence_refs": ["tests/test_phase_runner.py", "tests/test_session_recovery.py", "tests/test_recovery_is_idempotent.py"], "metrics": {"state_corruption": 0, "duplicate_recovery_events": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-F14C-001", "evidence_refs": ["tests/test_f14_c_post_verification.py", "tests/test_f14_c6_fault_injection.py"], "metrics": {"critical_false_omission": 0, "false_mandatory": 0, "false_block": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-F14D-001", "evidence_refs": ["tests/test_f14_d_context_escalation.py"], "metrics": {"security_denials": "covered", "f13_fallback": "covered", "llm_invocations_on_failure": 0}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-F14E-001", "evidence_refs": ["tests/test_f14_e_incremental_context.py", "runtime/context/incremental.py"], "metrics": {"mandatory_equivalence": true, "unsafe_reuse_fallback": true}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-F14F-001", "evidence_refs": ["tests/test_f14_f_context_and_invocation.py", "tests/test_f14_f_preflight.py"], "metrics": {"semantic_python_only_misclassification": 0, "net_reduction_gate": "covered"}, "benchmark_type": "SYNTHETIC", "verdict": "PASS"},
+    {"test_id": "QUAL-EFF-001", "evidence_refs": ["external:test_f14_final_qualification_20260812b/archive/benchmark-results/f14-ab-case-c.json"], "hashes": {"baseline_freeze_hash": "b818a1996f4df751405e0913f29b26f4b8b3c01753d01d4ec687e037617eadfa", "inputs_fingerprint": "5f8268e3b91a248082e99c004e2fd9e1627156dd7bb33314f46747ca745108ec"}, "metrics": {"f13_full_bytes": 10000, "initial_selective_bytes": 5200, "expansion_bytes": 2200, "recovery_bytes": 400, "net_context_bytes": 7800, "net_reduction_bytes": 2200, "net_reduction_ratio": 0.22, "repeated_context_reduction_bytes": 2500, "real_model_request_reduction": 0, "critical_detection_difference": 0, "token_status": "unavailable"}, "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS"},
+    {"test_id": "QUAL-REAL-001", "evidence_refs": ["runtime/deterministic/telemetry.py", "external:test_f14_final_qualification_20260812b/archive/benchmark-results"], "metrics": {"real_model_requests": 0, "actual_tokens": "unavailable"}, "benchmark_type": "REAL_MODEL", "verdict": "NOT_PROVEN"}
+  ],
+  "failure_classifications": [
+    {"id": "DEF-F14-001", "class": "PRODUCT DEFECT", "severity": "P1", "status": "FIXED", "affected_invariant": "approval_integrity/source_chain"},
+    {"id": "DEF-F14-002", "class": "PRODUCT DEFECT", "severity": "P1", "status": "FIXED", "affected_invariant": "fail_closed_missing_source"},
+    {"id": "ENV-001", "class": "ENVIRONMENT FAILURE", "status": "RETRIED_SUCCESSFULLY", "affected_invariant": "external_temp_directory"},
+    {"id": "ENV-002", "class": "ENVIRONMENT FAILURE", "status": "UNRESOLVED_TOOL_TIMEOUT", "affected_invariant": "full_pytest_completion"},
+    {"id": "TEST-001", "class": "TEST DEFECT", "status": "FIXED", "affected_invariant": "controlled_benchmark_callback"},
+    {"id": "TEST-002", "class": "TEST DEFECT", "status": "FIXED", "affected_invariant": "fault_injection_order"}
+  ],
+  "metrics": {
+    "f14_focused_pytest_passed": 116,
+    "full_unittest_passed": 497,
+    "combination_e2e_passed": 39,
+    "source_chain_faults": 7,
+    "source_chain_fail_closed": 7,
+    "critical_false_omission": 0,
+    "security_miss": 0,
+    "privacy_miss": 0,
+    "approval_bypass": 0,
+    "critical_detection_difference": 0,
+    "semantic_task_python_only_misclassification": 0,
+    "recovery_state_corruption": 0,
+    "case_c_net_context_reduction_bytes": 2200,
+    "case_c_net_context_reduction_ratio": 0.22,
+    "case_c_repeated_context_reduction_bytes": 2500,
+    "real_model_requests": 0,
+    "actual_token_status": "unavailable"
+  },
+  "verdicts": {
+    "engineering_qualification": "CONDITIONAL PASS",
+    "controlled_rollout": "RECOMMENDED_SCOPED_CANARY_ONLY",
+    "global_default_rollout": "NOT RECOMMENDED",
+    "actual_codex_token_saving": "NOT PROVEN"
+  }
+}

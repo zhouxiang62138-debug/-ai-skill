@@ -779,6 +779,8 @@ V4_DEFAULTS: dict[str, Any] = {
     "plan_status": "not_started",
     "plan_version": 0,
     "approved_plan": None,
+    "approved_plan_hash": None,
+    "approval_artifact_hashes": [],
     "plan_approval_status": "not_requested",
     "plan_approval_record": None,
     "exploration_feedback_record": None,

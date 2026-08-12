@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -171,6 +172,70 @@ def _read_artifact(root: str | Path, reference: str) -> str:
     return _resolve_project_file(root, reference).read_text(encoding="utf-8")
 
 
+def _artifact_hash(root: str | Path, reference: str) -> str:
+    """返回批准来源的字节级哈希，供后续 Generator 门禁复核。"""
+
+    return hashlib.sha256(_resolve_project_file(root, reference).read_bytes()).hexdigest()
+
+
+def _approval_source_references(
+    state: dict[str, Any], *, extra: Iterable[str | None] = ()
+) -> tuple[str, ...]:
+    """收集当前批准链工件，去重后保持稳定顺序。"""
+
+    values = [
+        state.get("active_requirements"),
+        state.get("active_proposal"),
+        state.get("approved_proposal"),
+        state.get("active_product_spec"),
+        state.get("active_plan"),
+        state.get("approved_plan"),
+        state.get("product_approval_record"),
+        state.get("plan_approval_record"),
+        state.get("design_selection_record") or state.get("design_skip_record"),
+        *extra,
+    ]
+    return tuple(dict.fromkeys(item for item in values if isinstance(item, str) and item))
+
+
+def _capture_approval_source_hashes(
+    root: str | Path, state: dict[str, Any], *, extra: Iterable[str | None] = ()
+) -> dict[str, str]:
+    return {
+        reference: _artifact_hash(root, reference)
+        for reference in _approval_source_references(state, extra=extra)
+    }
+
+
+def _approval_hash_map(value: Any) -> dict[str, str]:
+    """读取安全列表格式的批准哈希；旧/非法格式按缺失处理。"""
+
+    if isinstance(value, dict):
+        return {
+            str(reference): str(digest)
+            for reference, digest in value.items()
+            if isinstance(reference, str) and isinstance(digest, str)
+        }
+    if not isinstance(value, list):
+        return {}
+    result: dict[str, str] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        reference = item.get("reference")
+        digest = item.get("sha256")
+        if isinstance(reference, str) and isinstance(digest, str):
+            result[reference] = digest
+    return result
+
+
+def _approval_hash_records(value: dict[str, str]) -> list[dict[str, str]]:
+    return [
+        {"reference": reference, "sha256": value[reference]}
+        for reference in sorted(value)
+    ]
+
+
 def _validate_references(
     content: str, references: Iterable[str | None], label: str
 ) -> list[str]:
@@ -286,6 +351,15 @@ def prepare_product_approval_for_plan_review(
         if errors:
             raise ProjectStateError("; ".join(errors))
 
+    approval_hashes = (
+        _capture_approval_source_hashes(
+            project_root,
+            state,
+            extra=(product_approval_record, product_spec_reference, plan_reference),
+        )
+        if project_root is not None
+        else _approval_hash_map(state.get("approval_artifact_hashes"))
+    )
     updated = copy.deepcopy(state)
     updated.update(
         {
@@ -300,6 +374,8 @@ def prepare_product_approval_for_plan_review(
             "plan_version": expected_plan_version,
             "active_plan": plan_reference,
             "approved_plan": None,
+            "approved_plan_hash": None,
+            "approval_artifact_hashes": _approval_hash_records(approval_hashes),
             "plan_approval_status": "waiting_explicit_confirmation",
             "plan_approval_record": None,
             "status": "WAITING_FOR_PLAN_REVIEW",
@@ -346,11 +422,34 @@ def approve_plan(
         if errors:
             raise ProjectStateError("; ".join(errors))
 
+        previous_hashes = _approval_hash_map(state.get("approval_artifact_hashes"))
+        if not previous_hashes:
+            raise ProjectStateError("批准来源哈希快照缺失")
+        current_hashes = _capture_approval_source_hashes(
+            project_root,
+            state,
+            extra=(plan_approval_record,),
+        )
+        mismatches = [
+            reference
+            for reference, expected in previous_hashes.items()
+            if current_hashes.get(reference) != expected
+        ]
+        if mismatches:
+            raise ProjectStateError(
+                "产品批准后的来源已被修改：" + ",".join(sorted(mismatches))
+            )
+        approval_hashes = current_hashes
+    else:
+        approval_hashes = _approval_hash_map(state.get("approval_artifact_hashes"))
+
     updated = copy.deepcopy(state)
     updated.update(
         {
             "plan_status": "approved",
             "approved_plan": state.get("active_plan"),
+            "approved_plan_hash": approval_hashes.get(state.get("active_plan")),
+            "approval_artifact_hashes": _approval_hash_records(approval_hashes),
             "plan_approval_status": "approved",
             "plan_approval_record": plan_approval_record,
             "status": "APPROVED_FOR_IMPLEMENTATION",
@@ -383,6 +482,7 @@ def request_plan_revision(
             "next_role": "planner",
             "plan_status": "revision_requested",
             "approved_plan": None,
+            "approved_plan_hash": None,
             "plan_approval_status": "not_requested",
             "plan_approval_record": None,
         }
@@ -434,6 +534,7 @@ def return_revised_plan_for_review(
             "plan_version": expected_version,
             "active_plan": new_plan_reference,
             "approved_plan": None,
+            "approved_plan_hash": None,
             "plan_approval_status": "waiting_explicit_confirmation",
             "plan_approval_record": None,
         }
@@ -474,6 +575,8 @@ def revoke_approval(
                 "plan_status": "superseded",
                 "active_plan": None,
                 "approved_plan": None,
+                "approved_plan_hash": None,
+                "approval_artifact_hashes": [],
                 "plan_approval_status": "revoked",
             }
         )
@@ -482,6 +585,7 @@ def revoke_approval(
             {
                 "plan_status": "revision_requested",
                 "approved_plan": None,
+                "approved_plan_hash": None,
                 "plan_approval_status": "revoked",
             }
         )
@@ -519,6 +623,22 @@ def validate_generator_gate(
     if state.get("status") != "APPROVED_FOR_IMPLEMENTATION":
         errors.append("Generator 只能从 APPROVED_FOR_IMPLEMENTATION 开始")
         return errors
+    required_source_fields = (
+        "active_product_spec",
+        "approved_plan",
+        "product_approval_record",
+        "plan_approval_record",
+    )
+    missing_source_fields = [
+        field
+        for field in required_source_fields
+        if not isinstance(state.get(field), str) or not state.get(field)
+    ]
+    if missing_source_fields:
+        errors.append(
+            "Generator 受保护来源缺失：" + ",".join(missing_source_fields)
+        )
+        return errors
     try:
         design_source = _design_source(state)
         spec_content = _read_artifact(project_root, state["active_product_spec"])
@@ -530,6 +650,26 @@ def validate_generator_gate(
     except (KeyError, ProjectStateError) as exc:
         errors.append(str(exc))
         return errors
+
+    approval_hashes = _approval_hash_map(state.get("approval_artifact_hashes"))
+    if not approval_hashes:
+        errors.append("批准来源哈希快照缺失")
+    else:
+        for reference in _approval_source_references(state):
+            expected = approval_hashes.get(reference)
+            if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+                errors.append(f"批准来源缺少哈希：{reference}")
+                continue
+            try:
+                actual = _artifact_hash(project_root, reference)
+            except ProjectStateError as exc:
+                errors.append(str(exc))
+                continue
+            if actual != expected:
+                errors.append(f"批准来源哈希不匹配：{reference}")
+        approved_plan = state.get("approved_plan")
+        if state.get("approved_plan_hash") != approval_hashes.get(approved_plan):
+            errors.append("approved_plan_hash 与批准来源快照不一致")
 
     errors.extend(
         validate_markdown_artifact(

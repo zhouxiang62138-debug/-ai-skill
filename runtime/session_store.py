@@ -19,7 +19,7 @@ from .models import Checkpoint, Event, Lease, Session
 from .runtime_config import load_runtime_config
 
 
-RUNTIME_SCHEMA_VERSION = 4
+RUNTIME_SCHEMA_VERSION = 13
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|api[_-]?key|access[_-]?token|secret|password)"
 )
@@ -320,6 +320,347 @@ class SessionStore:
         BEFORE UPDATE ON phase_attestations BEGIN SELECT RAISE(ABORT, 'phase attestations are append-only'); END;
         CREATE TRIGGER IF NOT EXISTS phase_attestations_no_delete
         BEFORE DELETE ON phase_attestations BEGIN SELECT RAISE(ABORT, 'phase attestations are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_telemetry (
+            telemetry_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            project_revision INTEGER NOT NULL DEFAULT 0 CHECK(project_revision >= 0),
+            role TEXT,
+            phase TEXT,
+            execution_type TEXT NOT NULL,
+            schema_version INTEGER NOT NULL CHECK(schema_version > 0),
+            runtime_json TEXT NOT NULL,
+            context_json TEXT NOT NULL,
+            model_json TEXT NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_telemetry_no_update
+        BEFORE UPDATE ON f14_telemetry BEGIN SELECT RAISE(ABORT, 'F14 telemetry is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_telemetry_no_delete
+        BEFORE DELETE ON f14_telemetry BEGIN SELECT RAISE(ABORT, 'F14 telemetry is append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_artifact_index_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            record_count INTEGER NOT NULL CHECK(record_count >= 0),
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, snapshot_id)
+        );
+        CREATE TABLE IF NOT EXISTS f14_artifact_records (
+            snapshot_id TEXT NOT NULL REFERENCES f14_artifact_index_snapshots(snapshot_id),
+            artifact_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            locator TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            producer_role TEXT NOT NULL,
+            authority TEXT NOT NULL,
+            approval_status TEXT NOT NULL,
+            freshness TEXT NOT NULL,
+            source_state_ref TEXT NOT NULL,
+            record_hash TEXT NOT NULL,
+            PRIMARY KEY(snapshot_id, artifact_id)
+        );
+        CREATE INDEX IF NOT EXISTS f14_artifact_records_by_locator
+        ON f14_artifact_records(locator, project_revision);
+        CREATE TRIGGER IF NOT EXISTS f14_artifact_index_snapshots_no_update
+        BEFORE UPDATE ON f14_artifact_index_snapshots BEGIN SELECT RAISE(ABORT, 'F14 artifact snapshots are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_artifact_index_snapshots_no_delete
+        BEFORE DELETE ON f14_artifact_index_snapshots BEGIN SELECT RAISE(ABORT, 'F14 artifact snapshots are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_artifact_records_no_update
+        BEFORE UPDATE ON f14_artifact_records BEGIN SELECT RAISE(ABORT, 'F14 artifact records are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_artifact_records_no_delete
+        BEFORE DELETE ON f14_artifact_records BEGIN SELECT RAISE(ABORT, 'F14 artifact records are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_dependency_graph_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            edge_count INTEGER NOT NULL CHECK(edge_count >= 0),
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, snapshot_id)
+        );
+        CREATE TABLE IF NOT EXISTS f14_dependency_edges (
+            snapshot_id TEXT NOT NULL REFERENCES f14_dependency_graph_snapshots(snapshot_id),
+            edge_id TEXT NOT NULL,
+            graph_kind TEXT NOT NULL,
+            edge_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            target TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            source_hash TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK(revision >= 0),
+            confidence TEXT NOT NULL,
+            PRIMARY KEY(snapshot_id, edge_id)
+        );
+        CREATE INDEX IF NOT EXISTS f14_dependency_edges_by_target
+        ON f14_dependency_edges(target, revision);
+        CREATE TRIGGER IF NOT EXISTS f14_dependency_graph_snapshots_no_update
+        BEFORE UPDATE ON f14_dependency_graph_snapshots BEGIN SELECT RAISE(ABORT, 'F14 dependency snapshots are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_dependency_graph_snapshots_no_delete
+        BEFORE DELETE ON f14_dependency_graph_snapshots BEGIN SELECT RAISE(ABORT, 'F14 dependency snapshots are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_dependency_edges_no_update
+        BEFORE UPDATE ON f14_dependency_edges BEGIN SELECT RAISE(ABORT, 'F14 dependency edges are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_dependency_edges_no_delete
+        BEFORE DELETE ON f14_dependency_edges BEGIN SELECT RAISE(ABORT, 'F14 dependency edges are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_diff_indexes (
+            diff_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            baseline_revision INTEGER NOT NULL CHECK(baseline_revision >= 0),
+            current_revision INTEGER NOT NULL CHECK(current_revision >= 0),
+            stale INTEGER NOT NULL CHECK(stale IN (0, 1)),
+            result_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, diff_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_diff_indexes_no_update
+        BEFORE UPDATE ON f14_diff_indexes BEGIN SELECT RAISE(ABORT, 'F14 diff indexes are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_diff_indexes_no_delete
+        BEFORE DELETE ON f14_diff_indexes BEGIN SELECT RAISE(ABORT, 'F14 diff indexes are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_source_fingerprints (
+            cache_key TEXT PRIMARY KEY,
+            canonical_locator TEXT NOT NULL,
+            file_identity TEXT NOT NULL,
+            file_size INTEGER NOT NULL CHECK(file_size >= 0),
+            mtime_ns INTEGER NOT NULL CHECK(mtime_ns >= 0),
+            filesystem_metadata_json TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            role_scope TEXT NOT NULL,
+            parser_version TEXT NOT NULL,
+            known_content_hash TEXT,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS f14_content_cache (
+            content_hash TEXT PRIMARY KEY,
+            content_blob BLOB NOT NULL,
+            content_size INTEGER NOT NULL CHECK(content_size >= 0),
+            decoded_encoding TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS f14_parsed_cache (
+            content_hash TEXT NOT NULL,
+            parser_version TEXT NOT NULL,
+            policy_hash TEXT NOT NULL,
+            role_scope TEXT NOT NULL,
+            parsed_json TEXT NOT NULL,
+            derived_json TEXT NOT NULL,
+            parsed_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(content_hash, parser_version, policy_hash, role_scope)
+        );
+        CREATE TABLE IF NOT EXISTS f14_test_results (
+            result_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            parser_version TEXT NOT NULL,
+            parse_status TEXT NOT NULL,
+            command TEXT NOT NULL,
+            exit_code INTEGER,
+            duration_ms INTEGER,
+            source_locator TEXT NOT NULL,
+            raw_log_locator TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, result_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_test_results_no_update
+        BEFORE UPDATE ON f14_test_results BEGIN SELECT RAISE(ABORT, 'F14 test results are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_test_results_no_delete
+        BEFORE DELETE ON f14_test_results BEGIN SELECT RAISE(ABORT, 'F14 test results are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_semantic_snapshots (
+            semantic_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            model_hash TEXT NOT NULL,
+            semantic_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, semantic_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_semantic_no_update
+        BEFORE UPDATE ON f14_context_semantic_snapshots BEGIN SELECT RAISE(ABORT, 'F14 semantic snapshots are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_semantic_no_delete
+        BEFORE DELETE ON f14_context_semantic_snapshots BEGIN SELECT RAISE(ABORT, 'F14 semantic snapshots are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_shadow_comparisons (
+            comparison_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            comparison_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, comparison_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_shadow_comparisons_no_update
+        BEFORE UPDATE ON f14_shadow_comparisons BEGIN SELECT RAISE(ABORT, 'F14 shadow comparisons are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_shadow_comparisons_no_delete
+        BEFORE DELETE ON f14_shadow_comparisons BEGIN SELECT RAISE(ABORT, 'F14 shadow comparisons are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_shadow_gate_results (
+            gate_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL,
+            comparison_id TEXT NOT NULL,
+            result TEXT NOT NULL,
+            gate_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, gate_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_shadow_gate_results_no_update
+        BEFORE UPDATE ON f14_shadow_gate_results BEGIN SELECT RAISE(ABORT, 'F14 shadow gates are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_shadow_gate_results_no_delete
+        BEFORE DELETE ON f14_shadow_gate_results BEGIN SELECT RAISE(ABORT, 'F14 shadow gates are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_selective_candidates (
+            evaluation_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL,
+            candidate_id TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, evaluation_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_selective_candidates_no_update
+        BEFORE UPDATE ON f14_selective_candidates BEGIN SELECT RAISE(ABORT, 'F14 selective candidates are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_selective_candidates_no_delete
+        BEFORE DELETE ON f14_selective_candidates BEGIN SELECT RAISE(ABORT, 'F14 selective candidates are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_requests (
+            request_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            run_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            requested_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, request_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_requests_no_update
+        BEFORE UPDATE ON f14_context_requests BEGIN SELECT RAISE(ABORT, 'F14 context requests are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_requests_no_delete
+        BEFORE DELETE ON f14_context_requests BEGIN SELECT RAISE(ABORT, 'F14 context requests are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_authorizations (
+            authorization_id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES f14_context_requests(request_id),
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            decision TEXT NOT NULL,
+            authorization_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, authorization_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_authorizations_no_update
+        BEFORE UPDATE ON f14_context_authorizations BEGIN SELECT RAISE(ABORT, 'F14 context authorizations are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_authorizations_no_delete
+        BEFORE DELETE ON f14_context_authorizations BEGIN SELECT RAISE(ABORT, 'F14 context authorizations are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_expansions (
+            expansion_id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES f14_context_requests(request_id),
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            status TEXT NOT NULL,
+            expansion_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, expansion_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_expansions_no_update
+        BEFORE UPDATE ON f14_context_expansions BEGIN SELECT RAISE(ABORT, 'F14 context expansions are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_expansions_no_delete
+        BEFORE DELETE ON f14_context_expansions BEGIN SELECT RAISE(ABORT, 'F14 context expansions are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_recoveries (
+            recovery_id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES f14_context_requests(request_id),
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            status TEXT NOT NULL,
+            recovery_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, recovery_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_recoveries_no_update
+        BEFORE UPDATE ON f14_context_recoveries BEGIN SELECT RAISE(ABORT, 'F14 context recoveries are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_recoveries_no_delete
+        BEFORE DELETE ON f14_context_recoveries BEGIN SELECT RAISE(ABORT, 'F14 context recoveries are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_incremental_manifests (
+            manifest_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            task_identity TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            parser_version TEXT NOT NULL,
+            summary_version TEXT NOT NULL,
+            status TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, manifest_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_incremental_manifests_no_update
+        BEFORE UPDATE ON f14_incremental_manifests BEGIN SELECT RAISE(ABORT, 'F14 incremental manifests are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_incremental_manifests_no_delete
+        BEFORE DELETE ON f14_incremental_manifests BEGIN SELECT RAISE(ABORT, 'F14 incremental manifests are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_context_deltas (
+            delta_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            base_manifest_hash TEXT,
+            current_revision INTEGER NOT NULL CHECK(current_revision >= 0),
+            status TEXT NOT NULL,
+            delta_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, delta_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_context_deltas_no_update
+        BEFORE UPDATE ON f14_context_deltas BEGIN SELECT RAISE(ABORT, 'F14 context deltas are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_context_deltas_no_delete
+        BEFORE DELETE ON f14_context_deltas BEGIN SELECT RAISE(ABORT, 'F14 context deltas are append-only'); END;
+        CREATE TABLE IF NOT EXISTS f14_canonical_summaries (
+            summary_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id),
+            project_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            project_revision INTEGER NOT NULL CHECK(project_revision >= 0),
+            policy_hash TEXT NOT NULL,
+            summary_type TEXT NOT NULL,
+            authority_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            integrity_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, summary_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS f14_canonical_summaries_no_update
+        BEFORE UPDATE ON f14_canonical_summaries BEGIN SELECT RAISE(ABORT, 'F14 canonical summaries are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS f14_canonical_summaries_no_delete
+        BEFORE DELETE ON f14_canonical_summaries BEGIN SELECT RAISE(ABORT, 'F14 canonical summaries are append-only'); END;
         """
         connection = self._connect()
         try:
@@ -384,6 +725,13 @@ class SessionStore:
                     connection.execute(
                         f"ALTER TABLE phase_attestations ADD COLUMN {name} {definition}"
                     )
+            telemetry_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(f14_telemetry)")
+            }
+            if "details_json" not in telemetry_columns:
+                connection.execute(
+                    "ALTER TABLE f14_telemetry ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'"
+                )
             context_manifest_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(context_manifests)")
             }
@@ -588,6 +936,71 @@ class SessionStore:
         finally:
             connection.close()
         return [self._event_from_row(row) for row in rows]
+
+    def list_telemetry(
+        self,
+        session_id: str,
+        *,
+        project_revision: int | None = None,
+        role: str | None = None,
+        phase: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """读取 F14 追加式 Telemetry 快照；不会读取或返回模型原文。"""
+
+        query = "SELECT * FROM f14_telemetry WHERE session_id=?"
+        parameters: list[Any] = [session_id]
+        if project_revision is not None:
+            query += " AND project_revision=?"
+            parameters.append(project_revision)
+        if role is not None:
+            query += " AND role=?"
+            parameters.append(role)
+        if phase is not None:
+            query += " AND phase=?"
+            parameters.append(phase)
+        query += " ORDER BY created_at, telemetry_id"
+        connection = self._connect()
+        try:
+            rows = connection.execute(query, parameters).fetchall()
+        finally:
+            connection.close()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            value = dict(row)
+            for column, target in (
+                ("runtime_json", "runtime"),
+                ("context_json", "context"),
+                ("model_json", "model"),
+                ("details_json", "details"),
+            ):
+                raw = value.pop(column, "{}")
+                try:
+                    value[target] = json.loads(raw)
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise RuntimeStorageError("F14_TELEMETRY_CORRUPT") from exc
+            result.append(value)
+        return result
+
+    def aggregate_telemetry(self, session_id: str) -> dict[str, Any]:
+        """聚合同一 Session 的 Telemetry；聚合失败不改变 Session 状态。"""
+
+        from .deterministic.telemetry import RuntimeTelemetry
+
+        snapshots = self.list_telemetry(session_id)
+        aggregate = RuntimeTelemetry()
+        for snapshot in snapshots:
+            details = snapshot.get("details")
+            if isinstance(details, Mapping) and details:
+                current = RuntimeTelemetry.from_mapping(details)
+            else:
+                current = RuntimeTelemetry.from_mapping({
+                    "runtime_efficiency": snapshot.get("runtime", {}).get("runtime_efficiency", {}),
+                    "context_efficiency": snapshot.get("context", {}).get("context_efficiency", snapshot.get("context", {})),
+                    "model_efficiency": snapshot.get("model", {}).get("model_efficiency", snapshot.get("model", {})),
+                    "execution_types": snapshot.get("model", {}).get("execution_types", {}),
+                })
+            aggregate = aggregate.merge(current)
+        return aggregate.to_dict()
 
     def save_context_manifest(
         self,

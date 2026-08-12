@@ -1,0 +1,14 @@
+version: 1
+
+# F14-F 默认保持 F13 Full Context；只有显式 Canary/Benchmark 才能打开 Selective。
+f14:
+  context_delivery_mode: f13_full
+  selective_context:
+    enabled: false
+    roles: []
+    phases: []
+    canary_projects: []
+  evaluator_selective_context:
+    enabled: false
+  invocation_gate:
+    enabled: false

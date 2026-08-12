@@ -10,6 +10,30 @@ from .role_execution import (
     WorkspaceBinding,
     WorkspaceMode,
 )
+from .f14_control import (
+    BASELINE_IDS,
+    F13_FULL,
+    F14_SELECTIVE,
+    CanaryPromotionMetrics,
+    ContextDeliveryDecision,
+    ContextSavings,
+    F14ContextDeliveryService,
+    F14BaselineFreeze,
+    F14FeatureFlags,
+    SelectiveContextGate,
+    SelectiveGateInput,
+    compute_context_savings,
+)
+from .f14_roles import RoleContextScope, RoleContextScopeBuilder
+from .invocation_gate import (
+    BLOCKED,
+    LLM_REQUIRED,
+    PYTHON_ONLY,
+    InvocationExecution,
+    InvocationGate,
+    InvocationGateDecision,
+    InvocationGateRequest,
+)
 
 __all__ = [
     "ExecutionMode",
@@ -20,4 +44,25 @@ __all__ = [
     "SessionStore",
     "WorkspaceBinding",
     "WorkspaceMode",
+    "BASELINE_IDS",
+    "F13_FULL",
+    "F14_SELECTIVE",
+    "CanaryPromotionMetrics",
+    "ContextDeliveryDecision",
+    "ContextSavings",
+    "F14ContextDeliveryService",
+    "F14BaselineFreeze",
+    "F14FeatureFlags",
+    "SelectiveContextGate",
+    "SelectiveGateInput",
+    "compute_context_savings",
+    "RoleContextScope",
+    "RoleContextScopeBuilder",
+    "BLOCKED",
+    "LLM_REQUIRED",
+    "PYTHON_ONLY",
+    "InvocationExecution",
+    "InvocationGate",
+    "InvocationGateDecision",
+    "InvocationGateRequest",
 ]

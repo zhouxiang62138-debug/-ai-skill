@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Any
 
 from runtime.errors import RuntimeValidationError
@@ -33,6 +34,12 @@ class ContextBuildRequest:
     run_id: str
     role: str
     additional_references: tuple[str, ...] = ()
+    task_identity: str | None = None
+    dependency_roots: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    global_constraints: tuple[str, ...] = ()
+    task_constraints: tuple[str, ...] = ()
+    approval_constraints: tuple[str, ...] = ()
+    safety_constraints: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _text(self.session_id, "session_id")
@@ -45,6 +52,34 @@ class ContextBuildRequest:
         if not all(isinstance(reference, str) and reference for reference in references):
             raise RuntimeValidationError("CONTEXT_REFERENCES_INVALID")
         object.__setattr__(self, "additional_references", references)
+        if self.task_identity is not None and (
+            not isinstance(self.task_identity, str) or not self.task_identity
+        ):
+            raise RuntimeValidationError("CONTEXT_TASK_IDENTITY_INVALID")
+        roots: dict[str, tuple[str, ...]] = {}
+        if not isinstance(self.dependency_roots, Mapping):
+            raise RuntimeValidationError("CONTEXT_DEPENDENCY_ROOTS_INVALID")
+        for name, values in self.dependency_roots.items():
+            if not isinstance(name, str) or not name:
+                raise RuntimeValidationError("CONTEXT_DEPENDENCY_ROOTS_INVALID")
+            try:
+                normalized = tuple(values)
+            except TypeError as exc:
+                raise RuntimeValidationError("CONTEXT_DEPENDENCY_ROOTS_INVALID") from exc
+            if any(not isinstance(value, str) or not value for value in normalized):
+                raise RuntimeValidationError("CONTEXT_DEPENDENCY_ROOTS_INVALID")
+            roots[name] = normalized
+        object.__setattr__(self, "dependency_roots", roots)
+        for name in (
+            "global_constraints",
+            "task_constraints",
+            "approval_constraints",
+            "safety_constraints",
+        ):
+            values = tuple(getattr(self, name))
+            if any(not isinstance(value, str) or not value for value in values):
+                raise RuntimeValidationError("CONTEXT_CONSTRAINTS_INVALID")
+            object.__setattr__(self, name, values)
 
 
 @dataclass(frozen=True)

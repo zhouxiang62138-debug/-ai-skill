@@ -381,6 +381,8 @@ field_ownership:
     - active_design_reference_synthesis
     - user_approval_status
     - product_approval_record
+    - approval_artifact_hashes
+    - approved_plan_hash
     - approval_revocation_record
     - change_request_record
     - product_spec_status

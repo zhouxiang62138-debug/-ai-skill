@@ -8,7 +8,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 
@@ -29,6 +29,9 @@ from .models import (
 )
 from .policy import ContextBudgetConfig, ContextPolicy, ContextSourceRule
 from runtime.execution.path_policy import ExecutionPathPolicy
+from runtime.deterministic.source_cache import SourceCache
+from runtime.deterministic.store import DerivedRuntimeStore
+from runtime.deterministic.telemetry import RuntimeTelemetry
 
 
 _SECRET_ASSIGNMENT = re.compile(
@@ -74,11 +77,14 @@ class ContextBuilder:
         context_policy: ContextPolicy | None = None,
         path_policy: ExecutionPathPolicy | None = None,
         capability_policy: CapabilityPolicy | None = None,
+        telemetry: RuntimeTelemetry | None = None,
     ) -> None:
         self._store = store
         self._context_policy = context_policy or ContextPolicy()
         self._path_policy = path_policy or ExecutionPathPolicy()
         self._capability_policy = capability_policy or CapabilityPolicy()
+        self._telemetry = telemetry or RuntimeTelemetry()
+        self._source_caches: dict[tuple[str, str, int, str], SourceCache] = {}
 
     def build(self, request: ContextBuildRequest) -> ContextPackage:
         """根据 F10 Session、当前 project.yaml 与配置生成 Context。"""
@@ -117,11 +123,13 @@ class ContextBuilder:
         if not isinstance(revision, int) or revision < 0:
             raise RuntimeValidationError("CONTEXT_REVISION_INVALID")
 
+        source_cache = self._source_cache_for(root, request.role, revision)
         candidates = self._collect_sources(
             request.role,
             root,
             state,
             request.additional_references,
+            source_cache=source_cache,
         )
         sources, omitted_sources, budget_used = self._select_sources(
             request.role, candidates
@@ -245,7 +253,167 @@ class ContextBuilder:
                 "omitted_source_count": len(omitted_sources),
             },
         )
+        # Telemetry 只观察正式 F13 Context；不会改变返回的 sources 或选择策略。
+        self._telemetry.record_context(
+            package.source_count,
+            package.inline_bytes,
+        )
         return package
+
+    def build_incremental_manifest(
+        self,
+        request: ContextBuildRequest,
+        *,
+        current: ContextPackage | None = None,
+        previous: "IncrementalContextManifest | None" = None,
+        changed_node_ids: Iterable[str] = (),
+        unknown_node_ids: Iterable[str] = (),
+        changed_global_constraints: Iterable[str] = (),
+        unit_dependencies: Mapping[str, tuple[str, ...]] | None = None,
+        coverage_result: str = "VALID",
+        persist: bool = True,
+    ) -> tuple["IncrementalContextManifest", "ContextDelta"]:
+        """旁路构建 Unit Manifest；正式 F13 Context 仍由 build() 返回。"""
+
+        from .incremental import IncrementalContextBuilder
+
+        package = current or self.build(request)
+        dependencies = unit_dependencies or {}
+        units = []
+        for source in package.sources:
+            unit_id = f"source:{source.reference}"
+            units.append(
+                IncrementalContextBuilder.unit_from_source(
+                    unit_id=unit_id,
+                    source_ref=source.reference,
+                    exact_locator=source.reference,
+                    source_hash=source.content_hash,
+                    authority="UNKNOWN",
+                    role=request.role,
+                    project_revision=package.project_revision,
+                    policy_hash=package.context_policy_hash,
+                    dependency_ids=dependencies.get(unit_id, ()),
+                    delivery=source.delivery_mode,
+                    size=source.size,
+                    kind=source.source_type,
+                )
+            )
+        for source in package.omitted_sources:
+            unit_id = f"source:{source.reference}"
+            units.append(
+                IncrementalContextBuilder.unit_from_source(
+                    unit_id=unit_id,
+                    source_ref=source.reference,
+                    exact_locator=source.reference,
+                    source_hash=source.content_hash,
+                    authority="UNKNOWN",
+                    role=request.role,
+                    project_revision=package.project_revision,
+                    policy_hash=package.context_policy_hash,
+                    dependency_ids=dependencies.get(unit_id, ()),
+                    delivery="SHADOW",
+                    size=source.size,
+                    kind="omitted",
+                )
+            )
+        builder = IncrementalContextBuilder(telemetry=self._telemetry)
+        manifest, delta = builder.build(
+            previous=previous,
+            current_units=units,
+            role=request.role,
+            task_identity=request.task_identity or f"{request.role}:{request.run_id}",
+            project_revision=package.project_revision,
+            policy_hash=package.context_policy_hash,
+            parser_version="f14-context-source-v1",
+            summary_version="none",
+            changed_node_ids=changed_node_ids,
+            unknown_node_ids=unknown_node_ids,
+            changed_global_constraints=changed_global_constraints,
+            coverage_result=coverage_result,
+        )
+        if persist:
+            session = self._store.get_session(request.session_id)
+            derived = DerivedRuntimeStore(self._store)
+            try:
+                # 先写 Delta，再写 Manifest；Manifest 只有在 Delta 已完整落盘后才可被 Resume 发现。
+                derived.write_context_delta(
+                    session_id=request.session_id,
+                    project_id=session.project_id,
+                    delta=delta,
+                )
+                derived.write_incremental_manifest(
+                    session_id=request.session_id,
+                    project_id=session.project_id,
+                    manifest=manifest,
+                )
+            except Exception:
+                delta = replace(
+                    delta,
+                    coverage_result="UNKNOWN",
+                    fallback_required=True,
+                )
+        return manifest, delta
+
+    def build_incremental_resume(
+        self,
+        request: ContextBuildRequest,
+        *,
+        previous: "IncrementalContextManifest | None" = None,
+        **kwargs: Any,
+    ) -> tuple[ContextPackage, "IncrementalContextManifest", "ContextDelta"]:
+        """生成 Full Safe Package，同时产出可审计的增量 Delta。"""
+
+        current = self.build(request)
+        if previous is None:
+            try:
+                previous_record = DerivedRuntimeStore(self._store).latest_incremental_manifest(
+                    request.session_id
+                )
+                from .incremental import IncrementalContextManifest
+
+                previous = IncrementalContextManifest.from_mapping(previous_record["manifest"])
+            except (RuntimeStorageError, RuntimeValidationError):
+                previous = None
+        manifest, delta = self.build_incremental_manifest(
+            request,
+            current=current,
+            previous=previous,
+            **kwargs,
+        )
+        return current, manifest, delta
+
+    def build_semantic_model(
+        self,
+        request: ContextBuildRequest,
+        *,
+        current: ContextPackage | None = None,
+        dependency_roots: Mapping[str, tuple[str, ...]] | None = None,
+        constraints: Mapping[str, tuple[str, ...]] | None = None,
+        persist: bool = True,
+    ) -> "ContextSemanticModel":
+        """构建 C1 语义模型；正式 F13 Context Package 保持原样。"""
+
+        from .semantic import ContextSemanticBuilder
+        from runtime.deterministic.store import DerivedRuntimeStore
+
+        package = current or self.build(request)
+        semantic = ContextSemanticBuilder().build(
+            request,
+            package,
+            dependency_roots=dependency_roots,
+            constraints=constraints,
+        )
+        if persist:
+            session = self._store.get_session(request.session_id)
+            DerivedRuntimeStore(self._store).write_context_semantic_snapshot(
+                session_id=request.session_id,
+                run_id=request.run_id,
+                project_id=session.project_id,
+                role=request.role,
+                project_revision=package.project_revision,
+                semantic=semantic,
+            )
+        return semantic
 
     @staticmethod
     def _durable_source(source: ContextSource) -> dict[str, Any]:
@@ -470,6 +638,8 @@ class ContextBuilder:
         root: Path,
         state: dict[str, Any],
         additional_references: Iterable[str],
+        *,
+        source_cache: SourceCache | None = None,
     ) -> list[ContextSource]:
         sources: list[ContextSource] = []
         seen: set[tuple[str, str]] = set()
@@ -482,7 +652,7 @@ class ContextBuilder:
                 continue
             if rule.source_type == "project_state":
                 reference = _normalize_reference(rule.reference)
-                source = self._read_file_source(role, root, reference, rule)
+                source = self._read_file_source(role, root, reference, rule, source_cache=source_cache)
             elif rule.source_type == "reference_catalog":
                 source = self._read_reference_catalog(role, root, state, rule)
             elif rule.source_type == "design_reference_subset":
@@ -512,7 +682,7 @@ class ContextBuilder:
                     rule.field, reference
                 ):
                     continue
-                source = self._read_file_source(role, root, reference, rule)
+                source = self._read_file_source(role, root, reference, rule, source_cache=source_cache)
             else:
                 value = state.get(rule.field or "")
                 if value in (None, ""):
@@ -581,6 +751,7 @@ class ContextBuilder:
                     priority="HIGH",
                     delivery_mode="INLINE",
                 ),
+                source_cache=source_cache,
             )
             key = (source.source_type, source.reference)
             if key not in seen:
@@ -819,10 +990,27 @@ class ContextBuilder:
         root: Path,
         reference: str,
         rule: ContextSourceRule,
+        *,
+        source_cache: SourceCache | None = None,
     ) -> ContextSource:
         candidate = self._assert_read_path(role, root, reference)
         try:
-            raw = candidate.read_bytes()
+            if source_cache is None:
+                raw = candidate.read_bytes()
+            else:
+                source_type = rule.source_type.casefold()
+                protected = rule.priority == "REQUIRED" or any(
+                    token in source_type
+                    for token in ("requirement", "constraint", "plan", "spec", "approval")
+                )
+                cached = source_cache.read(
+                    reference,
+                    require_trusted_hash=protected,
+                    protected=protected,
+                    approved="approved" in source_type,
+                    security_sensitive="security" in source_type or "privacy" in source_type,
+                )
+                raw = cached.content
             content = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeValidationError("CONTEXT_SOURCE_ENCODING_INVALID") from exc
@@ -848,6 +1036,22 @@ class ContextBuilder:
             included_size=size if configured_mode == "INLINE" else 0,
             inline_content=inline_content,
         )
+
+    def _source_cache_for(self, root: Path, role: str, revision: int) -> SourceCache:
+        key = (str(root), role, revision, self._context_policy.policy_hash)
+        cache = self._source_caches.get(key)
+        if cache is None:
+            cache = SourceCache(
+                root,
+                project_revision=revision,
+                policy_hash=self._context_policy.policy_hash,
+                role_scope=role,
+                parser_version="f14-context-source-v1",
+                store=self._store,
+                telemetry=self._telemetry,
+            )
+            self._source_caches[key] = cache
+        return cache
 
     def _assert_read_path(self, role: str, root: Path, reference: str) -> Path:
         if role in {"first_ask_intake", "domain_research", "reference_analysis"}:

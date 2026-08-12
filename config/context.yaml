@@ -1,6 +1,13 @@
 version: 1
 default: deny
 
+# F14-F 只声明可用模式；正式默认仍是 F13 Full Context。
+context_delivery_mode:
+  default: f13_full
+  allowed:
+    - f13_full
+    - f14_selective_canary
+
 # Stage 6：模型 Invocation 的 rollover 由 Runtime 根据这些阈值确定，不依赖模型自报。
 rollover:
   enabled: true

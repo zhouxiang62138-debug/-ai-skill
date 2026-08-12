@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from scripts.project_state import parse_project_yaml
 
@@ -384,12 +384,56 @@ class RoleExecutionBroker:
             raise RuntimeValidationError("ROLE_EXECUTION_INVOCATION_CONTEXT_MISMATCH")
         return self.store.bind_role_execution_invocation(session_id, role_execution_id, invocation_id)
 
-    def invoke(self, session_id: str, role_execution_id: str, model_adapter: Any, request: Any) -> Mapping[str, Any]:
+    def invoke(
+        self,
+        session_id: str,
+        role_execution_id: str,
+        model_adapter: Any,
+        request: Any,
+        *,
+        invocation_observer: Callable[[Mapping[str, Any]], None] | None = None,
+    ) -> Mapping[str, Any]:
         """按实际 execution_mode 调用 Child Thread 或 Fresh Invocation。"""
 
         execution = self.store.get_role_execution(session_id, role_execution_id)
         if execution["status"] != "STARTED":
             raise RuntimeValidationError("ROLE_EXECUTION_NOT_ACTIVE")
+        if invocation_observer is not None:
+            try:
+                invocation_observer(
+                    {
+                        "event": (
+                            "actual_model_request_boundary"
+                            if execution["execution_mode"] == ExecutionMode.FRESH_INVOCATION.value
+                            else "role_thread_dispatch_boundary"
+                        ),
+                        "actual_model_request": (
+                            execution["execution_mode"] == ExecutionMode.FRESH_INVOCATION.value
+                        ),
+                        "role_execution_id": role_execution_id,
+                        "invocation_id": getattr(request, "invocation_id", ""),
+                        "execution_mode": execution["execution_mode"],
+                        "role": execution["role"],
+                        "phase": getattr(request, "phase", "unknown"),
+                        "task_id": getattr(request, "run_id", "unknown"),
+                        "project_revision": getattr(request, "source_revision", 0),
+                        "invocation_reason": getattr(request, "invocation_reason", "phase_execution"),
+                        "context_manifest_hash": (
+                            getattr(request, "context", {}).get("context_hash", "")
+                            if isinstance(getattr(request, "context", {}), Mapping)
+                            else ""
+                        ),
+                        "context_bytes": (
+                            int(getattr(request, "context", {}).get("inline_bytes", 0))
+                            if isinstance(getattr(request, "context", {}), Mapping)
+                            else 0
+                        ),
+                        "execution_type": getattr(request, "execution_type", "llm"),
+                    }
+                )
+            except Exception:
+                # 观测失败不能改变正式模型调用与 Role 生命周期。
+                pass
         if execution["execution_mode"] == ExecutionMode.CHILD_THREAD.value:
             handler = getattr(self.host, "invoke_child", None)
             if not callable(handler) or not execution.get("host_thread_id"):

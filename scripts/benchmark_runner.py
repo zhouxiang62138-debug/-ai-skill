@@ -17,6 +17,19 @@ try:
 except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
     from project_state import ProjectStateError, parse_project_yaml, serialize_project_state
 
+from runtime.deterministic.benchmark import (
+    BENCHMARK_KINDS,
+    BENCHMARK_SCHEMA_VERSION,
+    BaselineBenchmarkHarness,
+    BaselineSnapshot,
+    BenchmarkCase,
+    BenchmarkInputs,
+    BenchmarkObservation,
+    BenchmarkExecutionContext as F14GBenchmarkExecutionContext,
+    default_benchmark_cases,
+    tree_hash,
+)
+
 
 VARIANTS = (
     "generator_only",
@@ -242,4 +255,19 @@ class BenchmarkRunner:
         return result
 
 
-__all__ = ["BenchmarkExecutionContext", "BenchmarkResult", "BenchmarkRunner", "VARIANTS"]
+__all__ = [
+    "BENCHMARK_KINDS",
+    "BENCHMARK_SCHEMA_VERSION",
+    "BaselineBenchmarkHarness",
+    "BaselineSnapshot",
+    "BenchmarkCase",
+    "BenchmarkExecutionContext",
+    "F14GBenchmarkExecutionContext",
+    "BenchmarkInputs",
+    "BenchmarkObservation",
+    "BenchmarkResult",
+    "BenchmarkRunner",
+    "VARIANTS",
+    "default_benchmark_cases",
+    "tree_hash",
+]

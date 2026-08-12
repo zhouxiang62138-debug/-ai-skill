@@ -31,6 +31,7 @@ from .role_execution import (
     RoleExecutionRequest,
     WorkspaceBinding,
 )
+from .deterministic.telemetry import RuntimeTelemetry
 from .verifiers import RuntimeVerifierRegistry
 
 
@@ -78,6 +79,7 @@ class ModelInvocationRequest:
     role_execution_id: str | None = None
     execution_mode: str = ExecutionMode.FRESH_INVOCATION.value
     host_thread_id: str | None = None
+    execution_type: str = "llm"
 
 
 @dataclass(frozen=True)
@@ -382,6 +384,34 @@ class PhaseRunner:
         self.orchestrator.fail_step(session_id, run_id, result.to_dict())
         return result
 
+    def _persist_telemetry(
+        self,
+        telemetry: RuntimeTelemetry,
+        *,
+        session_id: str,
+        role: str,
+        phase: str,
+        project_revision: int,
+        execution_type: str,
+        idempotency_key: str,
+    ) -> None:
+        """Telemetry 失败不得反向影响正式业务流程。"""
+
+        try:
+            session = self.orchestrator.store.get_session(session_id)
+            telemetry.persist(
+                self.orchestrator.store,
+                session_id=session_id,
+                project_id=session.project_id,
+                project_revision=project_revision,
+                role=role,
+                phase=phase,
+                execution_type=execution_type,
+                idempotency_key=idempotency_key,
+            )
+        except Exception:
+            return
+
     def run(
         self,
         session_id: str,
@@ -457,6 +487,38 @@ class PhaseRunner:
         execution_mode: str | None = None
         host_thread_id: str | None = None
         preflight_result: Mapping[str, Any] | None = None
+        telemetry = RuntimeTelemetry()
+        telemetry_persist_key = f"phase-telemetry:{run_id}:{phase}"
+        telemetry_revision = 0
+        model_invoked = False
+
+        def observe_model_boundary(event: Mapping[str, Any]) -> None:
+            """在 RoleExecutionBroker 进入真实模型适配器前记录一次请求。"""
+
+            nonlocal model_invoked
+            if event.get("event") not in {
+                "actual_model_request_boundary",
+                "role_thread_dispatch_boundary",
+            }:
+                return
+            execution_type = str(event.get("execution_type") or "llm")
+            context_hash = str(event.get("context_manifest_hash") or "")
+            if not re.fullmatch(r"[A-Za-z0-9_.:/ -]{1,128}", context_hash):
+                context_hash = str(context_id or "unknown")
+            telemetry.record_model_request(
+                role=str(event.get("role") or resolved_role),
+                phase=str(event.get("phase") or phase),
+                invocation_reason=str(event.get("invocation_reason") or "phase_execution"),
+                project_revision=int(event.get("project_revision", telemetry_revision)),
+                task_id=str(event.get("task_id") or run_id),
+                context_manifest_hash=context_hash,
+                actual_model_request=bool(event.get("actual_model_request")),
+                execution_type=execution_type,
+                invocation_id=str(event.get("invocation_id") or invocation_id or "unknown"),
+                context_bytes=int(event.get("context_bytes", 0)),
+            )
+            model_invoked = True
+
         try:
             if resolved_role == "generator":
                 preflight_result = self._generator_preflight(
@@ -484,6 +546,11 @@ class PhaseRunner:
                 if not context_valid:
                     raise RuntimeValidationError(context_details)
             context_id = context.context_id
+            telemetry_revision = int(getattr(context, "project_revision", 0))
+            telemetry.record_context(
+                len(getattr(context, "sources", ())),
+                int(getattr(context, "inline_bytes", getattr(context, "budget_used", 0))),
+            )
             model_id = str(getattr(self.model_adapter, "model_id", "unknown") or "unknown")
             capability_profile = str(
                 getattr(self.model_adapter, "model_capability_profile", "unknown") or "unknown"
@@ -555,10 +622,24 @@ class PhaseRunner:
                 role_execution_id=role_execution_id,
                 execution_mode=execution_mode,
                 host_thread_id=host_thread_id,
+                execution_type="llm",
             )
-            response = broker.invoke(session_id, role_execution_id, self.model_adapter, request)
+            response = broker.invoke(
+                session_id,
+                role_execution_id,
+                self.model_adapter,
+                request,
+                invocation_observer=observe_model_boundary,
+            )
             if not isinstance(response, Mapping):
                 raise RuntimeValidationError("MODEL_OUTPUT_INVALID")
+            usage = response.get("usage")
+            if isinstance(usage, Mapping):
+                telemetry.record_token_usage(
+                    input_tokens=usage.get("input_tokens"),
+                    cached_input_tokens=usage.get("cached_input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                )
             forbidden = {
                 "next_role",
                 "active_module",
@@ -674,8 +755,28 @@ class PhaseRunner:
                     lease.lease_version,
                     lease_token,
                 )
+            self._persist_telemetry(
+                telemetry,
+                session_id=session_id,
+                role=resolved_role,
+                phase=phase,
+                project_revision=telemetry_revision,
+                execution_type="llm",
+                idempotency_key=telemetry_persist_key,
+            )
             return result
         except Exception as exc:
+            if not model_invoked:
+                telemetry.record_model_event("python_only", role=resolved_role, phase=phase)
+            self._persist_telemetry(
+                telemetry,
+                session_id=session_id,
+                role=resolved_role,
+                phase=phase,
+                project_revision=telemetry_revision,
+                execution_type="llm" if model_invoked else "python_only",
+                idempotency_key=telemetry_persist_key,
+            )
             return self._fail(
                 session_id,
                 run_id,
