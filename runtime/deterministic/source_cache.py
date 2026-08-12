@@ -181,7 +181,8 @@ class SourceCache:
     @staticmethod
     def _assert_secret_safe(content: bytes) -> None:
         if _SECRET_PATTERN.search(content.decode("utf-8", errors="replace")):
-            raise RuntimeValidationError("F14_CACHE_SECRET_FORBIDDEN")
+            # Cache 只是读取优化层，Secret 拒绝码必须复用 Context 的公开协议。
+            raise RuntimeValidationError("CONTEXT_SECRET_FORBIDDEN")
 
     def read(
         self,

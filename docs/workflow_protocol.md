@@ -1,6 +1,6 @@
 # 文件驱动调度协议
 
-## Workflow v7：Durable Session Runtime
+## Workflow v7：Durable Session Runtime（当前正式协议）
 
 v7 不改变业务状态机，而是在其外围增加持久化 Session Store 和确定性
 Orchestrator。Orchestrator 读取 `active_module`、`status`、`next_role` 后，只能
@@ -12,16 +12,16 @@ schema v7 的每次业务状态提交必须持有 Worker Lease，并以 `expecte
 `project.yaml`。详细顺序见 `SESSION_EVENT_PROTOCOL.md`、
 `ORCHESTRATOR_PROTOCOL.md` 和 `RECOVERY_PROTOCOL.md`。
 
-## Workflow v6：Completed Project Change Request
+## Workflow v6（历史迁移兼容）：Completed Project Change Request
 
 `ACCEPTED/ARCHIVED → CHANGE_REQUESTED → WAITING_FOR_CHANGE_APPROVAL →
 IMPLEMENTING → EVALUATING → RELEASE_READY → ACCEPTED`。`project.yaml` 是
 唯一项目状态源；Change Request 文件只保存请求事实和追加式生命周期。完整 Gate
 与恢复协议见 `COMPLETED_PROJECT_CHANGE_REQUEST_WORKFLOW.md`。
 
-## Workflow v5 兼容层：结构化验收返工
+## Workflow v5（历史兼容层）：结构化验收返工
 
-Workflow v5 保留 Markdown 验收报告，并新增机器可读
+历史 Workflow v5 保留 Markdown 验收报告，并新增机器可读
 `evaluation/issues/evaluation-<nnn>.yaml`。Evaluator 使用
 `config/evaluation_protocol.yaml` 的枚举、路由和硬 PASS 条件；Generator 在
 `memory/handoffs/responses/` 对每个 blocking/critical Issue 逐项回应。
@@ -33,7 +33,14 @@ Workflow v5 保留 Markdown 验收报告，并新增机器可读
 
 每次由 Codex 主动读取项目根目录唯一的 `project.yaml`。如果 `active_module: first_ask_intake`，读取 `intake/first_ask.md`；否则根据 `status` 和 `next_role` 选择 Planner、Generator 或 Evaluator。First-Ask 是前置 Module，不是第四个 Agent。YAML 只记录协议和状态，不会自行调度或执行。
 
-`INTAKE` 和 `WAITING_FOR_REQUIREMENTS` 由 First-Ask Intake Module 处理。需求达到 `sufficient_for_planning` 且 `active_requirements` 有效后，进入 `PLANNING`。
+`INTAKE` 和 `WAITING_FOR_REQUIREMENTS` 由 First-Ask Intake Module 处理。正式需求发现
+路由为 `Initial Request → Intent Analysis → Research Gate → Coverage Map → Gap
+Analysis → 1–3 High Value Questions per Round → Sufficiency Gate → optional
+REFERENCE_ANALYSIS → PLANNING`。Research Gate 必须执行 Research Necessity Decision；
+Research Execution 由 Gate 判定为 `required`、`optional` 或 `not_required`。
+`required` 才进入 `REQUIREMENT_RESEARCH` 并回到 `INTAKE`，`not_required` 不执行外部
+Research。Research 和 Reference Analysis 是 Module，不是 Agent；每轮最多 1～3 个问题不限制总轮数。
+需求达到 `sufficient_for_planning` 且 `active_requirements` 有效后，进入 `PLANNING`。
 
 `PLANNING`、`DESIGN_EXPLORATION` 和 `PLANNING_REVISION` 对应 Planner。
 `WAITING_FOR_DESIGN_REVIEW`、`WAITING_FOR_PRODUCT_REVIEW` 与

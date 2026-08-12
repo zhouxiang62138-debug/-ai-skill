@@ -14,6 +14,20 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 `project.yaml` 只属于 `C:\Users\28388\Desktop\ai-projects\<project_id>`
 下的项目实例。
 
+## Protocol Authority
+
+跨文件协议的机器可读索引是 `config/protocol_manifest.yaml`；正式定义仍分别位于
+manifest 声明的 Authority 文件中。修改 workflow、schema、角色、Module、批准门禁、
+Runtime 路由或 F14 生产状态后，必须运行：
+
+```powershell
+python scripts/protocol_consistency.py check
+```
+
+Markdown、Prompt、README 和本文件只解释 Authority，不得成为平行 Truth。F14 的
+Selective、Evaluator Selective 和 Invocation Gate 只有通过真实资格门禁后才能进入
+Global；否则保持 `f13_full`，并保留自动回退、手动 kill switch、项目/角色/阶段覆盖。
+
 Skill 本体开发、测试、文档维护、Git commit、Git push 和 GitHub 上传不要求
 `project.yaml`，不得因 Skill 仓库根目录缺少该文件而 BLOCKED。只有 Planner、
 Generator、Evaluator、Change Request 等项目工作流，才按本节协议读取和更新
@@ -99,6 +113,8 @@ Deterministic PASS Gate。模型只能提出 PASS，Python/Runtime 决定是否�
 ### 需求入口
 
 新项目先由 First-Ask Intake Module 保存用户原始请求，按轮次提出 1～3 个高价值问题，并创建追加式结构化需求快照。`requirements_status: sufficient_for_planning` 且 `active_requirements` 有效后，才能进入 Planner。视觉类 `undecided` 不继续采访，交给 Design Exploration。模板见 `templates/original_request.md`、`templates/requirements_interview.md` 和 `templates/requirements_snapshot.yaml`。
+
+所有项目都必须经过 Research Necessity Decision。正式语义是：Research Gate 不能被跳过；Research Execution 可以由确定性 Research Gate 判定为 `required`、`optional` 或 `not_required`。因此，Research Gate 是必经的能力判断，外部 Research 执行本身不是所有项目的必需步骤。
 
 ### 产品确认流程
 

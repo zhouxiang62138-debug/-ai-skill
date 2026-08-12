@@ -4,7 +4,11 @@ import pytest
 
 from runtime.f14_roles import RoleContextScopeBuilder
 from runtime.context.models import ContextPackage, ContextSource
-from runtime.f14_control import F14ContextDeliveryService, F14FeatureFlags
+from runtime.f14_control import (
+    F14ContextDeliveryService,
+    F14FeatureFlags,
+    F14RolloutPolicy,
+)
 from runtime.invocation_gate import (
     BLOCKED,
     LLM_REQUIRED,
@@ -147,6 +151,8 @@ def test_context_delivery_service_delivers_selected_package_only_in_canary() -> 
         selective_context_enabled=True,
         selective_roles=("generator",),
         selective_phases=("rework",),
+        qualification_evidence={"controlled": "PASS"},
+        rollout=F14RolloutPolicy(qualification_status="CONTROLLED_QUALIFIED"),
     )
     delivered, decision = F14ContextDeliveryService(flags).deliver(
         current,

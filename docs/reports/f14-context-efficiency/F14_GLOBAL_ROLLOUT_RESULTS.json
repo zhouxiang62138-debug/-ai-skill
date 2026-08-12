@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-12",
+  "scope": "Skill body protocol governance and F14 global rollout qualification",
+  "source_commit": "e6131771f13a09ec80da5998c2a4ea9aa1fa6e5d",
+  "branch": "codex/f10-runtime-correctness-hardening",
+  "working_tree_status": "MODIFIED_NO_COMMIT",
+  "verdicts": {
+    "protocol_drift": "PASS",
+    "f14_engineering": "PASS",
+    "real_model_qualification": "BLOCKED",
+    "real_browser_qualification": "BLOCKED",
+    "evaluator_selective_qualification": "BLOCKED",
+    "global_rollout": "NOT ENABLED",
+    "f13_emergency_fallback": "READY"
+  },
+  "rollout": {
+    "mode": "controlled",
+    "qualification_status": "CONTROLLED_QUALIFIED",
+    "context_delivery_mode": "f13_full",
+    "fallback_mode": "f13_full",
+    "automatic_fallback": true,
+    "global_enabled": false,
+    "selective_context_enabled": false,
+    "evaluator_selective_context_enabled": false,
+    "invocation_gate_enabled": false,
+    "kill_switch_active": false
+  },
+  "qualification_evidence": {
+    "controlled": "PASS",
+    "real_model": "BLOCKED",
+    "real_browser": "BLOCKED",
+    "evaluator_selective": "BLOCKED",
+    "quality_parity": "BLOCKED",
+    "fault_injection": "PASS",
+    "fallback": "PASS"
+  },
+  "protocol_drift": {
+    "checker": "PASS",
+    "checker_command": "python -B scripts/protocol_consistency.py check",
+    "checker_checks": 8,
+    "protocol_tests": {"passed": 6, "failed": 0},
+    "rollout_governance_tests": {"passed": 6, "failed": 0}
+  },
+  "real_model": {
+    "sdk_status": "available",
+    "sdk_version": "0.144.4",
+    "account_status": "unavailable",
+    "auth_mode": "existing_codex_auth_not_available",
+    "executed": false,
+    "real_model_requests": 0,
+    "model_identity": "UNAVAILABLE_FROM_HOST",
+    "invocation_ids": "UNAVAILABLE_FROM_HOST",
+    "input_tokens": "UNAVAILABLE_FROM_HOST",
+    "cached_input_tokens": "UNAVAILABLE_FROM_HOST",
+    "output_tokens": "UNAVAILABLE_FROM_HOST",
+    "total_tokens": "UNAVAILABLE_FROM_HOST",
+    "latency": "UNAVAILABLE_FROM_HOST",
+    "actual_token_saving": "NOT PROVEN",
+    "benchmark_type": "REAL_MODEL"
+  },
+  "real_browser": {
+    "provider": "Codex In-app Browser",
+    "connector_state": "available",
+    "open_tabs": 0,
+    "target_app": "UNAVAILABLE",
+    "gold_case_c_executed": false,
+    "visual_qa": "UNAVAILABLE_FROM_TARGET_APP",
+    "benchmark_type": "REAL_BROWSER"
+  },
+  "evaluator_selective": {
+    "enabled": false,
+    "status": "BLOCKED",
+    "reason": "Real Model, Real Browser and independent quality parity evidence are unavailable",
+    "controlled_detection_difference": 0,
+    "controlled_detection_difference_is_global_proof": false
+  },
+  "controlled_efficiency": {
+    "benchmark_type": "CONTROLLED_RUNTIME",
+    "f13_full_bytes": 10000,
+    "initial_selective_bytes": 5200,
+    "expansion_bytes": 2200,
+    "recovery_bytes": 400,
+    "f14_net_context_bytes": 7800,
+    "net_reduction_bytes": 2200,
+    "net_reduction_ratio": 0.22,
+    "repeated_context_reduction_bytes": 2500,
+    "real_token_conversion": "NOT AVAILABLE"
+  },
+  "tests": [
+    {"suite": "full_unittest", "passed": 509, "failed": 0, "errors": 0, "verdict": "PASS"},
+    {"suite": "full_pytest", "passed": 930, "skipped": 6, "subtests_passed": 129, "failed": 0, "verdict": "PASS"},
+    {"suite": "f14_focused_pytest", "passed": 16, "failed": 0, "verdict": "PASS"},
+    {"suite": "context_builder_source_cache", "passed": 11, "failed": 0, "verdict": "PASS"},
+    {"suite": "git_diff_check", "diagnostics": 0, "verdict": "PASS"}
+  ],
+  "fallback": {
+    "status": "READY",
+    "default_mode": "f13_full",
+    "automatic": true,
+    "kill_switch": true,
+    "rollback_state": "FALLBACK_F13"
+  },
+  "blockers": [
+    {
+      "id": "BLOCKER-F14-GLOBAL-001",
+      "type": "REAL_GOLD_QUALIFICATION_ENVIRONMENT_UNAVAILABLE",
+      "status": "OPEN",
+      "impact": "Global rollout cannot be enabled",
+      "details": "No authenticated Codex Host usage channel and no runnable real Case C Browser Gold target are available in this environment"
+    }
+  ],
+  "hashes": {
+    "workflow": "6C28EA2A7816C0BCE30CA9CC0D3DBE8D2FB9E709648D130C70B6BAC60BA63ACC",
+    "role_policy": "9D7951D816F5A41A83CD0D167B38E27766C26AABE8A88CB76C573156DCD94FE2",
+    "requirements_discovery": "A064E9D45298B7C2760385F1FE02B990C835D250544227A7F36EBFBDBEA475BC",
+    "context": "B172D2683B5C283E85A536AF79A5382A213674A793E5F1445D4FCC5C96E11B0B",
+    "f14": "C6D5B70AEA3A174214C05BD783CADC9139F97FD0DB6C5EE8D4104550033DC19E",
+    "runtime": "CBE61DCF27F4A18085B9C8403FD4F8F0F8278F3FFDC417D2AD5C452315D18995",
+    "evaluation_independence": "DB2E6B0D389D97E33FDE3FAFFF5B5CBFD4EC155CB160BB186E501D093445D91E",
+    "protocol_manifest": "FD77E8A2EA5A2B27A1CFEA6E3F7A9641C1A28E1919576DD16653E6FC03FEDD67"
+  }
+}

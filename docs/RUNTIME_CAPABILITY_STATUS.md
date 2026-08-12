@@ -3,6 +3,8 @@
 > 本文件是 Skill 本体关于 Runtime 能力状态的当前权威说明，更新时间：2026-08-09。
 > 历史评审报告保留当时的结论，但不覆盖本文件的当前状态。
 
+<!-- protocol: f14-production-status mode=controlled qualification_status=CONTROLLED_QUALIFIED global_enabled=false fallback_mode=f13_full -->
+
 ## Formal Production Runtime
 
 以下能力已进入正式 Runtime 路径，并由 `runtime/`、`config/`、`scripts/` 与对应
@@ -31,6 +33,14 @@
   已接入。当前仓库没有真实 Codex Child Thread/App Server Host Adapter，因此默认
   生产能力为 `FRESH_INVOCATION`；真实 Child Thread 能力为 `HOST_UNAVAILABLE`，不
   伪造 `host_thread_id`。
+
+- **F14 Context Efficiency Runtime**：Selective Context、Incremental Context、
+  Escalation、Invocation Gate 和 Telemetry 已进入正式 Runtime 控制路径；当前仅有
+  Controlled Qualification 证据，正式生产策略仍为 `f13_full`。Evaluator Selective
+  Context 保持关闭，Real Model Token Usage 与 Real Browser Gold E2E 尚未从当前 Host
+    获得，因此 F14 当前为 `CONTROLLED_QUALIFIED`（Controlled Production Qualified，尚未 Rollout；Global BLOCKED）。
+  任一索引、依赖图、摘要、缓存、增量状态、审批来源、Revision、Browser Evidence
+  或 Telemetry 不确定时必须回退 `f13_full` 或阻断。
 
 正式 Runtime 仍只有 Planner、Generator、Evaluator 三个 Agent。First-Ask、Change
 Request、ExecutionBroker、Context Builder 和其他协调能力都是 Module、Broker、Policy

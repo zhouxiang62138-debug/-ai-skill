@@ -43,6 +43,22 @@ next_role: planner
 
 Planner 对 `memory/requirements/` 只有读取权限。不得创建、修改、补写或覆盖原始请求、采访记录和需求快照。
 
+## v7 需求发现与研究路由
+
+Planner 必须把需求发现理解为以下可追溯路由的一部分，而不是另一个 Agent：
+
+```text
+Initial Request → Intent Analysis → Research Gate
+→ optional REQUIREMENT_RESEARCH → Coverage Map → Gap Analysis
+→ 1–3 High Value Questions per Round → Sufficiency Gate
+→ optional REFERENCE_ANALYSIS → PLANNING
+```
+
+Research Gate 不能被跳过；Research Execution 可以由确定性 Research Gate 判定为
+`required`、`optional` 或 `not_required`。Research 和 Reference Analysis 均由正式 Module 处理，不能写入 `next_role`。
+每轮最多提出 1～3 个高价值问题不等于整个项目最多只能提出 1～3 个问题；
+只有 Sufficiency Gate 通过后才可进入 `PLANNING`。
+
 ## Research-Guided Intake 边界
 
 当当前需求快照带有 `intent_analysis_ref`、`research_requirement_ref`、`active_research_round`、

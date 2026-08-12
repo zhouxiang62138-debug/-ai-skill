@@ -8,6 +8,7 @@ from runtime.f14_control import (
     ContextSavings,
     F14BaselineFreeze,
     F14FeatureFlags,
+    F14RolloutPolicy,
     SelectiveContextGate,
     SelectiveGateInput,
 )
@@ -33,6 +34,8 @@ def _flags() -> F14FeatureFlags:
         selective_context_enabled=True,
         selective_roles=("generator",),
         selective_phases=("rework",),
+        qualification_evidence={"controlled": "PASS"},
+        rollout=F14RolloutPolicy(qualification_status="CONTROLLED_QUALIFIED"),
     )
 
 

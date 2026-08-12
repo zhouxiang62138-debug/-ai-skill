@@ -2,7 +2,7 @@
 
 > 文档状态：用户已确认，作为实施依据  
 > 适用范围：AI Development Team Skill 的 Planner 流程升级  
-> 本文描述已批准的设计探索规则，并与 First-Ask Intake 和 schema v4 工作流保持一致。
+> 本文描述已批准的设计探索规则，并与 First-Ask Intake 和 workflow/schema v7 保持一致。
 
 ## 1. 目标
 
@@ -253,10 +253,10 @@ Planner 才能写入 Plan 批准记录、设置 `approved_plan`，并进入
 
 ## 10. `project.yaml` 字段
 
-schema v4 使用以下相关字段：
+schema v7 使用以下相关字段（旧 v4 项目须先经过迁移）：
 
 ```yaml
-schema_version: 4
+schema_version: 7
 
 # Intake 来源
 requirements_status: sufficient_for_planning

@@ -276,6 +276,7 @@ states:
     next_role: evaluator
   WAITING_FOR_USER:
     next_role: null
+    wait_for_user: true
   BLOCKED:
     next_role: null
   ACCEPTED:
@@ -503,6 +504,37 @@ state_guards:
     required_active_requirements: true
     required_approved_proposal: true
     required_product_approval_record: true
+    required_active_product_spec: true
     required_active_plan: true
     required_approved_plan: true
     required_plan_approval_record: true
+  PLANNING_REVISION:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+  IMPLEMENTING:
+    required_active_plan: true
+    required_approved_plan: true
+  EVALUATING:
+    required_active_plan: true
+  CHANGE_REQUESTED:
+    required_active_change_request: true
+  WAITING_FOR_CHANGE_APPROVAL:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  RELEASE_READY:
+    required_active_change_request: true
+  WAITING_FOR_USER:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  BLOCKED:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  ACCEPTED:
+    allowed_next_roles:
+      - null
+  ARCHIVED:
+    allowed_next_roles:
+      - null

@@ -97,7 +97,8 @@ F6 使用 `scripts/approval.py` 区分产品批准与 Plan 批准。产品批准
 
 ## v3 兼容
 
-`scripts/project_state.py` 同时读取并校验 schema v3 和 v4：
+`scripts/project_state.py` 同时读取并校验 schema v3 和 v4（历史迁移兼容版本，
+不是当前协议；当前新项目使用 v7）：
 
 - v3 默认只读，不会因为加载而写回或迁移。
 - 规划和设计阶段的 v3 项目可在后续迁移阶段按需迁移。

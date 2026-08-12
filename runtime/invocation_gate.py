@@ -154,6 +154,21 @@ class InvocationGate:
         )
         self.lifecycle_records: list[dict[str, Any]] = []
 
+    @classmethod
+    def from_f14_config(cls, path: str | None = None) -> "InvocationGate":
+        """从正式 F14 配置读取开关；资格不足时不会自行打开 Gate。"""
+
+        from runtime.f14_control import F14FeatureFlags
+
+        flags = F14FeatureFlags.load(path)
+        return cls(
+            enabled=(
+                flags.invocation_gate_enabled
+                and flags.invocation_gate_qualified()
+                and flags.rollout.effective_delivery_enabled
+            )
+        )
+
     @staticmethod
     def _infer_task_kind(task_kind: str, task: str) -> str:
         normalized = task_kind.strip().casefold()

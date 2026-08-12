@@ -24,6 +24,7 @@ field_statuses: [unanswered, answered, assumed, undecided, not_applicable, confl
 epistemic_statuses: [fact, candidate, hypothesis, inference]
 
 research:
+  gate_required: true
   decisions: [required, optional, not_required]
   statuses: [not_started, planned, running, completed, partially_completed, unavailable, not_required, blocked]
   source_tiers:
