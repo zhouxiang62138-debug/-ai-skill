@@ -1,0 +1,21 @@
+schema_version: 1
+supported_candidate_schema_versions:
+  - 1
+  - 2
+minimum_feature_completeness_score: "8.0"
+allowed_browser_acceptance:
+  - PASS
+  - SKIPPED
+required_regression_status: PASS
+maximum_blocking_issues: 0
+maximum_critical_issues: 0
+# 这些 Profile 声明 Browser 必需；新 Candidate 的 SKIPPED 不得绕过它们。
+browser_required_profiles:
+  - web_app
+legacy_candidate_policy:
+  schema_version: 1
+  read_only: true
+required_gate_sets:
+  web_app:
+    - GATE-BROWSER-ACCEPTANCE
+    - GATE-REGRESSION

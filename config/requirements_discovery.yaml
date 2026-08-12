@@ -1,0 +1,90 @@
+version: 1
+module: first_ask_intake
+research_module: domain_research
+
+question_policy:
+  max_questions_per_round: 3
+  min_questions_per_round: 1
+  total_rounds: unbounded_until_gate
+  same_topic_grouping_required: true
+  duplicate_statuses: [answered, assumed, undecided, not_applicable]
+  reask_statuses: [unanswered, conflicting, requires_user_decision]
+  priority_order: [critical, high, medium, low]
+  tie_breakers:
+    - decision_impact
+    - architecture_impact
+    - workflow_impact
+    - irreversibility
+    - dependency_count
+    - risk
+    - safe_assumption_available
+    - question_key
+
+field_statuses: [unanswered, answered, assumed, undecided, not_applicable, conflicting, requires_user_decision]
+epistemic_statuses: [fact, candidate, hypothesis, inference]
+
+research:
+  gate_required: true
+  decisions: [required, optional, not_required]
+  statuses: [not_started, planned, running, completed, partially_completed, unavailable, not_required, blocked]
+  source_tiers:
+    tier_1: {label: primary_authoritative, may_support_fact: true}
+    tier_2: {label: established_product_pattern, may_support_fact: false, may_support_pattern: true}
+    tier_3: {label: professional_source, may_support_fact: true, may_support_pattern: true}
+    tier_4: {label: community_signal, may_support_fact: false, may_support_pattern: false, may_discover_opportunity: true}
+  budgets:
+    simple: {max_queries: 4, max_sources: 6, max_same_domain_sources: 2}
+    standard: {max_queries: 8, max_sources: 12, max_same_domain_sources: 3}
+    deep: {max_queries: 12, max_sources: 20, max_same_domain_sources: 4}
+  stop_conditions:
+    required_domain_questions_covered: true
+    low_marginal_information_value: true
+    budget_exhausted_is_not_success: true
+  privacy:
+    query_must_be_abstracted: true
+    secrets_forbidden: true
+    private_code_forbidden: true
+    cross_project_data_forbidden: true
+
+coverage:
+  statuses: [answered, assumed, undecided, not_applicable, unanswered, conflicting, requires_user_decision]
+  importance_levels: [critical, high, medium, low]
+  default_dimensions:
+    - product_intent
+    - target_users
+    - primary_goal
+    - primary_use_cases
+    - platform
+    - core_workflows
+    - required_features
+    - optional_features
+    - data_model
+    - persistence_sync
+    - authentication_user_model
+    - permissions_roles
+    - external_integrations
+    - import_export
+    - business_rules
+    - reporting_analytics
+    - error_exception_handling
+    - security_privacy
+    - performance_scale
+    - offline_connectivity
+    - compatibility
+    - deployment_constraints
+    - regulatory_domain_constraints
+    - design_preferences
+    - undecided_product_decisions
+
+sufficiency:
+  allowed_ready_statuses: [answered, assumed, undecided, not_applicable]
+  blocking_statuses: [unanswered, conflicting, requires_user_decision]
+  required_dimensions: [product_intent, target_users, primary_goal, primary_use_cases, platform, required_features, data_model, technical_constraints]
+  visual_undecided_routes_to: design_exploration
+
+creativity_profiles:
+  research_facts: strict
+  requirement_extraction: strict
+  opportunity_discovery: divergent
+  product_concepts: creative
+  governance: strict

@@ -1,0 +1,10 @@
+schema_version: 1
+domain_map_id: DMAP-001
+project_id: <project_id>
+research_id: RSRCH-001
+domains: []
+patterns: []
+unknowns: []
+source_refs: []
+created_at: <ISO-8601 timestamp>
+supersedes: null

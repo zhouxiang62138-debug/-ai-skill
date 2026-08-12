@@ -2,8 +2,35 @@
 
 > 模块标识：`first_ask_intake`  
 > 类型：Planner 之前的需求采访模块，不是 Agent  
-> 当前状态：已接入 workflow v4 与 project schema v4
+> 当前状态：正式协议为 workflow v7 与 project schema v7；v3-v6 只作为迁移兼容版本
 > 角色约束：不得注册为第四个 `next_role`
+
+## 0. 正式需求发现路由（v7）
+
+需求发现不是一个新的 Agent，而是 First-Ask Intake 与可选 Module 的确定性路由：
+
+```text
+Initial Request
+→ Intent Analysis
+→ Research Gate
+├─ required → REQUIREMENT_RESEARCH → INTAKE
+├─ optional → 按 Research Gate 与用户需求决定是否执行
+└─ not_required → 不执行外部 Research
+→ Coverage Map
+→ Gap Analysis
+→ 1–3 High Value Questions per Round
+→ Sufficiency Gate
+→ optional REFERENCE_ANALYSIS
+→ PLANNING
+```
+
+`每轮最多 1–3 个问题`只限制单轮提问数量，不限制整个项目的总轮数；总轮数由
+Sufficiency Gate、冲突和用户决策共同决定。Research 与 Reference Analysis 都是
+Module，不得写入 `next_role`，也不得被当作第四个 Agent。
+
+Research Gate 不能被跳过；Research Execution 可以由确定性 Research Gate 判定为
+`required`、`optional` 或 `not_required`。Research Gate 是必经的必要性判断，
+但不是所有项目都必须执行外部 Research。
 
 ## 1. 目标
 

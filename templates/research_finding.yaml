@@ -1,0 +1,12 @@
+schema_version: 1
+finding_id: RRFND-001
+research_id: RSRCH-001
+epistemic_status: FACT
+domain: <domain>
+claim: <claim>
+source_refs: []
+evidence_refs: []
+confidence: medium
+requirement_effect: not_a_requirement
+created_at: <ISO-8601 timestamp>
+supersedes: null

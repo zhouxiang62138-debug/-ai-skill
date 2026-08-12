@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-attachment-binding-v1.schema.json",
+  "title": "Reference host attachment binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "binding_type",
+    "binding_id",
+    "idempotency_key",
+    "attachment_id",
+    "project_id",
+    "project_root_hash",
+    "reference_id",
+    "evidence_id",
+    "artifact_ref",
+    "evidence_ref",
+    "sha256",
+    "size_bytes",
+    "media_type",
+    "trust_level"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "binding_type": {"const": "host_attachment_reference_evidence"},
+    "binding_id": {"type": "string", "pattern": "^REFBND-[0-9]{3}$"},
+    "idempotency_key": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "attachment_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "project_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "project_root_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "evidence_id": {"type": "string", "pattern": "^REFEV-[0-9]{3}$"},
+    "artifact_ref": {"type": "string", "pattern": "^artifacts/"},
+    "evidence_ref": {"type": "string", "pattern": "^artifacts/"},
+    "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "size_bytes": {"type": "integer", "minimum": 0},
+    "media_type": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$"},
+    "trust_level": {"const": "untrusted"}
+  }
+}

@@ -29,4 +29,16 @@ repository: working_repository
 path: scripts/example.py
 ```
 
+## Approved Reference Bindings（如适用）
+- Implemented Reference Bindings: 逐条列出 `REFDEC-*`、对应 Task 和 AC，以及实际状态。
+- Not Implemented / Excluded: 明确列出未实施、被排除或被阻塞的绑定。
+- Deviations: 记录与批准绑定的事实偏差、原因和验证证据。
+- Handoff 不得宣称 Reference Conformance PASS、Visual Similarity PASS 或 Evaluation PASS。
+
+## Evaluator Reference Conformance 输入
+- `reference_conformance` 由 Evaluator 在 Evidence Manifest 阶段生成；Generator Handoff 只能作为实现事实来源。
+- 每个 `REFDEC-*` 必须回指批准的 Task/AC，并引用 `REF-EV-*` 独立证据。
+- `REF-EV-*` 必须标明 `evaluator_owned: true`、证据类型和底层 Evidence ID；不能直接引用原始 Reference Archive。
+- 没有批准 Contract 时记录 `NOT_APPLICABLE`；视觉能力不可用时记录 `BLOCKED`。
+
 ## 下一步

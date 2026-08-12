@@ -1,0 +1,580 @@
+"""不含业务决策的确定性 Orchestrator。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from scripts.project_state import (
+    ProjectStateError,
+    load_project_state,
+    validate_project_state,
+)
+from scripts.evaluation_protocol import recover_evaluation_transaction
+
+from .errors import RuntimeValidationError
+from .control_plane import require_session_database, control_plane_id
+from .event_types import ActorType, EventType
+from .leases import LeaseManager
+from .project_revision import ProjectStateCAS, project_state_hash, runtime_projection
+from .policy import load_module_authorization
+from .recovery import RecoveryManager
+from .role_selector import Selection, select_role
+from .session_store import SessionStore
+from .attestation import attestation_hash
+from .role_execution import RoleExecutionBroker, RoleExecutionHost, RoleExecutionPolicy
+
+
+class Orchestrator:
+    """定位项目、管理 Lease、选角、Checkpoint 和恢复。"""
+
+    def __init__(
+        self,
+        project_root: str | Path,
+        *,
+        control_plane_home: str | Path | None = None,
+        role_execution_host: RoleExecutionHost | None = None,
+        role_execution_policy: RoleExecutionPolicy | None = None,
+    ) -> None:
+        self.root = Path(project_root).resolve()
+        self.project_yaml = self.root / "project.yaml"
+        if not self.project_yaml.is_file():
+            raise ProjectStateError("项目根目录缺少 project.yaml")
+        state = load_project_state(self.project_yaml)
+        projection = runtime_projection(state)
+        project_id = str(state["project_id"])
+        if projection.get("control_plane_id") != control_plane_id(project_id):
+            raise RuntimeValidationError("RUNTIME_BINDING_MISMATCH")
+        # v7 已绑定项目只能打开既有控制平面历史；构造器绝不创建新 DB。
+        self.store = SessionStore(
+            require_session_database(project_id, home=control_plane_home)
+        )
+        self.leases = LeaseManager(self.store)
+        self.cas = ProjectStateCAS(self.store, self.leases)
+        self.recovery = RecoveryManager(self.store, self.cas)
+        self.role_execution_broker = RoleExecutionBroker(
+            self.store, host=role_execution_host, policy=role_execution_policy
+        )
+
+    def start(
+        self,
+        *,
+        worker_id: str | None = None,
+        allow_user_input_module: bool = False,
+    ) -> dict[str, Any]:
+        """注册/恢复 v7 Session 并返回确定性角色运行请求。"""
+
+        state = self._validated_state()
+        worker_id = worker_id or f"worker-{uuid4()}"
+        projection = runtime_projection(state)
+        session = self.store.create_session(
+            str(state["project_id"]),
+            self.root,
+            idempotency_key=f"project-runtime:{projection['session_id']}",
+            session_id=str(projection["session_id"]),
+        )
+        selection = select_role(state)
+        if selection.kind == "MODULE":
+            authorization = load_module_authorization()
+            allowed_modules = authorization["allowed_modules"]
+            if selection.target not in allowed_modules:
+                raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+            if str(state.get("status")) not in authorization[str(selection.target)]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        user_input_module = (
+            allow_user_input_module
+            and selection.kind == "WAIT"
+            and state.get("active_module") == "first_ask_intake"
+        )
+        if user_input_module:
+            selection = Selection("MODULE", "first_ask_intake", "explicit_user_input")
+            authorization = load_module_authorization()
+            if selection.target not in authorization["allowed_modules"]:
+                raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+            if str(state.get("status")) not in authorization[str(selection.target)]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        if selection.kind == "WAIT":
+            return {
+                "session_id": session.session_id,
+                "worker_id": None,
+                "lease_version": None,
+                "lease_token": None,
+                "selection": selection,
+                "event_id": None,
+                "checkpoint_id": None,
+                "run_id": None,
+            }
+        lease = self.leases.acquire(session.session_id, worker_id)
+        event = self.store.append_event(
+            session.session_id,
+            EventType.ROLE_SELECTED,
+            ActorType.ORCHESTRATOR,
+            "orchestrator",
+            idempotency_key=(
+                f"role-selected:{projection['revision']}:{selection.kind}:"
+                f"{selection.target or 'wait'}"
+            ),
+            correlation_id=session.session_id,
+            payload={
+                "kind": selection.kind,
+                "target": selection.target,
+                "reason": selection.reason,
+            },
+        )
+        checkpoint = self.store.create_checkpoint(
+            session.session_id,
+            project_revision=int(projection["revision"]),
+            project_state_hash=project_state_hash(state),
+            active_role=selection.target if selection.kind == "ROLE" else None,
+            active_module=selection.target if selection.kind == "MODULE" else None,
+            status=str(state["status"]),
+            next_role=state.get("next_role"),
+            open_transaction_ids=[],
+        )
+        run_id = (
+            self.store.create_role_run(
+                session.session_id,
+                worker_id,
+                selection.target,
+                project_id=str(state["project_id"]),
+                source_status=str(state["status"]),
+                source_revision=int(projection["revision"]),
+            )
+            if selection.kind == "ROLE" and selection.target is not None
+            else None
+        )
+        return {
+            "session_id": session.session_id,
+            "worker_id": worker_id,
+            "lease_version": lease.lease_version,
+            "lease_token": lease.lease_token,
+            "selection": selection,
+            "event_id": event.event_id,
+            "checkpoint_id": checkpoint.checkpoint_id,
+            "run_id": run_id,
+        }
+
+    def run_phase(
+        self,
+        model_adapter: Any,
+        *,
+        worker_id: str | None = None,
+        phase: str = "main",
+        required_steps: tuple[str, ...] | None = None,
+        additional_references: tuple[str, ...] = (),
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """正式执行入口：Role Run、Policy、Context、Invocation、Verifier、Attestation、CAS。"""
+
+        from .harness_policy import HarnessPolicy
+        from .phase_runner import DEFAULT_PHASE_STEPS, PhaseRunner
+        from .verifiers import RuntimeVerifierRegistry
+
+        started = self.start(worker_id=worker_id)
+        selection = started["selection"]
+        if selection.kind != "ROLE" or not started.get("run_id"):
+            raise RuntimeValidationError("ROLE_RUN_NOT_AVAILABLE")
+        role = str(selection.target)
+        model_id = str(getattr(model_adapter, "model_id", "unknown"))
+        capability = getattr(model_adapter, "model_capability_profile", None)
+        decision = HarnessPolicy().choose(
+            model_id=model_id,
+            model_capability_profile=capability if isinstance(capability, str) else None,
+            evidence_sufficient=False,
+        )
+        phase_steps = dict(DEFAULT_PHASE_STEPS)
+        phase_steps[role] = tuple(dict.fromkeys((*DEFAULT_PHASE_STEPS[role], *decision.required_gates)))
+        runner = PhaseRunner(
+            self,
+            model_adapter,
+            phase_steps=phase_steps,
+            verifier_registry=RuntimeVerifierRegistry(self.root, self.store),
+        )
+        return runner.run(
+            str(started["session_id"]),
+            str(started["run_id"]),
+            str(started["lease_token"] or ""),
+            phase=phase,
+            role=role,
+            required_steps=required_steps,
+            additional_references=additional_references,
+            idempotency_key=idempotency_key,
+        )
+
+    def execute_role(self, model_adapter: Any, **kwargs: Any) -> Any:
+        """正式 Role 执行别名；宿主只能通过 Orchestrator 进入 PhaseRunner。"""
+
+        return self.run_phase(model_adapter, **kwargs)
+
+    def inspect(self, session_id: str) -> dict[str, Any]:
+        """只读返回 Session、事件计数、Checkpoint 和业务状态。"""
+
+        session = self.store.get_session(session_id)
+        state = self._validated_state()
+        return {
+            "session": session,
+            "event_count": len(self.store.list_events(session_id)),
+            "checkpoint": (
+                self.store.get_checkpoint(session.last_checkpoint_id)
+                if session.last_checkpoint_id
+                else None
+            ),
+            "project_runtime": runtime_projection(state),
+            "selection": select_role(state),
+            "role_execution_capabilities": self.role_execution_broker.capabilities().to_dict(),
+            "active_role_executions": self.store.active_role_executions(session_id),
+            "role_executions": self.store.list_role_executions(session_id),
+        }
+
+    def commit_step(self, session_id: str, run_id: str, lease_token: str, result: dict[str, Any]) -> dict[str, Any]:
+        """校验 Runtime Attestation、Lease 与结构化结果后通过 CAS 提交角色步骤。"""
+
+        run = self.store.get_role_run(session_id, run_id)
+        required = {
+            "source_status",
+            "target_status",
+            "changed_fields",
+            "expected_revision",
+            "idempotency_key",
+            "attestation_id",
+        }
+        if "attestation_id" not in result:
+            raise RuntimeValidationError("PHASE_ATTESTATION_REQUIRED")
+        if run["status"] != "STARTED":
+            existing = self.store.get_state_revision_by_idempotency(session_id, str(result.get("idempotency_key", "")))
+            if run["status"] == "COMPLETED" and existing is not None and existing["status"] == "COMMITTED":
+                return {
+                    "result": "IDEMPOTENT",
+                    "revision": existing["new_revision"],
+                    "state_hash": existing["after_hash"],
+                }
+            raise RuntimeValidationError("ROLE_RUN_INVALID_TRANSITION")
+        if set(result) != required or not isinstance(result["changed_fields"], dict):
+            raise RuntimeValidationError("STEP_RESULT_INVALID")
+        attestation = self.store.get_phase_attestation(session_id, str(result["attestation_id"]))
+        if attestation["run_id"] != run_id or attestation["role"] != run["role"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_RUN_MISMATCH")
+        active_execution = self.store.get_active_role_execution(session_id, run_id)
+        if active_execution is not None:
+            if attestation.get("role_execution_id") != active_execution["role_execution_id"]:
+                raise RuntimeValidationError("ROLE_EXECUTION_ATTESTATION_REQUIRED")
+            if attestation.get("execution_mode") != active_execution["execution_mode"] or attestation.get("host_thread_id") != active_execution.get("host_thread_id"):
+                raise RuntimeValidationError("ROLE_EXECUTION_ATTESTATION_MISMATCH")
+        if int(attestation["project_revision"]) != int(result["expected_revision"]):
+            raise RuntimeValidationError("PHASE_ATTESTATION_REVISION_MISMATCH")
+        invocation = self.store.get_model_invocation(session_id, str(attestation["invocation_id"]))
+        if invocation["run_id"] != run_id or invocation["context_id"] != attestation["context_id"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_INVOCATION_MISMATCH")
+        expected_hash = attestation_hash(
+            {
+                "session_id": attestation["session_id"],
+                "run_id": attestation["run_id"],
+                "role": attestation["role"],
+                "project_revision": int(attestation["project_revision"]),
+                "context_id": attestation["context_id"],
+                "invocation_id": attestation["invocation_id"],
+                "role_execution_id": attestation.get("role_execution_id"),
+                "host_thread_id": attestation.get("host_thread_id"),
+                "execution_mode": attestation.get("execution_mode"),
+                "required_steps_hash": attestation["required_steps_hash"],
+                "verifier_results": attestation["verifier_results"],
+                "evidence_refs": attestation["evidence_refs"],
+                "idempotency_key": attestation["idempotency_key"],
+            }
+        )
+        if expected_hash != attestation["attestation_hash"] and not any(
+            attestation.get(field)
+            for field in ("role_execution_id", "host_thread_id", "execution_mode")
+        ):
+            # 兼容 schema v3/v4 迁移前已经落盘的旧 Attestation 摘要。
+            expected_hash = attestation_hash(
+                {
+                    "session_id": attestation["session_id"],
+                    "run_id": attestation["run_id"],
+                    "role": attestation["role"],
+                    "project_revision": int(attestation["project_revision"]),
+                    "context_id": attestation["context_id"],
+                    "invocation_id": attestation["invocation_id"],
+                    "required_steps_hash": attestation["required_steps_hash"],
+                    "verifier_results": attestation["verifier_results"],
+                    "evidence_refs": attestation["evidence_refs"],
+                    "idempotency_key": attestation["idempotency_key"],
+                }
+            )
+        if expected_hash != attestation["attestation_hash"]:
+            raise RuntimeValidationError("PHASE_ATTESTATION_TAMPERED")
+        if any(item.get("passed") is not True for item in attestation["verifier_results"].values()):
+            raise RuntimeValidationError("PHASE_ATTESTATION_VERIFIER_INVALID")
+        lease = self.leases.get(session_id)
+        if lease.worker_id != run["worker_id"]:
+            raise RuntimeValidationError("ROLE_RUN_WORKER_MISMATCH")
+        committed = self.cas.commit_patch(
+            self.project_yaml, result["changed_fields"],
+            source_status=str(result["source_status"]), target_status=str(result["target_status"]),
+            session_id=session_id,
+            worker_id=str(run["worker_id"]), actor_role=str(run["role"]),
+            lease_version=lease.lease_version, lease_token=lease_token,
+            expected_revision=int(result["expected_revision"]),
+            idempotency_key=str(result["idempotency_key"]),
+        )
+        self.store.complete_role_run(session_id, run_id, committed)
+        self.leases.release(session_id, str(run["worker_id"]), lease.lease_version, lease_token)
+        return committed
+
+    def commit_module_step(
+        self,
+        session_id: str,
+        module: str,
+        result: dict[str, Any],
+        *,
+        worker_id: str,
+        lease_version: int | None = None,
+        lease_token: str | None = None,
+    ) -> dict[str, Any]:
+        """让受信任 Module 复用现有 CAS，不创建额外 Agent 或 CAS。"""
+
+        authorization = load_module_authorization()
+        allowed_modules = authorization["allowed_modules"]
+        if module not in allowed_modules:
+            raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+        current_state = load_project_state(self.project_yaml)
+        if str(current_state.get("status")) not in authorization[module]:
+            raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        lease_owned = lease_version is None
+        lease = self.leases.acquire(session_id, worker_id) if lease_owned else None
+        actual_lease_version = lease.lease_version if lease is not None else lease_version
+        actual_lease_token = lease.lease_token if lease is not None else (lease_token or "")
+        try:
+            required = {
+                "project_yaml",
+                "source_status",
+                "target_status",
+                "changed_fields",
+                "expected_revision",
+                "idempotency_key",
+            }
+            if set(result) != required or not isinstance(result["changed_fields"], dict):
+                raise RuntimeValidationError("MODULE_STEP_RESULT_INVALID")
+            source_status = str(result["source_status"])
+            if source_status not in authorization[module]:
+                raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+            return self.cas.commit_patch(
+                result["project_yaml"],
+                result["changed_fields"],
+                source_status=source_status,
+                target_status=str(result["target_status"]),
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=module,
+                lease_version=int(actual_lease_version),
+                lease_token=actual_lease_token,
+                expected_revision=int(result["expected_revision"]),
+                idempotency_key=str(result["idempotency_key"]),
+            )
+        finally:
+            if lease_owned and lease is not None:
+                self.leases.release(session_id, worker_id, lease.lease_version, actual_lease_token)
+
+    def commit_module_state(
+        self,
+        session_id: str,
+        module: str,
+        next_state: dict[str, Any],
+        *,
+        project_yaml: str | Path,
+        expected_revision: int,
+        idempotency_key: str,
+        worker_id: str,
+        lease_version: int | None = None,
+        lease_token: str | None = None,
+    ) -> dict[str, Any]:
+        """提交 Module 元数据，仍受 F10 ownership、Lease 和 CAS 保护。"""
+
+        authorization = load_module_authorization()
+        allowed_modules = authorization["allowed_modules"]
+        if module not in allowed_modules:
+            raise RuntimeValidationError("RUNTIME_MODULE_NOT_ALLOWED")
+        current_state = load_project_state(self.project_yaml)
+        if str(current_state.get("status")) not in authorization[module]:
+            raise RuntimeValidationError("RUNTIME_MODULE_SOURCE_STATE_DENIED")
+        lease_owned = lease_version is None
+        lease = self.leases.acquire(session_id, worker_id) if lease_owned else None
+        actual_lease_version = lease.lease_version if lease is not None else lease_version
+        actual_lease_token = lease.lease_token if lease is not None else (lease_token or "")
+        try:
+            return self.cas.commit(
+                project_yaml,
+                next_state,
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=module,
+                lease_version=int(actual_lease_version),
+                lease_token=actual_lease_token,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            if lease_owned and lease is not None:
+                self.leases.release(session_id, worker_id, lease.lease_version, actual_lease_token)
+
+    def commit_role_state(
+        self,
+        session_id: str,
+        role: str,
+        next_state: dict[str, Any],
+        *,
+        project_yaml: str | Path,
+        expected_revision: int,
+        idempotency_key: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """通过现有 CAS 提交角色业务状态，保留 Lease 与字段 ownership 校验。"""
+
+        if role not in {"planner", "generator", "evaluator"}:
+            raise RuntimeValidationError("RUNTIME_ROLE_NOT_ALLOWED")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            return self.cas.commit(
+                project_yaml,
+                next_state,
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=role,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
+    def commit_role_transition(
+        self,
+        session_id: str,
+        role: str,
+        result: dict[str, Any],
+        *,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        """用一次受限 Role 生命周期提交处理等待态后的合法迁移。"""
+
+        if role not in {"planner", "generator", "evaluator"}:
+            raise RuntimeValidationError("RUNTIME_ROLE_NOT_ALLOWED")
+        required = {
+            "project_yaml",
+            "source_status",
+            "target_status",
+            "changed_fields",
+            "expected_revision",
+            "idempotency_key",
+        }
+        if set(result) != required or not isinstance(result["changed_fields"], dict):
+            raise RuntimeValidationError("ROLE_TRANSITION_RESULT_INVALID")
+        lease = self.leases.acquire(session_id, worker_id)
+        lease_token = lease.lease_token or ""
+        try:
+            return self.cas.commit_patch(
+                result["project_yaml"],
+                result["changed_fields"],
+                source_status=str(result["source_status"]),
+                target_status=str(result["target_status"]),
+                session_id=session_id,
+                worker_id=worker_id,
+                actor_role=role,
+                lease_version=lease.lease_version,
+                lease_token=lease_token,
+                expected_revision=int(result["expected_revision"]),
+                idempotency_key=str(result["idempotency_key"]),
+            )
+        finally:
+            self.leases.release(session_id, worker_id, lease.lease_version, lease_token)
+
+    def fail_step(self, session_id: str, run_id: str, reason: dict[str, Any]) -> None:
+        """持久化失败 Run；不提交候选 project state。"""
+
+        self.store.fail_role_run(session_id, run_id, reason)
+        self.leases.revoke_for_lifecycle(session_id, reason="role-run-failed")
+
+    def pause(self, session_id: str) -> None:
+        """暂停 Session，不改变业务状态。"""
+
+        self.role_execution_broker.cancel_active(session_id, reason="session-paused")
+        self.store.set_session_status(session_id, "PAUSED")
+        self.leases.revoke_for_lifecycle(session_id, reason="session-paused")
+        self.store.append_event(
+            session_id,
+            EventType.SESSION_PAUSED,
+            ActorType.ORCHESTRATOR,
+            "orchestrator",
+            idempotency_key="session-paused",
+            correlation_id=session_id,
+            payload={},
+        )
+
+    def resume(self, session_id: str, *, worker_id: str | None = None) -> dict[str, Any]:
+        """恢复 Session 并重新从持久化状态选角。"""
+
+        self.store.set_session_status(session_id, "ACTIVE")
+        self.store.append_event(
+            session_id,
+            EventType.SESSION_RESUMED,
+            ActorType.ORCHESTRATOR,
+            "orchestrator",
+            idempotency_key=f"session-resumed:{len(self.store.list_events(session_id))}",
+            correlation_id=session_id,
+            payload={},
+        )
+        return self.start(worker_id=worker_id)
+
+    def recover_session(
+        self, session_id: str, *, worker_id: str | None = None
+    ) -> dict[str, Any]:
+        """取得 Lease 后恢复 Runtime 与 Evaluation 事务。"""
+
+        worker_id = worker_id or f"worker-{uuid4()}"
+        try:
+            lease = self.leases.acquire(session_id, worker_id)
+        except Exception:
+            expired = {
+                item.session_id: item
+                for item in self.leases.detect_expired()
+            }
+            if session_id not in expired:
+                raise
+            lease = self.leases.steal_expired(session_id, worker_id)
+
+        def recover_evaluation(root: Path, evaluation_id: str) -> Any:
+            def writer(path: str | Path, candidate: dict[str, Any]) -> None:
+                current = load_project_state(path)
+                expected = int(runtime_projection(current)["revision"])
+                self.cas.commit(
+                    path,
+                    candidate,
+                    session_id=session_id,
+                    worker_id=worker_id,
+                    actor_role="evaluator",
+                    lease_version=lease.lease_version,
+                    lease_token=lease.lease_token or "",
+                    expected_revision=expected,
+                    idempotency_key=f"evaluation-recovery:{evaluation_id}",
+                )
+
+            recover_evaluation_transaction(
+                root, evaluation_id, state_writer=writer
+            )
+
+        try:
+            return self.recovery.recover(
+                session_id, evaluation_recoverer=recover_evaluation
+            )
+        finally:
+            self.leases.revoke_for_lifecycle(session_id, reason="recovery-finished")
+
+    def _validated_state(self) -> dict[str, Any]:
+        state = load_project_state(self.project_yaml)
+        errors = validate_project_state(state, self.root)
+        if errors:
+            raise RuntimeValidationError("project.yaml 无效：" + "; ".join(errors))
+        return state

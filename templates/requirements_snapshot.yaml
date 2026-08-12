@@ -11,6 +11,23 @@ original_request:
   text: |-
     <逐字保留用户原始请求>
 
+# First-Ask 保存用户需求事实；Intent/Coverage/Gap/Research 指针只引用追加式分析工件
+references: []
+
+discovery:
+  schema_version: 1
+  status: not_started
+  intent_analysis_ref: null
+  research_requirement_ref: null
+  research_status: not_started
+  active_research_round: null
+  research_refs: []
+  coverage_map_ref: null
+  gap_analysis_ref: null
+  question_set_ref: null
+  sufficiency_evaluation_ref: null
+  opportunity_map_ref: null
+
 # 字段状态：
 # unanswered | answered | assumed | undecided | conflicting |
 # requires_user_decision | not_applicable
@@ -22,6 +39,11 @@ target_users:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 primary_goal:
   question_key: primary_goal.main
@@ -30,6 +52,11 @@ primary_goal:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 use_cases:
   question_key: use_cases.core
@@ -38,6 +65,11 @@ use_cases:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 platform:
   question_key: platform.primary
@@ -46,6 +78,11 @@ platform:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 required_features:
   question_key: required_features.must_have
@@ -54,6 +91,11 @@ required_features:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 optional_features:
   question_key: optional_features.nice_to_have
@@ -62,6 +104,11 @@ optional_features:
   source_refs: []
   assumption_reason: null
   decision_impact: low
+  architecture_impact: low
+  workflow_impact: low
+  safe_assumption_available: true
+  research_refs: []
+  last_question_key: null
 
 data_sources:
   question_key: data_sources.primary
@@ -70,6 +117,11 @@ data_sources:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: false
+  research_refs: []
+  last_question_key: null
 
 technical_constraints:
   question_key: technical_constraints.hard_limits
@@ -78,6 +130,11 @@ technical_constraints:
   source_refs: []
   assumption_reason: null
   decision_impact: high
+  architecture_impact: high
+  workflow_impact: high
+  safe_assumption_available: true
+  research_refs: []
+  last_question_key: null
 
 design_preferences:
   question_key: design_preferences.explicit
@@ -86,6 +143,11 @@ design_preferences:
   source_refs: []
   assumption_reason: null
   decision_impact: low
+  architecture_impact: low
+  workflow_impact: low
+  safe_assumption_available: true
+  research_refs: []
+  last_question_key: null
   routing: null
   # none | partial | complete
   specification_completeness: none
@@ -122,6 +184,9 @@ completion_assessment:
   blocking_fields: []
   visual_undecided_routed: false
   notes: null
+
+# Discovery 版本和指针必须与 project.yaml 的 active_* 字段一致。
+discovery_status: not_started
 
 # draft | interviewing | waiting_user |
 # sufficient_for_planning | blocked_by_conflict

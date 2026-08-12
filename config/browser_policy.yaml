@@ -1,0 +1,22 @@
+version: 1
+capability: browser.access
+default: deny
+
+roles:
+  evaluator:
+    allowed: true
+
+actions:
+  - start
+  - navigate
+  - click
+  - fill
+  - select
+  - keyboard
+  - wait_for_selector
+  - wait_for_state
+  - read_visible_text
+  - inspect_dom_state
+  - inspect_url
+  - screenshot
+  - close

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/candidate-v1.schema.json",
+  "title": "Best validated candidate v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "snapshot_id",
+    "evaluation_id",
+    "project_revision",
+    "score",
+    "blocking_issues",
+    "critical_issues",
+    "regression_status",
+    "feature_completeness",
+    "browser_acceptance",
+    "validated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "candidate_id": {"type": "string", "pattern": "^candidate-[0-9]{3}$"},
+    "snapshot_id": {"type": "string", "pattern": "^snapshot-[A-Za-z0-9_-]+$"},
+    "evaluation_id": {"type": "string", "pattern": "^evaluation-[0-9]{3}$"},
+    "project_revision": {"type": "integer", "minimum": 0},
+    "score": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+    "blocking_issues": {"type": "array", "items": {"type": "string"}},
+    "critical_issues": {"type": "array", "items": {"type": "string"}},
+    "regression_status": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "feature_completeness": {"type": "string"},
+    "browser_acceptance": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"]},
+    "validated_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

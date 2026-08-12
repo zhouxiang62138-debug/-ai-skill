@@ -47,7 +47,51 @@
     "gates": {
       "type": "array",
       "items": {"$ref": "#/$defs/gate"}
-    }
+    },
+    "reference_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "evidence_type", "source", "evaluator_owned", "evidence_refs"],
+        "properties": {
+          "evidence_id": {"type": "string", "pattern": "^REF-EV-[0-9]{3}$"},
+          "evidence_type": {"enum": ["static_check", "runtime_check", "browser_step", "screenshot", "content_check", "technical_check"]},
+          "source": {"enum": ["evaluator", "runtime", "browser", "build_test_regression"]},
+          "evaluator_owned": {"const": true},
+          "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "evaluator_independence": {
+      "type": "object",
+      "required": ["invocation_id", "context_manifest_id", "project_revision", "code_snapshot_hash", "evidence"],
+      "properties": {
+        "invocation_id": {"type": "string", "minLength": 1},
+        "context_manifest_id": {"type": "string", "minLength": 1},
+        "project_revision": {"type": "integer", "minimum": 0},
+        "code_snapshot_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["acceptance_criterion_id", "provenance", "tool_call_id", "attempt_id", "result_hash", "project_revision", "code_snapshot_hash"],
+            "properties": {
+              "acceptance_criterion_id": {"type": "string", "minLength": 1},
+              "provenance": {"enum": ["GENERATOR_PROVIDED", "EVALUATOR_REPRODUCED", "RUNTIME_VERIFIED", "EXTERNAL"]},
+              "tool_call_id": {"type": "string", "minLength": 1},
+              "attempt_id": {"type": "string", "minLength": 1},
+              "result_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "project_revision": {"type": "integer", "minimum": 0},
+              "code_snapshot_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "reference_conformance": {"$ref": "reference_conformance_v1.schema.json"}
   },
   "$defs": {
     "project_path": {
@@ -85,6 +129,13 @@
         "status": {"enum": ["PASSED", "FAILED", "BLOCKED", "TIMED_OUT"]},
         "executed_by": {"enum": ["EVALUATOR", "GENERATOR_REVIEWED"]}
         ,
+        "provenance": {"enum": ["GENERATOR_PROVIDED", "EVALUATOR_REPRODUCED", "RUNTIME_VERIFIED", "EXTERNAL"]},
+        "invocation_id": {"type": ["string", "null"]},
+        "tool_call_id": {"type": ["string", "null"]},
+        "attempt_id": {"type": ["string", "null"]},
+        "project_revision": {"type": ["integer", "null"], "minimum": 0},
+        "code_snapshot_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "result_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
         "test_metrics": {
           "type": "object",
           "required": ["passed", "failed", "skipped", "failed_tests"],
@@ -141,6 +192,13 @@
         "requirement_id": {"type": ["string", "null"]},
         "acceptance_criterion_id": {"type": ["string", "null"]},
         "evidence_refs": {"type": "array", "items": {"type": "string"}}
+        ,
+        "provenance": {"enum": ["GENERATOR_PROVIDED", "EVALUATOR_REPRODUCED", "RUNTIME_VERIFIED", "EXTERNAL"]},
+        "tool_call_id": {"type": ["string", "null"]},
+        "attempt_id": {"type": ["string", "null"]},
+        "project_revision": {"type": ["integer", "null"], "minimum": 0},
+        "code_snapshot_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "result_hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
       },
       "additionalProperties": true
     },
@@ -150,7 +208,7 @@
       "properties": {
         "gate_id": {"type": "string", "pattern": "^GATE-[A-Z_]+$"},
         "required": {"type": "boolean"},
-        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"]},
+        "result": {"enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE"]},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
         "skip_reason": {"type": ["string", "null"]},
         "reason": {"type": ["string", "null"]}

@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from exploration import (  # noqa: E402
+    DESIGN_PREVIEW_MODE_LEGACY,
     REQUIRED_CONCEPTS,
     REQUIRED_SECTIONS,
     apply_explicit_skip,
@@ -23,6 +24,7 @@ from exploration import (  # noqa: E402
 )
 from project_state import ProjectStateError  # noqa: E402
 from project_state import parse_project_yaml  # noqa: E402
+from project_migration import preview_runtime_migration  # noqa: E402
 
 
 def requirements_with_design(status: str, completeness: str, routing=None) -> dict:
@@ -146,6 +148,22 @@ class ExplorationTriggerTests(unittest.TestCase):
 
 
 class ExplorationTransitionTests(unittest.TestCase):
+    def test_new_v7_cannot_start_legacy_full_exploration(self) -> None:
+        decision = decide_design_exploration(
+            requirements_with_design("undecided", "none", "design_exploration")
+        )
+        state = preview_runtime_migration(base_v4_state())
+        state.pop("schema_migration", None)
+        state.pop("schema_migration_record", None)
+        with self.assertRaises(ProjectStateError):
+            begin_exploration(
+                state,
+                decision,
+                active_proposal="memory/proposals/product_proposal_v001.md",
+                round_reference="artifacts/design_previews/round_001",
+                preview_mode=DESIGN_PREVIEW_MODE_LEGACY,
+            )
+
     def test_begin_and_finalize_exploration(self) -> None:
         decision = decide_design_exploration(
             requirements_with_design("undecided", "none", "design_exploration")
@@ -158,6 +176,7 @@ class ExplorationTransitionTests(unittest.TestCase):
                 decision,
                 active_proposal="memory/proposals/product_proposal_v001.md",
                 round_reference=reference,
+                preview_mode=DESIGN_PREVIEW_MODE_LEGACY,
             )
             self.assertEqual("DESIGN_EXPLORATION", started["status"])
             self.assertEqual(1, started["exploration_generation_attempt"])
@@ -222,28 +241,48 @@ class PreviewRoundValidationTests(unittest.TestCase):
         workflow = parse_project_yaml(
             (REPO_ROOT / "config" / "workflow.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(6, workflow["version"])
+        self.assertEqual(7, workflow["version"])
         self.assertEqual(3, workflow["design_exploration"]["required_concept_count"])
         self.assertEqual(
             2, workflow["design_exploration"]["maximum_generation_attempts"]
         )
+        exploration = workflow["design_exploration"]
+        self.assertEqual("direction_comparison", exploration["default_preview_mode"])
+        self.assertEqual(
+            ["concept.md"],
+            exploration["stages"]["direction_comparison"]["required_files_per_concept"],
+        )
+        self.assertEqual(
+            ["concept.md", "preview.html", "preview.css"],
+            exploration["stages"]["selected_prototype"]["required_files"],
+        )
+        self.assertTrue(exploration["stages"]["legacy_full"]["compatibility_only"])
+        self.assertTrue(exploration["stages"]["legacy_full"]["not_for_new_projects"])
+        self.assertEqual("legacy_full", exploration["required_concept_files"]["applies_to"])
         role_policies = parse_project_yaml(
             (REPO_ROOT / "config" / "role_policies.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(6, role_policies["version"])
+        self.assertEqual(7, role_policies["version"])
 
     def test_complete_three_direction_round_is_valid(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_exploration_") as directory:
             root = Path(directory)
             reference = create_valid_round(root)
-            self.assertEqual([], validate_preview_round(root, reference))
+            self.assertEqual(
+                [],
+                validate_preview_round(
+                    root, reference, preview_mode=DESIGN_PREVIEW_MODE_LEGACY
+                ),
+            )
 
     def test_missing_preview_file_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_exploration_") as directory:
             root = Path(directory)
             reference = create_valid_round(root)
             (root / reference / "concept_02" / "preview.css").unlink()
-            errors = validate_preview_round(root, reference)
+            errors = validate_preview_round(
+                root, reference, preview_mode=DESIGN_PREVIEW_MODE_LEGACY
+            )
             self.assertTrue(any("concept_02/preview.css" in error for error in errors))
 
     def test_fourth_concept_is_rejected(self) -> None:
@@ -251,14 +290,18 @@ class PreviewRoundValidationTests(unittest.TestCase):
             root = Path(directory)
             reference = create_valid_round(root)
             (root / reference / "concept_04").mkdir()
-            errors = validate_preview_round(root, reference)
+            errors = validate_preview_round(
+                root, reference, preview_mode=DESIGN_PREVIEW_MODE_LEGACY
+            )
             self.assertTrue(any("必须恰好包含" in error for error in errors))
 
     def test_routes_that_only_change_names_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test_exploration_") as directory:
             root = Path(directory)
             reference = create_valid_round(root, same_routes=True)
-            errors = validate_preview_round(root, reference)
+            errors = validate_preview_round(
+                root, reference, preview_mode=DESIGN_PREVIEW_MODE_LEGACY
+            )
             self.assertTrue(any("产品路线差异不足" in error for error in errors))
 
     def test_preview_path_cannot_escape_project(self) -> None:

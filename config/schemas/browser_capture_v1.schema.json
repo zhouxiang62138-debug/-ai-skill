@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/browser-capture-v1.schema.json",
+  "title": "Reference browser capture v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capture_id", "reference_id", "canonical_url", "redirect_chain", "viewport", "browser_identity", "captured_at", "artifacts", "console_errors", "network_failures", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "capture_id": {"type": "string", "pattern": "^CAP-[a-f0-9]{16}-v[0-9]+$"},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "canonical_url": {"type": "string", "pattern": "^https://"},
+    "redirect_chain": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^https://"}},
+    "viewport": {"type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
+    "browser_identity": {"type": "object", "additionalProperties": {"type": "string"}},
+    "captured_at": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "array", "minItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["artifact_ref", "sha256", "size_bytes", "media_type", "metadata"], "properties": {"artifact_ref": {"type": "string", "pattern": "^artifacts/"}, "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}, "size_bytes": {"type": "integer", "minimum": 1}, "media_type": {"type": "string", "minLength": 1}, "metadata": {"type": "object"}}}},
+    "console_errors": {"type": "array", "items": {"type": "string"}},
+    "network_failures": {"type": "array", "items": {"type": "string"}},
+    "trust_level": {"const": "untrusted"}
+  }
+}

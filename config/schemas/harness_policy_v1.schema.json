@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/harness-policy-v1.schema.json",
+  "title": "Adaptive Harness Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "default_mode", "known_models", "mode_limits", "mandatory_gates"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "default_mode": {"enum": ["LEAN", "STANDARD", "FULL"]},
+    "known_models": {"type": "array", "items": {"type": "object"}},
+    "mode_limits": {"type": "object"},
+    "mandatory_gates": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/implementation-strategy-v1.schema.json",
+  "title": "Append-only implementation strategy record v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "strategy_id",
+    "record_kind",
+    "source_plan"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "strategy_id": {
+      "type": "string",
+      "pattern": "^implementation-strategy-[0-9]{3}$"
+    },
+    "record_kind": {
+      "enum": ["planner_what_why", "generator_how"]
+    },
+    "source_plan": {
+      "type": "string",
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "source_requirements": {"type": "string"},
+    "requirement_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "what_why": {"type": "object"},
+    "parent_strategy_id": {"type": "string"},
+    "implementation": {"type": "object"}
+  },
+  "additionalProperties": false
+}

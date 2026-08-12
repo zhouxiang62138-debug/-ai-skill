@@ -21,6 +21,10 @@ from evaluation_protocol import (
     validate_relative_path,
 )
 from project_state import parse_project_yaml, serialize_project_state
+try:
+    from reference_conformance import _reference_evidence_index
+except ImportError:  # 允许作为 scripts 包导入
+    from .reference_conformance import _reference_evidence_index
 
 
 GATE_ORDER = (
@@ -28,13 +32,23 @@ GATE_ORDER = (
     "GATE-BUILD",
     "GATE-TESTS",
     "GATE-REQUIREMENTS",
+    "GATE-BROWSER-ACCEPTANCE",
+    "GATE-FEATURE-COMPLETENESS",
+    "GATE-REFERENCE-CONFORMANCE",
     "GATE-REGRESSION",
     "GATE-NON_FUNCTIONAL",
     "GATE-EVIDENCE",
 )
 COMMAND_STATUSES = ("PASSED", "FAILED", "BLOCKED", "TIMED_OUT")
 CHECK_RESULTS = ("PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED")
-GATE_RESULTS = ("PASS", "FAIL", "BLOCKED", "SKIPPED")
+GATE_RESULTS = ("PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE")
+EVIDENCE_PROVENANCE = (
+    "GENERATOR_PROVIDED",
+    "EVALUATOR_REPRODUCED",
+    "RUNTIME_VERIFIED",
+    "EXTERNAL",
+)
+INDEPENDENT_PROVENANCE = {"EVALUATOR_REPRODUCED", "RUNTIME_VERIFIED"}
 SENSITIVE_PATTERN = re.compile(
     r"(?i)(token|secret|password|api[_-]?key|authorization)\s*[:=]\s*([^\s]+)"
 )
@@ -75,6 +89,196 @@ def _timestamp(value: Any) -> bool:
     except ValueError:
         return False
     return parsed.tzinfo is not None
+
+
+def _validate_browser_evidence_records(
+    browser_runs: Any,
+    browser_evidence: Any,
+    evaluation_id: str,
+) -> tuple[list[str], set[str], set[str]]:
+    """校验 Browser Run/Step，并返回可用于交叉引用的 ID 集合。"""
+
+    errors: list[str] = []
+    if not isinstance(browser_runs, list):
+        return ["browser_runs 必须是列表"], set(), set()
+    if not isinstance(browser_evidence, list):
+        return ["browser_evidence 必须是列表"], set(), set()
+    run_ids: set[str] = set()
+    step_ids: set[str] = set()
+    run_map: dict[str, dict[str, Any]] = {}
+    for index, run in enumerate(browser_runs):
+        prefix = f"browser_runs[{index}]"
+        if not isinstance(run, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        run_id = run.get("browser_run_id")
+        if not isinstance(run_id, str) or not re.fullmatch(r"browser-run-\d{3}", run_id):
+            errors.append(f"{prefix}.browser_run_id 格式无效")
+        elif run_id in run_ids:
+            errors.append(f"重复 browser_run_id：{run_id}")
+        else:
+            run_ids.add(run_id)
+            run_map[run_id] = run
+        if run.get("evaluation_id") != evaluation_id:
+            errors.append(f"{prefix}.evaluation_id 与 manifest 不一致")
+        if run.get("result") not in {"PASS", "FAIL", "BLOCKED"}:
+            errors.append(f"{prefix}.result 无效")
+        if not isinstance(run.get("evidence_refs"), list):
+            errors.append(f"{prefix}.evidence_refs 必须是列表")
+        for field in ("started_at", "finished_at"):
+            if not _timestamp(run.get(field)):
+                errors.append(f"{prefix}.{field} 必须是带时区的 ISO-8601 时间")
+    step_map: dict[str, dict[str, Any]] = {}
+    for index, step in enumerate(browser_evidence):
+        prefix = f"browser_evidence[{index}]"
+        if not isinstance(step, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        step_id = step.get("step_id")
+        if not isinstance(step_id, str) or not re.fullmatch(
+            r"browser-run-\d{3}-step-\d{3}", step_id
+        ):
+            errors.append(f"{prefix}.step_id 格式无效")
+        elif step_id in step_ids:
+            errors.append(f"重复 step_id：{step_id}")
+        else:
+            step_ids.add(step_id)
+            step_map[step_id] = step
+        if step.get("evaluation_id") != evaluation_id:
+            errors.append(f"{prefix}.evaluation_id 与 manifest 不一致")
+        if step.get("browser_run_id") not in run_ids:
+            errors.append(f"{prefix}.browser_run_id 未知")
+        if step.get("result") not in {"PASS", "FAIL", "BLOCKED"}:
+            errors.append(f"{prefix}.result 无效")
+        for field in (
+            "requirement_id",
+            "acceptance_criterion_id",
+            "action",
+            "target",
+            "expected",
+            "observed",
+        ):
+            if not _nonempty(step.get(field)):
+                errors.append(f"{prefix}.{field} 必须是非空字符串")
+        for field in ("console_errors", "network_failures"):
+            if not isinstance(step.get(field), list):
+                errors.append(f"{prefix}.{field} 必须是列表")
+        for field in ("started_at", "finished_at"):
+            if not _timestamp(step.get(field)):
+                errors.append(f"{prefix}.{field} 必须是带时区的 ISO-8601 时间")
+        screenshot = step.get("screenshot_reference")
+        if screenshot is not None:
+            path_error = validate_relative_path(screenshot)
+            if path_error:
+                errors.append(f"{prefix}.screenshot_reference {path_error}")
+    for run_id, run in run_map.items():
+        refs = run.get("evidence_refs")
+        if isinstance(refs, list):
+            unknown = [item for item in refs if item not in step_ids]
+            if unknown:
+                errors.append(f"browser_runs[{run_id}].evidence_refs 包含未知 ID")
+    for step_id, step in step_map.items():
+        run = run_map.get(str(step.get("browser_run_id")))
+        if run is not None and step_id not in set(run.get("evidence_refs") or []):
+            errors.append(f"{step_id} 未被 Browser Run 引用")
+    return errors, run_ids, step_ids
+
+
+def _validate_feature_completeness_records(
+    summary: Any,
+    findings: Any,
+    observations: Any,
+    evaluation_id: str,
+) -> tuple[list[str], set[str], set[str]]:
+    """校验 Feature Finding/Observation，并返回可引用的 ID 集合。"""
+
+    errors: list[str] = []
+    if summary is None and findings == [] and observations == []:
+        return errors, set(), set()
+    if summary is not None and not isinstance(summary, dict):
+        errors.append("feature_completeness 必须是对象")
+        summary = {}
+    finding_ids: set[str] = set()
+    observation_ids: set[str] = set()
+    if not isinstance(findings, list):
+        errors.append("feature_findings 必须是列表")
+        findings = []
+    if not isinstance(observations, list):
+        errors.append("feature_observations 必须是列表")
+        observations = []
+    for index, finding in enumerate(findings):
+        prefix = f"feature_findings[{index}]"
+        if not isinstance(finding, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        finding_id = finding.get("finding_id")
+        if not isinstance(finding_id, str) or not re.fullmatch(
+            r"FC-FIND-\d{3}", finding_id
+        ):
+            errors.append(f"{prefix}.finding_id 格式无效")
+        elif finding_id in finding_ids:
+            errors.append(f"重复 finding_id：{finding_id}")
+        else:
+            finding_ids.add(finding_id)
+        if finding.get("severity") not in {"blocker", "critical", "major", "minor", "observation"}:
+            errors.append(f"{prefix}.severity 无效")
+        if not _nonempty(finding.get("category")) or not _nonempty(finding.get("path")):
+            errors.append(f"{prefix}.category/path 必须是非空字符串")
+        if not isinstance(finding.get("line"), int) or finding.get("line") <= 0:
+            errors.append(f"{prefix}.line 必须是正整数")
+        if not _nonempty(finding.get("evidence")):
+            errors.append(f"{prefix}.evidence 必须是非空字符串")
+        if not isinstance(finding.get("penalty"), (int, float)):
+            errors.append(f"{prefix}.penalty 必须是数字")
+    for index, observation in enumerate(observations):
+        prefix = f"feature_observations[{index}]"
+        if not isinstance(observation, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        observation_id = observation.get("observation_id")
+        if not isinstance(observation_id, str) or not re.fullmatch(
+            r"FC-OBS-\d{3}", observation_id
+        ):
+            errors.append(f"{prefix}.observation_id 格式无效")
+        elif observation_id in observation_ids:
+            errors.append(f"重复 observation_id：{observation_id}")
+        else:
+            observation_ids.add(observation_id)
+        if observation.get("evaluation_id", evaluation_id) != evaluation_id:
+            errors.append(f"{prefix}.evaluation_id 与 manifest 不一致")
+        if observation.get("source") not in {"runtime", "browser", "requirement"}:
+            errors.append(f"{prefix}.source 无效")
+        if observation.get("result") not in {"PASS", "FAIL", "BLOCKED"}:
+            errors.append(f"{prefix}.result 无效")
+        for field in (
+            "requirement_id",
+            "acceptance_criterion_id",
+            "expected",
+            "observed",
+        ):
+            if not _nonempty(observation.get(field)):
+                errors.append(f"{prefix}.{field} 必须是非空字符串")
+        refs = observation.get("evidence_refs")
+        if not isinstance(refs, list) or not refs or not all(_nonempty(item) for item in refs):
+            errors.append(f"{prefix}.evidence_refs 必须是列表")
+    if isinstance(summary, dict):
+        if summary.get("result") not in {"PASS", "FAIL", "BLOCKED", "SKIPPED"}:
+            errors.append("feature_completeness.result 无效")
+        score = summary.get("score")
+        if score is not None and (
+            not isinstance(score, (int, float)) or isinstance(score, bool) or not 0 <= score <= 10
+        ):
+            errors.append("feature_completeness.score 无效")
+        for field, valid_ids in (
+            ("finding_refs", finding_ids),
+            ("observation_refs", observation_ids),
+        ):
+            refs = summary.get(field, [])
+            if not isinstance(refs, list):
+                errors.append(f"feature_completeness.{field} 必须是列表")
+            elif any(item not in valid_ids for item in refs):
+                errors.append(f"feature_completeness.{field} 包含未知 ID")
+    return errors, finding_ids, observation_ids
 
 
 def _unique_records(
@@ -126,6 +330,20 @@ def validate_evidence_manifest(
         path = Path(filename)
         if path.name != "manifest.yaml" or path.parent.name != evaluation_id:
             errors.append("manifest 路径必须与 evaluation_id 一致")
+    errors.extend(validate_evaluator_independence_manifest(manifest))
+    browser_errors, browser_run_ids, browser_step_ids = _validate_browser_evidence_records(
+        manifest.get("browser_runs", []),
+        manifest.get("browser_evidence", []),
+        evaluation_id,
+    )
+    errors.extend(browser_errors)
+    feature_errors, feature_finding_ids, feature_observation_ids = _validate_feature_completeness_records(
+        manifest.get("feature_completeness"),
+        manifest.get("feature_findings", []),
+        manifest.get("feature_observations", []),
+        evaluation_id,
+    )
+    errors.extend(feature_errors)
     if not _timestamp(manifest.get("created_at")):
         errors.append("created_at 必须是带时区的 ISO-8601 时间")
     environment = manifest.get("environment")
@@ -212,7 +430,17 @@ def validate_evidence_manifest(
                 errors.append(
                     f"{prefix}.linked_requirement_ids 存在未知 ID：{unknown_requirements}"
                 )
-    known_evidence = set(commands) | set(artifacts)
+    known_evidence = (
+        set(commands)
+        | set(artifacts)
+        | browser_run_ids
+        | browser_step_ids
+        | feature_finding_ids
+        | feature_observation_ids
+    )
+    reference_evidence_index, reference_evidence_errors = _reference_evidence_index(manifest)
+    errors.extend(reference_evidence_errors)
+    known_evidence |= set(reference_evidence_index)
     for current_id, check in checks.items():
         prefix = f"checks[{current_id}]"
         if check.get("gate_id") not in GATE_ORDER:
@@ -247,6 +475,88 @@ def validate_evidence_manifest(
             errors.append(f"{prefix} 必需 PASS Gate 缺少证据")
         if gate.get("result") == "SKIPPED" and not _nonempty(gate.get("skip_reason")):
             errors.append(f"{prefix} 跳过时必须说明原因")
+        if gate.get("result") == "NOT_APPLICABLE" and not _nonempty(gate.get("reason")):
+            errors.append(f"{prefix} N/A 时必须说明适用性原因")
+    reference_section = manifest.get("reference_conformance")
+    if reference_section is not None:
+        if not isinstance(reference_section, dict):
+            errors.append("reference_conformance 必须是对象")
+        else:
+            if reference_section.get("result") not in {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE", "NOT_EVALUATED"}:
+                errors.append("reference_conformance.result 枚举无效")
+            if reference_section.get("result") != "NOT_APPLICABLE":
+                if not isinstance(reference_section.get("contract_id"), str) or not isinstance(reference_section.get("contract_hash"), str):
+                    errors.append("reference_conformance 缺少 Contract 身份")
+                if not isinstance(reference_section.get("binding_results"), list):
+                    errors.append("reference_conformance.binding_results 必须是列表")
+    return errors
+
+
+def validate_evaluator_independence_manifest(manifest: dict[str, Any]) -> list[str]:
+    """校验 E1 Manifest 的 provenance 与当前 Invocation 身份绑定。"""
+
+    section = manifest.get("evaluator_independence")
+    if section is None:
+        return []
+    errors: list[str] = []
+    if not isinstance(section, dict):
+        return ["evaluator_independence 必须是对象"]
+    for field in ("invocation_id", "context_manifest_id", "code_snapshot_hash"):
+        if not _nonempty(section.get(field)):
+            errors.append(f"evaluator_independence.{field} 必须是非空字符串")
+    revision = section.get("project_revision")
+    if not isinstance(revision, int) or revision < 0:
+        errors.append("evaluator_independence.project_revision 必须是非负整数")
+    snapshot = section.get("code_snapshot_hash")
+    if not isinstance(snapshot, str) or not re.fullmatch(r"[a-f0-9]{64}", snapshot):
+        errors.append("evaluator_independence.code_snapshot_hash 必须是 SHA-256")
+    evidence = section.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return errors + ["evaluator_independence.evidence 必须是非空列表"]
+    criteria: dict[str, list[dict[str, Any]]] = {}
+    for index, item in enumerate(evidence):
+        prefix = f"evaluator_independence.evidence[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix} 必须是对象")
+            continue
+        criterion = item.get("acceptance_criterion_id")
+        if not _nonempty(criterion):
+            errors.append(f"{prefix}.acceptance_criterion_id 必填")
+        if item.get("provenance") not in EVIDENCE_PROVENANCE:
+            errors.append(f"{prefix}.provenance 枚举无效")
+        for field in ("tool_call_id", "attempt_id", "result_hash", "code_snapshot_hash"):
+            if not _nonempty(item.get(field)):
+                errors.append(f"{prefix}.{field} 必须是非空字符串")
+        if not isinstance(item.get("result_hash"), str) or not re.fullmatch(
+            r"[a-f0-9]{64}", str(item.get("result_hash"))
+        ):
+            errors.append(f"{prefix}.result_hash 必须是 SHA-256")
+        if item.get("project_revision") != revision:
+            errors.append(f"{prefix}.project_revision 与 Manifest 不一致")
+        if item.get("code_snapshot_hash") != snapshot:
+            errors.append(f"{prefix}.code_snapshot_hash 与 Manifest 不一致")
+        if not _timestamp(item.get("timestamp")):
+            errors.append(f"{prefix}.timestamp 必须是带时区时间")
+        if not isinstance(item.get("command"), list) or not item.get("command"):
+            errors.append(f"{prefix}.command 必须是非空数组")
+        if not isinstance(item.get("environment"), dict):
+            errors.append(f"{prefix}.environment 必须是对象")
+        if _nonempty(criterion):
+            criteria.setdefault(str(criterion), []).append(item)
+    required_criteria = section.get("required_acceptance_criteria")
+    if not isinstance(required_criteria, list) or not required_criteria:
+        errors.append("evaluator_independence.required_acceptance_criteria 必须是非空列表")
+    else:
+        for criterion in required_criteria:
+            if not _nonempty(criterion) or str(criterion) not in criteria:
+                errors.append(f"required Acceptance Criterion 缺少独立 Evidence：{criterion}")
+        for criterion, items in criteria.items():
+            if not any(
+                item.get("result") == "PASS"
+                and item.get("provenance") in INDEPENDENT_PROVENANCE
+                for item in items
+            ):
+                errors.append(f"Acceptance Criterion {criterion} 缺少 Evaluator/Runtime PASS Evidence")
     return errors
 
 
@@ -415,8 +725,12 @@ def evaluate_gates(
         required = bool(policy.get("required"))
         current = gate_inputs.get(gate_id)
         if current is None:
-            result = "FAIL" if required else "SKIPPED"
-            reason = "required_gate_not_executed" if required else "not_configured_for_project"
+            if gate_id == "GATE-REFERENCE-CONFORMANCE":
+                result = "NOT_APPLICABLE"
+                reason = "no_approved_reference_contract"
+            else:
+                result = "FAIL" if required else "SKIPPED"
+                reason = "required_gate_not_executed" if required else "not_configured_for_project"
             evidence_refs: list[str] = []
         else:
             result = current.get("result")
@@ -427,6 +741,9 @@ def evaluate_gates(
             if result == "SKIPPED" and required:
                 result = "BLOCKED" if current.get("blocked") else "FAIL"
                 reason = reason or "required_gate_cannot_be_skipped"
+            if result == "NOT_APPLICABLE" and required:
+                result = "FAIL"
+                reason = reason or "required_gate_not_applicable"
             if result == "PASS" and required and not evidence_refs:
                 result = "FAIL"
                 reason = "required_gate_missing_evidence"

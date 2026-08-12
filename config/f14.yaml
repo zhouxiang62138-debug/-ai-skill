@@ -1,0 +1,38 @@
+version: 1
+
+# F14-F 默认保持 F13 Full Context；只有显式 Canary/Benchmark 才能打开 Selective。
+f14:
+  context_delivery_mode: f13_full
+  selective_context:
+    enabled: false
+    roles: []
+    phases: []
+    canary_projects: []
+  evaluator_selective_context:
+    enabled: false
+  invocation_gate:
+    enabled: false
+  rollout:
+    mode: controlled
+    qualification_status: CONTROLLED_QUALIFIED
+    fallback_mode: f13_full
+    automatic_fallback: true
+    global_enabled: false
+    manual_kill_switch: true
+    kill_switch_active: false
+    per_project_override: true
+    per_role_override: true
+    per_phase_override: true
+    overrides:
+      disabled_projects: []
+      disabled_roles: []
+      disabled_phases: []
+  qualification_evidence:
+    controlled: PASS
+    real_model: BLOCKED
+    real_browser: BLOCKED
+    evaluator_selective: BLOCKED
+    quality_parity: BLOCKED
+    semantic_task_misclassified_as_python_only: 0
+    fault_injection: PASS
+    fallback: PASS

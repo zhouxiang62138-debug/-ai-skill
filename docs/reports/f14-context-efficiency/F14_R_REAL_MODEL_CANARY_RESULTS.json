@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "qualification": "F14_R_REAL_MODEL_CANARY",
+  "qualification_timestamp": "2026-08-12T10:47:21Z",
+  "baseline": {
+    "git_commit": "0fcb6c98ea421b7a930cd564d15da74a03383b3b",
+    "git_tree_hash": "4039f562e38c2d098612f3b0fd8624999c939e66",
+    "working_tree_hash": "7b8d2edcbdeab54e7c4e8eedb7d745e91ff2404c0115cbd538879bb6642c6ce6",
+    "working_tree_status": "WORKING TREE NOT CLEAN",
+    "runtime_schema": 7,
+    "config_hash": "b172d2683b5c283e85a536af79a5382a213674a793e5f1445d4fcc5c96e11b0b",
+    "workflow_hash": "a2484a0ac476b8f34c173850586dfcf665c1afa5119332788b4e9f03a661c8a8",
+    "role_policy_hash": "9d7951d816f5a41a83cd0d167b38e27766c26aabe8a88cb76c573156dcd94fe2",
+    "evaluation_policy_hash": "f479212320476db725e25cb0ba93ba9b7255bf1ac7290cfd6fcf0436845c66f5",
+    "evaluation_independence_hash": "db2e6b0d389d97e33fde3fafff5b5cbfd4ec155cb160bb186e501d093445d91e",
+    "f14_config_hash": "b387a2b5476762b772d076b657ba26e83c8430ffb94274df9393c858d8432ec2",
+    "runtime_config_hash": "cbe61dcf27f4a18085b9c8403fd4f8f0f8278f3ffdc4172dad5c452315d18995",
+    "browser_policy_hash": "3adf6295d62fb721dcf3d7540c37e12730417a35a13665f5a439d51c0db75e30"
+  },
+  "environment": {
+    "os": "Windows-10-10.0.26200-SP0",
+    "architecture": "AMD64",
+    "python_version": "3.11.15",
+    "pytest_preflight": "available",
+    "playwright_available": false,
+    "selenium_available": false,
+    "host_model_provider_available": false,
+    "formal_browser_harness_available": true,
+    "formal_model_adapter_protocol_available": true,
+    "real_browser_connector_available": false,
+    "test_project_root": "external:test_f14_r_real_gold_case_c_20260812/archive"
+  },
+  "real_model": {
+    "benchmark_type": "REAL_MODEL",
+    "executed": false,
+    "status": "unavailable",
+    "adapter": "ModelInvocationAdapter protocol only; provider unavailable",
+    "real_model_requests": 0,
+    "real_llm_invocations": "unavailable",
+    "input_tokens": "unavailable",
+    "cached_input_tokens": "unavailable",
+    "output_tokens": "unavailable",
+    "total_tokens": "unavailable",
+    "actual_token_saving": "NOT PROVEN",
+    "evidence_refs": [
+      "runtime/phase_runner.py",
+      "runtime/role_execution.py",
+      "external:test_f14_r_real_gold_case_c_20260812/archive/TEST_REPORT.md"
+    ]
+  },
+  "real_browser": {
+    "benchmark_type": "REAL_BROWSER",
+    "executed": false,
+    "status": "unavailable",
+    "playwright_available": false,
+    "selenium_available": false,
+    "automated_visual_score": "NOT_AVAILABLE",
+    "evidence_refs": [
+      "runtime/browser",
+      "tests/test_browser_harness.py",
+      "config/browser_policy.yaml"
+    ],
+    "controlled_adapter_note": "FakeBrowserAdapter results are CONTROLLED_RUNTIME only"
+  },
+  "gold_case_c": {
+    "case_id": "C",
+    "project_id": "test_f14_r_real_gold_case_c_20260812",
+    "initial_user_request": "我要做一个个人记账 App。",
+    "fixture_path": "external:test_f14_r_real_gold_case_c_20260812/archive/gold_case_c_inputs.json",
+    "real_lifecycle_status": "NOT_EXECUTED",
+    "controlled_lifecycle_status": "PARTIAL_FORMAL_PATH_COVERED",
+    "required_route_frozen": true,
+    "exact_user_fixture_inputs": true,
+    "direct_project_state_bypass": false,
+    "evidence_refs": [
+      "tests/test_stage2_core_e2e.py",
+      "tests/test_stage3_rework_e2e.py",
+      "tests/test_stage4b_change_request_e2e.py",
+      "tests/test_two_stage_design_exploration.py"
+    ]
+  },
+  "f13": {
+    "context_mode": "f13_full",
+    "global_default": true,
+    "evaluator_context": "full_independent",
+    "real_run_executed": false,
+    "fallback_available": true
+  },
+  "f14": {
+    "context_mode": "f14_selective_canary",
+    "global_selective_enabled": false,
+    "evaluator_selective_context_enabled": false,
+    "global_invocation_gate_enabled": false,
+    "explicit_canary_only": true,
+    "f13_fallback_preserved": true,
+    "real_run_executed": false
+  },
+  "context_metrics": {
+    "benchmark_type": "CONTROLLED_RUNTIME",
+    "source": "F14 Final Qualification Case C controlled A/B",
+    "formal_context_bytes_f13": 10000,
+    "formal_context_bytes_f14": 10000,
+    "initial_selective_context_bytes": 5200,
+    "expansion_bytes": 2200,
+    "recovery_bytes": 400,
+    "net_context_bytes_f13": 10000,
+    "net_context_bytes_f14": 7800,
+    "net_context_reduction_bytes": 2200,
+    "net_context_reduction_ratio": 0.22,
+    "repeated_context_bytes_f13": 6000,
+    "repeated_context_bytes_f14": 3500,
+    "repeated_context_reduction_bytes": 2500,
+    "real_model_context_measurement": "unavailable"
+  },
+  "token_metrics": {
+    "f13_input_tokens": "unavailable",
+    "f14_input_tokens": "unavailable",
+    "f13_cached_input_tokens": "unavailable",
+    "f14_cached_input_tokens": "unavailable",
+    "f13_output_tokens": "unavailable",
+    "f14_output_tokens": "unavailable",
+    "f13_total_tokens": "unavailable",
+    "f14_total_tokens": "unavailable",
+    "status": "unavailable",
+    "verdict": "NOT PROVEN"
+  },
+  "model_request_metrics": {
+    "f13_real_model_requests": 0,
+    "f14_real_model_requests": 0,
+    "real_request_reduction": "unavailable",
+    "python_only_executions": "unavailable",
+    "controlled_gate_classifications": "covered",
+    "verdict": "NOT PROVEN"
+  },
+  "role_metrics": {
+    "benchmark_type": "REAL_MODEL",
+    "planner": {"input_tokens": "unavailable", "real_requests": "unavailable", "controlled_coverage": "covered"},
+    "generator": {"input_tokens": "unavailable", "real_requests": "unavailable", "controlled_coverage": "covered"},
+    "evaluator": {"input_tokens": "unavailable", "real_requests": "unavailable", "controlled_coverage": "covered"},
+    "real_savings_rank": "unavailable"
+  },
+  "phase_metrics": {
+    "benchmark_type": "REAL_MODEL",
+    "requirement_discovery": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "design_exploration": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "planner_revision": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "generator_initial": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "generator_rework": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "evaluation": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "change_request": {"tokens": "unavailable", "fallbacks": "unavailable"},
+    "regression": {"tokens": "unavailable", "fallbacks": "unavailable"}
+  },
+  "fallback_metrics": {
+    "benchmark_type": "REAL_MODEL",
+    "selective_builds": "unavailable",
+    "successful_selective_builds": "unavailable",
+    "expansions": "unavailable",
+    "fallbacks": "unavailable",
+    "fallback_rate": "unavailable",
+    "fallback_model_requests": "unavailable",
+    "fallback_tokens": "unavailable",
+    "controlled_reason_categories": [
+      "unknown dependency",
+      "authority uncertainty",
+      "revision mismatch",
+      "coverage uncertainty",
+      "cache invalid",
+      "index invalid",
+      "security concern",
+      "context corruption",
+      "builder failure"
+    ]
+  },
+  "expansion_metrics": {
+    "benchmark_type": "CONTROLLED_RUNTIME",
+    "controlled_expansion_bytes": 2200,
+    "controlled_recovery_bytes": 400,
+    "real_expansion_count": "unavailable",
+    "real_expansion_tokens": "unavailable",
+    "expansion_loop_recovery": "covered"
+  },
+  "rework_metrics": {
+    "controlled_stage3_pass": true,
+    "real_model_frozen_rework_ab": "NOT_EXECUTED",
+    "rework_input_tokens": "unavailable",
+    "rework_repeated_context": "unavailable",
+    "rework_fallback_tokens": "unavailable",
+    "quality_delta": "unavailable"
+  },
+  "change_request_metrics": {
+    "controlled_stage4b_pass": true,
+    "real_model_change_request_ab": "NOT_EXECUTED",
+    "regression_preserved_controlled": true,
+    "tokens": "unavailable",
+    "fallbacks": "unavailable"
+  },
+  "quality_metrics": {
+    "benchmark_type": "CONTROLLED_RUNTIME",
+    "full_unittest_passed": 497,
+    "f14_focused_pytest_passed": 116,
+    "focused_subtests_passed": 16,
+    "combination_e2e_passed": 10,
+    "ab_telemetry_browser_harness_passed": 11,
+    "critical_false_omission": 0,
+    "approval_bypass": 0,
+    "security_miss": 0,
+    "privacy_miss": 0,
+    "critical_detection_difference": 0,
+    "required_acceptance_criteria_coverage": "controlled_pass",
+    "regression_parity": "controlled_pass",
+    "browser_blocking_failure": "unavailable_real_browser",
+    "recovery_corruption": 0,
+    "real_model_quality_parity": "NOT PROVEN"
+  },
+  "fault_injection": [
+    {"fault_id": "F01", "fault": "context_cache_stale", "expected": "REREAD_OR_FALLBACK_F13", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_source_cache.py"]},
+    {"fault_id": "F02", "fault": "index_hash_mismatch", "expected": "BLOCK_OR_REBUILD", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_artifact_index.py", "tests/test_f14_b7_safety.py"]},
+    {"fault_id": "F03", "fault": "incremental_dependency_unknown", "expected": "FALLBACK_F13", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_e_incremental_context.py"]},
+    {"fault_id": "F04", "fault": "required_artifact_missing", "expected": "BLOCK", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_c4_enforced_gate.py"]},
+    {"fault_id": "F05", "fault": "approved_artifact_tampered", "expected": "DENY", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_approval.py", "external:source-chain-fault-matrix"]},
+    {"fault_id": "F06", "fault": "revision_stale", "expected": "DENY_OR_FALLBACK", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_d_context_escalation.py"]},
+    {"fault_id": "F07", "fault": "manifest_corruption", "expected": "BLOCK_OR_REBUILD", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_e_incremental_context.py"]},
+    {"fault_id": "F08", "fault": "expansion_incomplete", "expected": "RECOVERY_OR_FALLBACK_F13", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_d_context_escalation.py"]},
+    {"fault_id": "F09", "fault": "selective_builder_exception", "expected": "FALLBACK_F13", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_c4_enforced_gate.py"]},
+    {"fault_id": "F10", "fault": "invocation_gate_ambiguity", "expected": "LLM_REQUIRED_OR_BLOCK", "benchmark_type": "CONTROLLED_RUNTIME", "verdict": "PASS", "evidence_refs": ["tests/test_f14_f_context_and_invocation.py"]}
+  ],
+  "failure_classifications": [
+    {"id": "DEF-F14-001", "class": "PRODUCT DEFECT", "status": "FIXED", "severity": "P1"},
+    {"id": "DEF-F14-002", "class": "PRODUCT DEFECT", "status": "FIXED", "severity": "P1"},
+    {"id": "ENV-F14R-001", "class": "ENVIRONMENT FAILURE", "status": "RETRIED_SUCCESSFULLY", "reason": "sandbox_temp_directory_permission"},
+    {"id": "CAP-F14R-REAL-MODEL", "class": "REAL MODEL CAPABILITY BLOCK", "status": "UNAVAILABLE", "reason": "host_model_provider_and_usage_adapter_missing"},
+    {"id": "CAP-F14R-REAL-BROWSER", "class": "REAL BROWSER CAPABILITY BLOCK", "status": "UNAVAILABLE", "reason": "playwright_selenium_and_browser_connector_missing"},
+    {"id": "ADAPTER-F14R-001", "class": "CONTROLLED ADAPTER LIMITATION", "status": "EXPECTED", "reason": "fixture_has_no_real_semantic_or_usage_signal"}
+  ],
+  "remaining_gaps": [
+    "Real Codex/Host Model Gold lifecycle",
+    "Real Browser Gold lifecycle and visual QA",
+    "Real F13/F14 matched A/B tokens and requests",
+    "Frozen Real Model Rework A/B",
+    "Real Model Change Request A/B",
+    "Production fallback and expansion rates",
+    "Real Model variance sample"
+  ],
+  "verdicts": {
+    "engineering": "BLOCKED — INSUFFICIENT REAL-MODEL EVIDENCE",
+    "real_model_efficiency": "BLOCKED",
+    "quality_parity": "CONDITIONAL_PASS_CONTROLLED_ONLY",
+    "real_browser": "BLOCKED",
+    "controlled_rollout": "CONTINUE_CANARY_SCOPED_ONLY",
+    "global_default_rollout": "NOT RECOMMENDED",
+    "actual_token_saving": "NOT PROVEN",
+    "start_f15": "NO"
+  }
+}

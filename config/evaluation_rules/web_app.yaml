@@ -8,6 +8,23 @@ evaluation:
   required_checks:
     runtime: PASS
     core_functionality: PASS
+  browser_validation:
+    required: true
+    startup_command: ["npm", "run", "dev"]
+    base_url: "http://127.0.0.1:3000"
+    timeout_seconds: 30
+    screenshot_policy: on_failure
+    console_error_policy: fail_on_error
+    network_failure_policy: fail_on_failure
+    required_scenarios:
+      - web-app-core-flow
+    scenario_manifest:
+      reference: config/browser_scenarios/web_app.yaml
+      schema_version: 1
+  feature_completeness:
+    required: true
+    minimum_score: 8.0
+    required_sources: ["static", "runtime", "browser"]
   criteria:
     functionality:
       weight: 0.20
@@ -46,6 +63,10 @@ evaluation:
     GATE-TESTS:
       required: true
     GATE-REQUIREMENTS:
+      required: true
+    GATE-BROWSER-ACCEPTANCE:
+      required: true
+    GATE-FEATURE-COMPLETENESS:
       required: true
     GATE-REGRESSION:
       required: true

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/gap-analysis-v1.schema.json",
+  "title": "Requirement gap analysis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "gap_id", "project_id", "coverage_ref", "gaps", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "gap_id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "coverage_ref": {"type": "string", "minLength": 1},
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_key", "field_key", "category", "priority", "reason", "question_allowed"],
+        "properties": {
+          "gap_key": {"type": "string", "minLength": 1},
+          "field_key": {"type": "string", "minLength": 1},
+          "category": {"enum": ["critical_unanswered", "critical_conflicting", "critical_requires_user_decision", "high_impact_unanswered", "safe_assumption_candidate", "visual_undecided"]},
+          "priority": {"enum": ["critical", "high", "medium", "low"]},
+          "reason": {"type": "string", "minLength": 1},
+          "question_allowed": {"type": "boolean"},
+          "source_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

@@ -1,0 +1,4 @@
+expected_result: BLOCKED
+expected_issue_classes: []
+minimum_severity: major
+route_to: SYSTEM_OR_USER

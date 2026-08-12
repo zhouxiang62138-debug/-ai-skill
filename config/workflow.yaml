@@ -1,6 +1,33 @@
-version: 6
-protocol: file_driven
+version: 7
+protocol: file_driven_with_durable_runtime
 maximum_iterations: 5
+
+harness_enforcement:
+  phase_runner: runtime/phase_runner.py
+  model_invocation_adapter: runtime.phase_runner.ModelInvocationAdapter
+  policy: config/harness_policy.yaml
+  unknown_model_or_risk: FULL
+  evaluator_gate_verifiers_required: true
+  browser_required_gate_cannot_be_skipped: true
+  candidate_profile_binding_required_for_schema_v2: true
+  benchmark_scope: external_test_project_only
+
+runtime:
+  version: 1
+  rules: config/runtime.yaml
+  session_store: sqlite3
+  orchestrator_is_agent: false
+  core_roles:
+    - planner
+    - generator
+    - evaluator
+  project_state_projection_schema: 7
+  legacy_first_read_is_read_only: true
+  state_commit_requires:
+    - valid_worker_lease
+    - expected_revision
+    - compare_and_swap
+  wait_states_never_launch_role: true
 
 evaluation_protocol:
   version: 1
@@ -46,6 +73,18 @@ evidence_protocol:
     algorithm: sha256
     git_required: false
   manifest_committed_before_project_state: true
+
+evaluator_independence:
+  upgrade_id: E1
+  name: Evaluator Independence Hardening
+  policy: config/evaluation_independence.yaml
+  fresh_invocation_required: true
+  evaluator_context_type: EVALUATOR_INDEPENDENT
+  generator_claims_are_evidence: false
+  required_provenance:
+    - EVALUATOR_REPRODUCED
+    - RUNTIME_VERIFIED
+  deterministic_pass_gate_required: true
 
 controlled_retry:
   version: 1
@@ -95,10 +134,68 @@ rework_governance:
 design_exploration:
   required_concept_count: 3
   maximum_generation_attempts: 2
+  default_preview_mode: direction_comparison
+  new_projects_default: direction_comparison
+  stages:
+    direction_comparison:
+      concept_count: 3
+      required_files_per_concept:
+        - concept.md
+      shared_preview_files:
+        - comparison.html
+        - comparison.css
+      browser_qa: batched_smoke_only
+      on_selection: selected_prototype
+    selected_prototype:
+      concept_count: 1
+      concept_directory: selected_concept
+      required_files:
+        - concept.md
+        - preview.html
+        - preview.css
+      browser_qa: full
+      requires_explicit_confirmation: true
+    legacy_full:
+      compatibility_only: true
+      not_for_new_projects: true
+      concept_count: 3
+      required_files_per_concept:
+        - concept.md
+        - preview.html
+        - preview.css
+      browser_qa: compatibility_only
+  # 历史配置键保留用于兼容读取；只适用于 legacy_full，不参与新项目路由。
   required_concept_files:
-    - concept.md
-    - preview.html
-    - preview.css
+    compatibility_only: true
+    applies_to: legacy_full
+    files:
+      - concept.md
+      - preview.html
+      - preview.css
+  reference_guided:
+    enabled: true
+    active_input: active_reference_synthesis
+    design_relevant_domains:
+      - information_architecture
+      - navigation
+      - interaction
+      - layout
+      - visual_style
+      - components
+      - design_tokens
+      - motion
+    strategies:
+      - reference_faithful
+      - reference_adapted
+      - reference_inspired
+    required_concept_metadata:
+      - Reference Strategy
+      - Referenced Decisions
+      - Adopted Decisions
+      - Adapted Decisions
+      - Not Used Decisions
+      - Explicit Exclusions
+      - Original Design Decisions
 
 change_request:
   version: 1
@@ -125,7 +222,17 @@ states:
   WAITING_FOR_REQUIREMENTS:
     next_role: null
     active_module: first_ask_intake
+    allowed_active_modules:
+      - first_ask_intake
+      - domain_research
     wait_for_user: true
+  REQUIREMENT_RESEARCH:
+    next_role: null
+    active_module: domain_research
+    wait_for_user: false
+  REFERENCE_ANALYSIS:
+    next_role: null
+    active_module: reference_analysis
   PLANNING:
     next_role: planner
   DESIGN_EXPLORATION:
@@ -162,15 +269,18 @@ states:
   CHANGE_REQUESTED:
     next_role: planner
   WAITING_FOR_CHANGE_APPROVAL:
+    transition_actor: generator
     next_role: planner
     wait_for_user: true
   RELEASE_READY:
     next_role: evaluator
   WAITING_FOR_USER:
     next_role: null
+    wait_for_user: true
   BLOCKED:
     next_role: null
   ACCEPTED:
+    transition_actor: change_request
     next_role: null
   ARCHIVED:
     next_role: null
@@ -194,6 +304,12 @@ failure_routing:
     status: WAITING_FOR_REQUIREMENTS
     next_role: null
     active_module: first_ask_intake
+  reference_analysis_failed:
+    status: WAITING_FOR_USER
+    next_role: null
+  reference_analysis_blocked:
+    status: BLOCKED
+    next_role: null
   product_scope_issue:
     status: PLANNING
     next_role: planner
@@ -307,6 +423,28 @@ legacy_state_aliases:
 
 legacy_state_policy: read_only_require_migration
 
+state_transitions:
+  INTAKE: ["INTAKE", "WAITING_FOR_REQUIREMENTS", "REQUIREMENT_RESEARCH", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_REQUIREMENTS: ["INTAKE", "REQUIREMENT_RESEARCH", "REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  REQUIREMENT_RESEARCH: ["REQUIREMENT_RESEARCH", "INTAKE", "WAITING_FOR_USER", "BLOCKED"]
+  REFERENCE_ANALYSIS: ["REFERENCE_ANALYSIS", "PLANNING", "WAITING_FOR_USER", "BLOCKED"]
+  PLANNING: ["PLANNING", "DESIGN_EXPLORATION", "WAITING_FOR_PRODUCT_REVIEW", "WAITING_FOR_PLAN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
+  DESIGN_EXPLORATION: ["DESIGN_EXPLORATION", "WAITING_FOR_DESIGN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_DESIGN_REVIEW: ["DESIGN_EXPLORATION", "PLANNING_REVISION", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_PRODUCT_REVIEW: ["PLANNING", "WAITING_FOR_PLAN_REVIEW", "PLANNING_REVISION", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_PLAN_REVIEW: ["PLANNING_REVISION", "APPROVED_FOR_IMPLEMENTATION", "WAITING_FOR_USER", "BLOCKED"]
+  PLANNING_REVISION: ["PLANNING_REVISION", "DESIGN_EXPLORATION", "WAITING_FOR_PRODUCT_REVIEW", "WAITING_FOR_PLAN_REVIEW", "WAITING_FOR_USER", "BLOCKED"]
+  APPROVED_FOR_IMPLEMENTATION: ["IMPLEMENTING", "WAITING_FOR_USER", "BLOCKED"]
+  IMPLEMENTING: ["IMPLEMENTING", "EVALUATING", "WAITING_FOR_USER", "BLOCKED"]
+  EVALUATING: ["IMPLEMENTING", "EVALUATING", "RELEASE_READY", "ACCEPTED", "WAITING_FOR_USER", "BLOCKED"]
+  CHANGE_REQUESTED: ["WAITING_FOR_CHANGE_APPROVAL", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_CHANGE_APPROVAL: ["IMPLEMENTING", "WAITING_FOR_USER", "BLOCKED"]
+  RELEASE_READY: ["ACCEPTED", "WAITING_FOR_USER", "BLOCKED"]
+  WAITING_FOR_USER: ["INTAKE", "REFERENCE_ANALYSIS", "PLANNING", "PLANNING_REVISION", "IMPLEMENTING", "EVALUATING", "CHANGE_REQUESTED", "ARCHIVED"]
+  BLOCKED: ["WAITING_FOR_USER", "REFERENCE_ANALYSIS", "PLANNING", "IMPLEMENTING", "EVALUATING", "ARCHIVED"]
+  ACCEPTED: ["CHANGE_REQUESTED", "ARCHIVED"]
+  ARCHIVED: []
+
 state_guards:
   INTAKE:
     required_active_module: first_ask_intake
@@ -316,6 +454,22 @@ state_guards:
     halt_until_user_input: true
     allowed_next_roles:
       - null
+  REQUIREMENT_RESEARCH:
+    required_active_module: domain_research
+    required_research_status:
+      - planned
+      - running
+    allowed_next_roles:
+      - null
+  REFERENCE_ANALYSIS:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+    required_reference_status: provided_or_ready
+    required_reference_analysis_status: running
+    required_active_module: reference_analysis
+    allowed_next_roles:
+      - null
+    active_plan_must_be_null: true
   PLANNING:
     required_requirements_status: sufficient_for_planning
     required_active_requirements: true
@@ -328,7 +482,11 @@ state_guards:
   WAITING_FOR_DESIGN_REVIEW:
     halt_until_user_input: true
     required_complete_preview_round: true
-    required_concept_count: 3
+    required_concept_count: 3  # direction_comparison 的默认值
+    required_concept_count_by_mode:
+      direction_comparison: 3
+      selected_prototype: 1
+      legacy_full: 3
     active_plan_must_be_null: true
   WAITING_FOR_PRODUCT_REVIEW:
     halt_until_user_input: true
@@ -346,6 +504,37 @@ state_guards:
     required_active_requirements: true
     required_approved_proposal: true
     required_product_approval_record: true
+    required_active_product_spec: true
     required_active_plan: true
     required_approved_plan: true
     required_plan_approval_record: true
+  PLANNING_REVISION:
+    required_requirements_status: sufficient_for_planning
+    required_active_requirements: true
+  IMPLEMENTING:
+    required_active_plan: true
+    required_approved_plan: true
+  EVALUATING:
+    required_active_plan: true
+  CHANGE_REQUESTED:
+    required_active_change_request: true
+  WAITING_FOR_CHANGE_APPROVAL:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  RELEASE_READY:
+    required_active_change_request: true
+  WAITING_FOR_USER:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  BLOCKED:
+    halt_until_user_input: true
+    allowed_next_roles:
+      - null
+  ACCEPTED:
+    allowed_next_roles:
+      - null
+  ARCHIVED:
+    allowed_next_roles:
+      - null

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-analysis-v1.schema.json",
+  "title": "Reference analysis record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "analysis_id", "reference_id", "source_artifact_ref", "scope_ref", "analysis_version", "status", "domains", "evidence_refs", "created_at", "context", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "analysis_id": {"type": "string", "pattern": "^REFAN-[0-9]{3}$"},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "source_artifact_ref": {"type": "string", "minLength": 1},
+    "scope_ref": {"type": "string", "minLength": 1},
+    "analysis_version": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["not_started", "pending_analysis", "analyzing", "completed", "failed", "blocked", "superseded"]},
+    "domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "information_architecture", "navigation", "interaction", "layout", "visual_style", "components", "design_tokens", "motion", "content_style", "brand", "technical_architecture"],
+      "properties": {
+        "product": {"$ref": "#/$defs/domain_result"},
+        "information_architecture": {"$ref": "#/$defs/domain_result"},
+        "navigation": {"$ref": "#/$defs/domain_result"},
+        "interaction": {"$ref": "#/$defs/domain_result"},
+        "layout": {"$ref": "#/$defs/domain_result"},
+        "visual_style": {"$ref": "#/$defs/domain_result"},
+        "components": {"$ref": "#/$defs/domain_result"},
+        "design_tokens": {"$ref": "#/$defs/domain_result"},
+        "motion": {"$ref": "#/$defs/domain_result"},
+        "content_style": {"$ref": "#/$defs/domain_result"},
+        "brand": {"$ref": "#/$defs/domain_result"},
+        "technical_architecture": {"$ref": "#/$defs/domain_result"}
+      }
+    },
+    "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^REFEV-[0-9]{3}$"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]},
+    "context": {"$ref": "reference-source-v1.schema.json#/$defs/context"},
+    "trust_level": {"const": "untrusted"},
+    "run_fingerprint": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"}
+  },
+  "$defs": {
+    "domain_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "finding_ids", "evidence_refs"],
+      "properties": {
+        "status": {"enum": ["analyzed", "not_requested", "excluded", "unsupported", "unknown", "insufficient_evidence", "failed"]},
+        "finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^REFFND-[0-9]{3}$"}},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^REFEV-[0-9]{3}$"}},
+        "note": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

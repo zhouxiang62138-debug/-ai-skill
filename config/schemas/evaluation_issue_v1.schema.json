@@ -93,7 +93,14 @@
             "requirement_ambiguity",
             "environment_blocker",
             "evidence_missing",
-            "unauthorized_change"
+            "unauthorized_change",
+            "reference_missing",
+            "reference_incorrect",
+            "reference_exclusion_violation",
+            "reference_scope_creep",
+            "reference_stale_binding",
+            "reference_evidence_missing",
+            "reference_capability_blocked"
           ]
         },
         "severity": {
@@ -143,6 +150,13 @@
         },
         "evidence_missing_reason": {
           "enum": ["generator_omission", "evaluator_environment", "profile_gap"]
+        },
+        "reference_evidence_missing_reason": {
+          "enum": ["generator_omission", "evaluator_environment", "profile_gap"]
+        },
+        "reference_decision_id": {
+          "type": ["string", "null"],
+          "pattern": "^REFDEC-[0-9]{3,4}$"
         }
       },
       "additionalProperties": true

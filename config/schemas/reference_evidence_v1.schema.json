@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-evidence-v1.schema.json",
+  "title": "Reference evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_id", "reference_id", "evidence_type", "artifact_ref", "integrity", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_id": {"type": "string", "pattern": "^REFEV-[0-9]{3}$"},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "evidence_type": {"enum": ["screenshot", "image", "file", "url_metadata", "dom_observation", "source_code_location", "document_page", "text_fragment", "browser_viewport"]},
+    "artifact_ref": {"type": "string", "minLength": 1},
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "sha256"],
+      "properties": {
+        "algorithm": {"const": "sha256"},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      }
+    },
+    "viewport": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}
+    },
+    "captured_at": {"type": ["string", "null"]},
+    "source_location": {"type": ["object", "null"]},
+    "locator": {"type": ["string", "null"]},
+    "metadata": {"type": ["object", "null"]},
+    "acquisition_id": {"type": ["string", "null"], "pattern": "^ACQ-[0-9]{6}$"},
+    "acquisition_status": {"type": ["string", "null"], "enum": ["REQUESTED", "STARTED", "SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "UNKNOWN_AFTER_CRASH", null]},
+    "request_fingerprint": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "provider_id": {"type": ["string", "null"], "minLength": 1},
+    "provider_version": {"type": ["integer", "null"], "minimum": 1},
+    "snapshot_version": {"type": ["integer", "null"], "minimum": 1},
+    "trust_level": {"const": "untrusted"}
+  }
+}

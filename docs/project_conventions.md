@@ -1,5 +1,18 @@
 # 项目约定
 
+## F10 Runtime 目录
+
+```text
+.runtime/
+  sessions.sqlite3
+  sessions.sqlite3-wal
+  sessions.sqlite3-shm
+```
+
+`.runtime/` 是项目运行时状态，不得保存到 Skill 本体，也不得作为产品工件。
+数据库由 Runtime 管理；角色不得直接修改。备份、打包和安装同步应明确排除活动
+中的 WAL/SHM，或先暂停 Session 后做 SQLite 一致快照。
+
 ## 已完成项目变更目录
 
 后续修改使用 `change_requests/CR-<nnnn>.yaml` 和同名子目录保存追加式事件、
@@ -53,10 +66,15 @@ Evaluation 来源。
 测试日志、截图和构建物。Planner 只能在 `artifacts/design_previews/`
 创建设计验证工件，不得把预览写入 `code/`。
 
-每个设计预览轮次必须恰好包含 `concept_01`、`concept_02` 和 `concept_03`。
-每个概念目录包含 `concept.md`、`preview.html` 和 `preview.css`。三个概念必须是
-产品定位、特色功能、主要用户路径或信息架构存在实质差异的完整产品路线，
-不得只换色。新反馈需要重新比较方向时，创建新的轮次目录，禁止覆盖旧轮次。
+方向比较轮次必须恰好包含 `concept_01`、`concept_02` 和 `concept_03`，每个概念
+目录只包含 `concept.md`；轮次根目录共用 `comparison.html` 和 `comparison.css`。
+三个概念必须在产品定位、特色功能、主要用户路径或信息架构上存在实质差异，
+不得只换色。用户明确选择方向后，新建轮次并只创建
+`selected_concept/concept.md`、`preview.html` 和 `preview.css`。新反馈需要重新
+比较方向时，再创建新的方向比较轮次；所有轮次都不得覆盖旧轮次。
+
+`legacy_full` 只用于兼容旧项目中“三个概念各自带 preview.html/preview.css”的
+历史工件，不是新项目的默认或允许路径。
 
 探索生成中断时，可以补齐当前轮次尚未创建的文件，但不得覆盖已有非空文件。
 已有工件格式错误或路线差异不足时，保留该轮次并创建下一轮。

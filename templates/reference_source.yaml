@@ -1,0 +1,41 @@
+schema_version: 1
+reference_id: REF-001
+source_type: web_page
+source:
+  uri: <user-provided-url>
+  artifact_ref: null
+  text_ref: null
+  identifier: null
+  media_type: text/html
+  content_hash: null
+  size_bytes: null
+  metadata: {}
+reference_mode: inspiration
+scope_ref: memory/references/reference-001/scope-001.yaml
+requested_scope:
+  product: unspecified
+  information_architecture: unspecified
+  navigation: unspecified
+  interaction: unspecified
+  layout: unspecified
+  visual_style: unspecified
+  components: unspecified
+  design_tokens: unspecified
+  motion: unspecified
+  content_style: unspecified
+  brand: unspecified
+  technical_architecture: unspecified
+explicit_inclusions: []
+explicit_exclusions: []
+status: registered
+created_at: <ISO-8601 timestamp>
+source_origin:
+  type: user_linked
+  user_request_ref: null
+  operator_note: null
+trust_level: untrusted
+context:
+  type: project
+  project_id: <project_id>
+  change_request_id: null
+supersedes: null

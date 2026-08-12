@@ -7,7 +7,33 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 使用本 Skill 管理位于 `C:\Users\28388\Desktop\ai-projects\<project_id>` 的独立软件项目。Skill 本体只提供规则、Prompt 和模板；不得保存任何具体项目的数据或代码。
 
-## 开始项目工作
+## Skill 本体仓库与 managed project 边界
+
+本仓库是 Skill 本体，不是 managed project。仓库根目录不要求存在
+`project.yaml`，不得为了满足项目协议创建假的 `project.yaml`。
+`project.yaml` 只属于 `C:\Users\28388\Desktop\ai-projects\<project_id>`
+下的项目实例。
+
+## Protocol Authority
+
+跨文件协议的机器可读索引是 `config/protocol_manifest.yaml`；正式定义仍分别位于
+manifest 声明的 Authority 文件中。修改 workflow、schema、角色、Module、批准门禁、
+Runtime 路由或 F14 生产状态后，必须运行：
+
+```powershell
+python scripts/protocol_consistency.py check
+```
+
+Markdown、Prompt、README 和本文件只解释 Authority，不得成为平行 Truth。F14 的
+Selective、Evaluator Selective 和 Invocation Gate 只有通过真实资格门禁后才能进入
+Global；否则保持 `f13_full`，并保留自动回退、手动 kill switch、项目/角色/阶段覆盖。
+
+Skill 本体开发、测试、文档维护、Git commit、Git push 和 GitHub 上传不要求
+`project.yaml`，不得因 Skill 仓库根目录缺少该文件而 BLOCKED。只有 Planner、
+Generator、Evaluator、Change Request 等项目工作流，才按本节协议读取和更新
+对应 managed project 的 `project.yaml`。
+
+## 开始 managed project 工作
 
 1. 定位唯一目标项目；未经用户明确授权，不读取其他项目。
 2. 读取项目根目录唯一的 `project.yaml`，它是项目状态的唯一可信来源。
@@ -17,6 +43,63 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 6. 更新项目根目录的 `project.yaml`，决定继续、返工、等待用户、阻塞或结束。
 
 这是文件驱动协议，不是自行执行的控制程序。`project.yaml` 的 `current_iteration` 达到 5 后，必须进入 `WAITING_FOR_USER`，不得自动继续修改。
+
+## F10 持久化运行时
+
+schema v7 项目在原文件驱动业务协议外围增加外部 Session Control Plane；运行历史位于
+`~/.ai-development-team/runtime/<control_plane_id>/sessions.sqlite3`，不得写入项目目录。
+Runtime 通过确定性 Orchestrator 管理 Session、追加 Event、Worker Lease、
+revision/CAS、Checkpoint 和崩溃恢复；它不是 Agent，也不能做产品决策、写业务
+代码或替代 Evaluator 判定结果。`project.yaml` 仍是业务当前状态的权威投影，
+完整运行历史不写入 YAML。
+
+旧 schema v3-v6 首次读取保持只读。使用
+`scripts/project_migration.py runtime-preview/runtime-migrate/runtime-verify`
+显式预览、备份、迁移和验证；回滚前保留 v7 状态。v7 状态只能由持有有效
+Worker Lease 的 Runtime CAS 提交。Runtime CLI 见 `python -m runtime.cli --help`，
+完整协议见 `docs/MANAGED_RUNTIME_ARCHITECTURE.md`。
+
+F11–F13 的正式实现已经进入 `runtime/` 正式 Runtime 路径：F11 提供
+ExecutionBroker、LocalCompatibilityEnvironment 与 Snapshot / Restore，F12 提供
+Capability、Credential、Network / External Tool Security，F13 提供 Deterministic
+Context Builder、Context Budget、Incremental Resume 与 Rollover/Fresh Invocation。
+Evaluator 还可追加 Candidate 验证记录，Runtime 通过 Snapshot Service 管理恢复。
+`experimental/` 下同名目录只
+保留为历史原型，不是正式调用路径。Docker Sandbox 仍为 `DEFERRED`，且
+`LocalCompatibilityEnvironment` 不等于物理 Sandbox。完整当前状态见
+`docs/RUNTIME_CAPABILITY_STATUS.md`。这些能力都不得绕过产品/Plan 批准链。
+
+## E1 Evaluator Independence Hardening
+
+E1 是独立的“验收可信度”升级，与 F11 Execution、F12 Security、F13 Context
+并列，不属于其中任何一个阶段。它不增加第四个 Agent；Planner、Generator、Evaluator
+仍是唯一三个核心 Agent。
+
+用户仍然只需要一个 Codex 窗口，但 Runtime 必须为 Planner、Generator 和 Evaluator
+创建独立的 Model Invocation。Evaluator 的 Invocation 必须是 Fresh Invocation，使用
+`EVALUATOR_INDEPENDENT` Context Manifest，不继承 Generator 完整聊天/推理历史，也不
+把 Generator 自我声明当作 PASS Evidence。
+
+E1 的最终 PASS 必须同时满足独立重现、Evidence Provenance、当前 project revision /
+code snapshot 绑定、受保护工件完整性、无 blocking/critical Issue 和 Runtime
+Deterministic PASS Gate。模型只能提出 PASS，Python/Runtime 决定是否允许提交。
+正式策略见 `config/evaluation_independence.yaml`，实现见
+`runtime/evaluator_independence.py`；宿主无法暴露外层对话隔离能力时，只能报告
+`Runtime Context Isolation`，不得伪造 `Host Conversation Isolation`。
+
+### 运行时故障与用户打断边界
+
+- 只有需求事实、设计选择、产品方案确认、Plan 批准、不可逆操作授权或确实需要
+  用户补充的外部凭据，才允许暂停并要求用户处理。
+- 路径导入、候选字段校验、Lease、CAS、PENDING/ABORTED revision、浏览器临时视口
+  和可安全重试的工具失败属于 Runtime 内部责任。先记录诊断并自动恢复或换用正式
+  入口，不得把数据库清理、字段补齐或接口选择交给项目用户。
+- 候选状态必须在创建 revision 尝试前完成确定性预检。ABORTED 尝试必须保留审计，
+  但不得占住业务 revision 或要求删除数据库记录后才能继续。
+- 生命周期字段 `status`、`next_role` 与 `active_module` 由 Runtime 按目标路由派生；
+  Planner、Generator、Evaluator 只提交各自拥有的业务字段。
+- 同一内部步骤最多自动修正 2 次；仍失败时只报告一个聚合后的根因、已保留的工件
+  和最小必要用户动作，不逐条播报中间异常。
 
 ## 角色选择
 
@@ -31,6 +114,8 @@ description: 使用 First-Ask Intake Module 与文件驱动的 Planner、Generat
 
 新项目先由 First-Ask Intake Module 保存用户原始请求，按轮次提出 1～3 个高价值问题，并创建追加式结构化需求快照。`requirements_status: sufficient_for_planning` 且 `active_requirements` 有效后，才能进入 Planner。视觉类 `undecided` 不继续采访，交给 Design Exploration。模板见 `templates/original_request.md`、`templates/requirements_interview.md` 和 `templates/requirements_snapshot.yaml`。
 
+所有项目都必须经过 Research Necessity Decision。正式语义是：Research Gate 不能被跳过；Research Execution 可以由确定性 Research Gate 判定为 `required`、`optional` 或 `not_required`。因此，Research Gate 是必经的能力判断，外部 Research 执行本身不是所有项目的必需步骤。
+
 ### 产品确认流程
 
 Planner 在任何开发计划前都必须先产出可审核的产品方案。用户明确确认产品方案
@@ -42,18 +127,23 @@ Planner 在任何开发计划前都必须先产出可审核的产品方案。用
 ### Design Exploration
 
 当用户尚未确定 App 的视觉风格、页面布局，或明确希望先看参考方案时，
-Planner 必须先基于产品方案草稿生成一轮 3 个不同的完整产品路线及静态设计
-预览。三套路线必须在定位、特色功能、主要用户路径或信息架构上存在实质差异，
-不能只换颜色。用户可以单选、融合、修改或要求新一轮方向。设计方向选定后，
-Planner 必须将其整合进新的产品方案版本，并再次等待用户明确确认；选择设计
-方向本身不构成开发批准。
+Planner 默认先生成一轮 3 个轻量产品方向：每个方向只写 `concept.md`，三者
+共用 `comparison.html` 与 `comparison.css`。三套路线必须在定位、特色功能、
+主要用户路径或信息架构上存在实质差异，不能只换颜色。
 
-设计说明使用 `templates/design_concept.md`，每次用户反馈使用
+用户单选、融合、修改或恢复方向后，Planner 开启新轮次，只为选中结果生成一套
+`selected_concept/concept.md`、`preview.html` 与 `preview.css`，完整浏览器验证
+也只执行这一套。用户明确确认该高保真预览后，Planner 才将其整合进新的产品
+方案版本并再次等待产品确认；方向选择、高保真确认、产品确认和 Plan 确认是四个
+不同门禁。
+
+第一阶段方向说明使用 `templates/design_direction.md`；选中方向后的完整原型说明
+使用 `templates/design_concept.md`。每次用户反馈使用
 `templates/design_feedback.md`，明确选择使用
 `templates/design_selection.md`，跳过设计探索时使用
 `templates/design_skip_decision.md`。预览仅写入项目的
 `artifacts/design_previews/`，不得写入 Skill 目录或项目 `code/`。完整规范
-见 `DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
+见 `docs/DESIGN_EXPLORATION_WORKFLOW.md` 和 `docs/PLANNER_APPROVAL_WORKFLOW.md`。
 
 - 状态协议与迁移规则：读取 `docs/workflow_protocol.md`。
 - 项目目录、命名和隔离规则：读取 `docs/project_conventions.md`。
@@ -71,7 +161,7 @@ Evaluator 同时生成 Markdown 报告、`evaluation/issues/` Issue Package 和
 
 必需 Gate 或证据缺失、开放 blocker/critical、受保护工件未授权修改时不得 PASS。
 只有发往 Generator 的可返工 FAIL 增加 `current_iteration`；提前升级或第 5 次
-失败后停止自动返工。新项目使用 project schema v6；旧项目迁移使用
+失败后停止自动返工。新项目使用 project schema v7；旧项目迁移使用
 `scripts/project_migration.py` 的检查、预览、迁移、验证和回滚动作。
 
 ### 已完成项目 Change Request
@@ -90,3 +180,18 @@ Gate；Evaluator 必须逐项验收并执行原功能回归。PASS 后先进入
 `change_context.evaluation_iteration` 计算，新请求从 0 开始。完整协议、迁移、
 回滚、用户示例和测试方式见
 `docs/COMPLETED_PROJECT_CHANGE_REQUEST_WORKFLOW.md`。
+
+### Role Thread Isolation
+
+Planner、Generator、Evaluator 仍是唯一三个核心 Agent；Main Codex Thread 是用户
+交互与 Control Surface，不是第四个 Agent。每次正式 Role Run 由
+`runtime/role_execution.py` 创建独立的 Role Execution，并持久化
+`role_execution_id`、`execution_mode`、`host_thread_id`、`invocation_id`、Context
+Manifest、Workspace Binding 和 source revision。
+
+Runtime 优先请求真实 Child Thread。只有宿主明确提供 Child Thread、稳定线程 ID
+和程序化创建能力时，才记录 `CHILD_THREAD`；否则明确记录
+`ROLE_EXECUTION_FALLBACK` 和 `HOST_CHILD_THREAD_UNAVAILABLE`，使用新的
+`FRESH_INVOCATION`，且不伪造 `host_thread_id`。每个 Role Run 不复用已完成线程。
+Role Context 仍只能由 Deterministic Context Builder 构建；Role Execution 不会
+绕过 Role Policy、Lease、Attestation 或 CAS。

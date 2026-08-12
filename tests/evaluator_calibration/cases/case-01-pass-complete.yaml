@@ -1,0 +1,12 @@
+gates:
+  - gate_id: GATE-BROWSER-ACCEPTANCE
+    required: true
+    result: PASS
+  - gate_id: GATE-FEATURE-COMPLETENESS
+    required: true
+    result: PASS
+feature_completeness:
+  result: PASS
+browser_acceptance:
+  result: PASS
+issues: []

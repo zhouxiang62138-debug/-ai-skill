@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/question-set-v1.schema.json",
+  "title": "Adaptive requirement question set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "question_set_id", "project_id", "round", "gap_ref", "questions", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "question_set_id": {"type": "string", "pattern": "^QSET-[0-9]{3}$"},
+    "project_id": {"type": "string", "minLength": 1},
+    "round": {"type": "integer", "minimum": 1},
+    "gap_ref": {"type": "string", "minLength": 1},
+    "topic": {"type": ["string", "null"]},
+    "questions": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"$ref": "#/$defs/question"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_key", "field_key", "priority", "reason", "text", "pre_question_status"],
+      "properties": {
+        "question_key": {"type": "string", "minLength": 1},
+        "field_key": {"type": "string", "minLength": 1},
+        "priority": {"enum": ["critical", "high", "medium", "low"]},
+        "reason": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "pre_question_status": {"enum": ["unanswered", "conflicting", "requires_user_decision"]},
+        "source_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 > 文档状态：用户已确认，作为实施依据  
 > 适用范围：AI Development Team Skill 的 Planner 流程升级  
-> 本文描述已批准的设计探索规则，并与 First-Ask Intake 和 schema v4 工作流保持一致。
+> 本文描述已批准的设计探索规则，并与 First-Ask Intake 和 workflow/schema v7 保持一致。
 
 ## 1. 目标
 
@@ -36,11 +36,15 @@ First-Ask 保存原始请求并生成结构化需求快照
   ↓
 Planner 读取 active_requirements 并生成产品方案草稿
   ↓
-Planner 生成同一轮次的 3 种设计预览方案
+Planner 生成同一轮次的 3 个轻量方向和一个共用比较页
   ↓
 用户选择一个方案 / 融合多个方案 / 提出修改意见 / 要求新方向
   ↓
-Planner 根据反馈整合设计方向并生成新版产品方案
+Planner 在新轮次只生成 1 个选定方向的高保真预览
+  ↓
+用户明确确认高保真预览
+  ↓
+Planner 根据确认结果整合设计方向并生成新版产品方案
   ↓
 用户审核整合后的完整产品方案
   ↓
@@ -53,11 +57,12 @@ Planner 记录产品确认并生成正式产品规格与待审核 Plan
 进入 Generator
 ```
 
-设计方向选择和产品方案批准是两个不同事件：
+设计方向选择、高保真确认和产品方案批准是三个不同事件：
 
-1. 用户选择设计方向，只表示 Planner 可以据此整合产品方案。
-2. 用户确认整合后的完整产品方案，只允许 Planner 生成正式产品规格和待审核 Plan。
-3. 用户独立批准当前 Plan，才允许进入 Generator。
+1. 用户选择设计方向，只允许 Planner 为选中结果生成一套高保真预览。
+2. 用户确认高保真预览，只表示 Planner 可以据此整合产品方案。
+3. 用户确认整合后的完整产品方案，只允许 Planner 生成正式产品规格和待审核 Plan。
+4. 用户独立批准当前 Plan，才允许进入 Generator。
 
 ## 4. 建议状态机
 
@@ -68,7 +73,8 @@ INTAKE
   → DESIGN_EXPLORATION
   → WAITING_FOR_DESIGN_REVIEW
       ├─ 要求修改或新方向 → DESIGN_EXPLORATION
-      └─ 选择或融合方向 → PLANNING_REVISION
+      ├─ 选择或融合方向 → DESIGN_EXPLORATION（单一高保真）
+      └─ 确认单一高保真 → PLANNING_REVISION
   → WAITING_FOR_PRODUCT_REVIEW
       ├─ 要求修改 → PLANNING_REVISION
       └─ 明确确认 → WAITING_FOR_PLAN_REVIEW
@@ -84,8 +90,8 @@ INTAKE
 | `INTAKE` | First-Ask Intake | 保存原始请求、采访并创建需求快照 | `memory/requirements/` | `WAITING_FOR_REQUIREMENTS` 或 `PLANNING` |
 | `WAITING_FOR_REQUIREMENTS` | 用户；回复后恢复 First-Ask | 回答本轮少量问题 | 新采访和需求快照版本 | `INTAKE` 或 `PLANNING` |
 | `PLANNING` | Planner | 读取 `active_requirements`，生成产品方案草稿并判断是否需要设计探索 | `memory/proposals/product_proposal_v<nnn>.md` | `DESIGN_EXPLORATION`，或经用户明确同意后进入 `WAITING_FOR_PRODUCT_REVIEW` |
-| `DESIGN_EXPLORATION` | Planner | 基于当前产品方案生成一轮 3 个不同的完整产品路线与设计预览 | 3 组 `concept.md`、`preview.html`、`preview.css` | 校验通过后进入 `WAITING_FOR_DESIGN_REVIEW` |
-| `WAITING_FOR_DESIGN_REVIEW` | 用户 | 选择、融合、修改或要求新方向 | 用户反馈记录；不得生成正式计划 | `PLANNING_REVISION` 或 `DESIGN_EXPLORATION` |
+| `DESIGN_EXPLORATION` | Planner | 第一阶段生成 3 个轻量方向和共用比较页；选择后第二阶段只生成 1 个完整高保真预览 | 3 份方向 `concept.md` + 共用比较页，或 1 组 `selected_concept` 完整预览 | 校验通过后进入 `WAITING_FOR_DESIGN_REVIEW` |
+| `WAITING_FOR_DESIGN_REVIEW` | 用户 | 比较、选择、融合、修改、确认原型或要求新方向 | 用户反馈记录；明确方向时追加选择记录 | 方向选择回到 `DESIGN_EXPLORATION`；原型确认进入 `PLANNING_REVISION` |
 | `PLANNING_REVISION` | Planner | 整合已选方向和用户反馈，创建完整的新产品方案版本 | 新的 `product_proposal_v<nnn>.md` | `WAITING_FOR_PRODUCT_REVIEW`；若仍需重新探索则进入 `DESIGN_EXPLORATION` |
 | `WAITING_FOR_PRODUCT_REVIEW` | 用户 | 审核整合后的产品范围和设计方向 | 产品批准记录、正式产品规格、待审核 Plan | `PLANNING_REVISION` 或 `WAITING_FOR_PLAN_REVIEW` |
 | `WAITING_FOR_PLAN_REVIEW` | 用户 | 审核技术方案、任务、测试、验收与回滚 | Plan 批准记录或新版 Plan | `PLANNING_REVISION` 或 `APPROVED_FOR_IMPLEMENTATION` |
@@ -95,12 +101,12 @@ INTAKE
 持久化为 `WAITING_FOR_PLAN_REVIEW`。用户再明确批准当前 Plan 后，才持久化为
 `APPROVED_FOR_IMPLEMENTATION`。
 
-## 5. 三套产品路线的差异要求
+## 5. 三个方向的差异要求
 
-每轮必须恰好输出 3 个方向。三个方案不能只是换颜色或换名称，而应是三套
-完整、可比较的产品路线。每两套路线在产品定位、核心优势、特色功能和主要
-用户路径四个维度中至少有两项不同；视觉语言、信息密度、布局方式和交互重点
-也应服务于对应产品定位。
+每轮必须恰好输出 3 个轻量方向。三个方向不能只是换颜色或换名称，而应在产品
+定位、核心优势、特色功能和主要用户路径四个维度中至少有两项不同；视觉语言、
+信息密度、布局方式和交互重点也应服务于对应产品定位。完整产品路线和高保真
+页面只在用户选定方向后的 `selected_prototype` 阶段生成。
 
 可使用但不限于以下方向：
 
@@ -110,9 +116,15 @@ INTAKE
 
 Planner 应根据产品场景调整方向。例如儿童产品、医疗工具和开发者控制台不应机械套用同一组风格。
 
-## 6. 每个设计方案的必需内容
+## 6. 两阶段产物要求
 
-每个 `concept.md` 必须包含：
+第一阶段每个方向只要求方案名称、一句话概念、产品定位、核心优势、限制与
+取舍、页面结构、特色功能和主要用户路径，使用 `templates/design_direction.md`。
+三个方向共用一个 `comparison.html` 和 `comparison.css`，只做结构校验与批量
+smoke check。
+
+第二阶段只为选中或融合后的结果生成一个 `selected_concept`，使用
+`templates/design_concept.md`。完整内容包括：
 
 1. 方案名称
 2. 一句话概念和产品定位
@@ -135,8 +147,8 @@ Planner 应根据产品场景调整方向。例如儿童产品、医疗工具和
 - 无障碍注意事项
 - 与当前产品方案版本的关联
 
-`preview.html` 与 `preview.css` 应形成可独立打开的静态预览，至少展示首页、
-一个关键功能页和关键导航关系。HTML 必须包含
+只有第二阶段的 `selected_concept/preview.html` 与 `preview.css` 才形成可独立
+打开的静态预览，至少展示首页、一个关键功能页和关键导航关系。HTML 必须包含
 `data-preview-page="home"`、`data-preview-page="key-feature"` 和
 `data-preview-nav` 标记。它们属于设计验证工件，不是生产代码，不得放入
 `code/`，也不得被 Generator 直接视为已批准实现。
@@ -164,20 +176,16 @@ memory/
 artifacts/
 └── design_previews/
     ├── round_001/
-    │   ├── concept_01/
-    │   │   ├── concept.md
-    │   │   ├── preview.html
-    │   │   └── preview.css
-    │   ├── concept_02/
-    │   │   ├── concept.md
-    │   │   ├── preview.html
-    │   │   └── preview.css
-    │   └── concept_03/
-    │       ├── concept.md
-    │       ├── preview.html
-    │       └── preview.css
+    │   ├── concept_01/concept.md
+    │   ├── concept_02/concept.md
+    │   ├── concept_03/concept.md
+    │   ├── comparison.html
+    │   └── comparison.css
     └── round_002/
-        └── ...
+        └── selected_concept/
+            ├── concept.md
+            ├── preview.html
+            └── preview.css
 ```
 
 所有产品方案、设计预览、用户反馈和决策记录都必须追加保存，禁止覆盖旧文件。新一轮探索使用新的 `round_<nnn>`；同一轮中的概念编号固定为 `concept_01` 至 `concept_03`。
@@ -206,9 +214,10 @@ artifacts/
 每次反馈先创建 `design-feedback-<nnn>.md`，再按
 `scripts/feedback.py` 的结构化结果处理：
 
-- 单选：记录所选方案，进入 `PLANNING_REVISION`。
-- 融合：记录所有来源方案及融合规则，进入 `PLANNING_REVISION`。
-- 局部修改：若方向已经明确，可记录修改后进入 `PLANNING_REVISION`；若仍需并排比较，则增加 `design_preview_round`，重新生成 3 个方向。
+- 单选：记录所选方案，增加轮次，只生成一套高保真预览。
+- 融合：记录所有来源方案及融合规则，增加轮次，只生成融合后的高保真预览。
+- 局部修改：记录修改约束，增加轮次，只生成修改后的高保真预览。
+- 确认高保真预览：进入 `PLANNING_REVISION`，整合新版产品方案。
 - 新方向：增加 `design_preview_round`，保留旧轮次，返回 `DESIGN_EXPLORATION`。
 - 全部否定：记录否定原因和下一轮必须避免的内容，增加轮次。
 - 继续讨论：保持 `WAITING_FOR_DESIGN_REVIEW`，不创建设计选择记录。
@@ -217,7 +226,7 @@ artifacts/
 
 ## 9. 强制门禁
 
-在用户尚未明确选择设计方向，或尚未明确确认整合后的产品方案时：
+在用户尚未明确选择设计方向、尚未明确确认单一高保真预览，或尚未明确确认整合后的产品方案时：
 
 - 禁止创建任何 `memory/plans/plan-<nnn>.md`。
 - `active_plan` 必须为 `null`。
@@ -244,10 +253,10 @@ Planner 才能写入 Plan 批准记录、设置 `approved_plan`，并进入
 
 ## 10. `project.yaml` 字段
 
-schema v4 使用以下相关字段：
+schema v7 使用以下相关字段（旧 v4 项目须先经过迁移）：
 
 ```yaml
-schema_version: 4
+schema_version: 7
 
 # Intake 来源
 requirements_status: sufficient_for_planning
@@ -354,13 +363,13 @@ selected_design_concept:
 
 建议在“产品确认规则”中增加以下硬性规则：
 
-- 当需求符合 Design Exploration 触发条件时，Planner 必须在产品方案草稿后生成同一轮 3 套不同的完整产品路线。
+- 当需求符合 Design Exploration 触发条件时，Planner 必须在产品方案草稿后先生成同一轮 3 个轻量方向和一个共用比较页；用户选择后再生成唯一的高保真原型。
 - Planner 在 `DESIGN_EXPLORATION` 中只允许写入 `artifacts/design_previews/`；不得借此修改 `code/`。
-- 每个方向必须包含规定的设计说明和可独立打开的静态预览。
+- 第一阶段方向只需包含规定的比较说明；可独立打开的静态预览只属于第二阶段的 `selected_concept`。
 - 设计预览、用户反馈、设计选择记录和新版产品方案均为追加式历史工件，禁止覆盖。
 - 用户可以单选、融合、修改或要求新一轮方向；Planner 必须按选择创建决策记录。
 - 用户选择设计方向不等于批准产品方案。
-- 未明确选择设计方向且未明确确认整合后的产品方案时，禁止生成正式计划，禁止进入 Generator。
+- 未明确选择设计方向、未明确确认单一高保真预览或未明确确认整合后的产品方案时，禁止生成正式计划，禁止进入 Generator。
 - 如果用户明确同意跳过设计探索，必须记录跳过决定；不得由 Planner 自行跳过。
 - Generator 不得读取未选中的设计预览作为需求来源；只能依据 `approved_proposal`、正式计划和对应的设计选择记录实施。
 
@@ -383,13 +392,13 @@ Planner 读取 `project.yaml` 和当前需求后，先判断是否命中设计�
 
 先创建 `product_proposal_v<nnn>.md` 草稿，覆盖产品定位、用户画像、用户痛点、核心功能、页面结构、UI 初步方向、技术建议、MVP 范围和后续扩展。此时不得创建正式计划。
 
-### 12.3 三方案预览
+### 12.3 两阶段预览
 
-进入 `DESIGN_EXPLORATION` 后，一次生成同轮次 3 个有实质差异的设计方向。每个方向同时生成：
+进入 `DESIGN_EXPLORATION` 后，先生成同轮次 3 个有实质差异的轻量方向和一个共用比较页：
 
 - `concept.md`
-- `preview.html`
-- `preview.css`
+- `comparison.html`
+- `comparison.css`
 
 生成完成后设置：
 
@@ -400,12 +409,15 @@ active_design_preview_round: artifacts/design_previews/round_<nnn>
 next_role: planner
 ```
 
-然后停止，等待用户输入。
+然后停止，等待用户选择方向。选择后创建下一轮，只生成
+`selected_concept/concept.md`、`preview.html` 和 `preview.css`，完成唯一原型的
+完整 Browser QA，再回到 `WAITING_FOR_DESIGN_REVIEW` 等待高保真确认。
 
 ### 12.4 用户反馈处理
 
-- 用户单选或融合：创建 `design-selection-<nnn>.md`，设置 `direction_selected`，进入 `PLANNING_REVISION`。
-- 用户要求调整或新方向：记录反馈，递增 `design_preview_round`，返回 `DESIGN_EXPLORATION`，生成新的 3 个方向。
+- 用户单选或融合：创建 `design-selection-<nnn>.md`，设置 `direction_selected`，递增轮次，进入唯一 `selected_prototype` 生成。
+- 用户确认高保真预览：进入 `PLANNING_REVISION`，再整合新产品方案。
+- 用户要求调整或新方向：记录反馈，递增 `design_preview_round`，返回 `DESIGN_EXPLORATION`；只有全部否定才重新生成 3 个方向。
 - 用户表达含糊：保持 `WAITING_FOR_DESIGN_REVIEW`，不得推定选择。
 
 ### 12.5 整合与最终确认
@@ -436,19 +448,19 @@ Prompt 中应明确区分：
 
 ## 13. 其他配套文件的后续调整范围
 
-虽然本次只要求说明 `AGENTS.md` 和 `planner_prompt.md`，真正实施时还需要同步更新以下文件，避免规则互相冲突：
+以下文件共同构成当前协议的实现与验证面，修改 Design Exploration 时必须同步检查：
 
 - `SKILL.md`：在产品确认流程资源说明中加入 Design Exploration。
 - `docs/PLANNER_APPROVAL_WORKFLOW.md`：扩展状态机、人工确认门禁和交互示例。
 - `docs/workflow_protocol.md`：加入 `DESIGN_EXPLORATION`、`WAITING_FOR_DESIGN_REVIEW` 的角色路由。
-- `config/workflow.yaml`：注册新状态及修改/重探路由。
+- `config/workflow.yaml`：声明两阶段工件、Browser QA 和 Legacy 兼容范围。
 - `config/role_policies.yaml`：允许 Planner 仅写 `artifacts/design_previews/`，允许 Generator 读取已批准的设计选择记录和所选预览。
 - `templates/project.yaml`：升级 schema 并加入设计状态字段。
 - `templates/product_proposal.md`：加入设计探索关联、所选设计方向和整合说明。
-- 新增设计概念模板，例如 `templates/design_concept.md`。
-- 新增设计选择记录模板，例如 `templates/design_selection.md`。
+- `templates/design_direction.md`：第一阶段轻量方向模板。
+- `templates/design_concept.md`：第二阶段高保真原型模板。
 
-这些文件必须在用户确认本草案后再逐项修改。
+这些文件必须保持与本 Canonical Protocol 一致；它们不是额外的 Agent 或批准 Gate。
 
 ## 14. 示例
 
@@ -457,19 +469,27 @@ Prompt 中应明确区分：
 Planner：
 
 1. 生成 `product_proposal_v001.md` 草稿。
-2. 生成 `round_001`：
+2. 生成 `round_001` 的轻量方向比较：
    - `concept_01`：极简专业风
    - `concept_02`：年轻活泼风
    - `concept_03`：深色数据仪表盘风
-3. 进入 `WAITING_FOR_DESIGN_REVIEW` 并等待。
+3. 生成共用 `comparison.html` / `comparison.css`，执行批量 smoke check，进入
+   `WAITING_FOR_DESIGN_REVIEW` 并等待。
 
 用户：“首页用方案一，但统计页想用方案三，配色不要太暗。”
 
 Planner：
 
-1. 创建 `design-selection-001.md`，记录融合选择。
-2. 创建整合后的 `product_proposal_v002.md`。
-3. 进入 `WAITING_FOR_PRODUCT_REVIEW` 并等待最终确认。
+1. 创建 `design-feedback-001.md` 和 `design-selection-001.md`，记录融合选择。
+2. 生成 `round_002/selected_concept/` 的唯一高保真预览并完成 Browser QA。
+3. 进入 `WAITING_FOR_DESIGN_REVIEW`，等待用户确认高保真预览。
+
+用户：“确认这个高保真设计。”
+
+Planner：
+
+1. 创建整合后的 `product_proposal_v002.md`。
+2. 进入 `WAITING_FOR_PRODUCT_REVIEW` 并等待产品方案确认。
 
 用户：“确认整合后的产品方案。”
 

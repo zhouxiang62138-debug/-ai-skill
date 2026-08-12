@@ -1,0 +1,57 @@
+protocol_version: 7
+project_schema_version: 7
+
+# 这里是跨文件协议的索引，不复制 workflow、角色策略或 F14 的业务定义。
+core_roles:
+  - planner
+  - generator
+  - evaluator
+
+modules:
+  - first_ask_intake
+  - domain_research
+  - reference_analysis
+  - change_request
+
+authoritative_sources:
+  workflow: config/workflow.yaml
+  role_policy: config/role_policies.yaml
+  requirements_discovery: config/requirements_discovery.yaml
+  context: config/context.yaml
+  f14: config/f14.yaml
+
+runtime_authority:
+  route_loader: runtime/policy.py:load_runtime_routes
+  role_selector: runtime/role_selector.py:select_role
+  phase_runner: runtime/phase_runner.py:PhaseRunner
+  f14_control: runtime/f14_control.py:F14ContextDeliveryService
+  invocation_gate: runtime/invocation_gate.py:InvocationGate
+
+legacy_protocol_versions:
+  - 3
+  - 4
+  - 5
+  - 6
+
+independent_approval_gates:
+  - design_direction_selection
+  - selected_prototype_confirmation
+  - product_approval
+  - plan_approval
+
+route_contract:
+  requirements_discovery:
+    research_gate_required: true
+    research_execution_decisions:
+      - required
+      - optional
+      - not_required
+    research_entry_state: REQUIREMENT_RESEARCH
+    research_return_state: INTAKE
+    reference_analysis_optional: true
+    reference_analysis_state: REFERENCE_ANALYSIS
+    planning_target: PLANNING
+  core_role_next_roles:
+    - planner
+    - generator
+    - evaluator

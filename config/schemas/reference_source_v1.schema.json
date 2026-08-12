@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-source-v1.schema.json",
+  "title": "Reference source registration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "reference_id", "source_type", "source", "reference_mode",
+    "scope_ref", "requested_scope", "explicit_inclusions", "explicit_exclusions",
+    "status", "created_at", "source_origin", "trust_level", "context"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "reference_id": {"type": "string", "pattern": "^REF-[0-9]{3}$"},
+    "source_type": {"enum": ["web_page", "image", "text_description"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uri": {"type": ["string", "null"], "minLength": 1},
+        "artifact_ref": {"type": ["string", "null"], "minLength": 1},
+        "text_ref": {"type": ["string", "null"], "minLength": 1},
+        "identifier": {"type": ["string", "null"], "minLength": 1},
+        "media_type": {"type": ["string", "null"]},
+        "content_hash": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+        "size_bytes": {"type": ["integer", "null"], "minimum": 0},
+        "metadata": {"type": ["object", "null"]}
+      },
+      "anyOf": [
+        {"required": ["uri"]},
+        {"required": ["artifact_ref"]},
+        {"required": ["text_ref"]},
+        {"required": ["identifier"]}
+      ]
+    },
+    "reference_mode": {"enum": ["inspiration", "adaptation", "close_recreation"]},
+    "scope_ref": {"type": "string", "minLength": 1},
+    "requested_scope": {"$ref": "#/$defs/scope"},
+    "explicit_inclusions": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/domain"}},
+    "explicit_exclusions": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/domain"}},
+    "status": {"enum": ["registered", "pending_analysis", "analyzing", "completed", "failed", "blocked", "superseded"]},
+    "created_at": {"type": "string", "minLength": 1},
+    "source_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["user_provided", "user_uploaded", "user_linked", "project_existing", "change_request_provided", "system_discovered"]},
+        "user_request_ref": {"type": ["string", "null"]},
+        "operator_note": {"type": ["string", "null"]}
+      }
+    },
+    "trust_level": {"const": "untrusted"},
+    "context": {"$ref": "#/$defs/context"},
+    "supersedes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "domain": {"enum": ["product", "information_architecture", "navigation", "interaction", "layout", "visual_style", "components", "design_tokens", "motion", "content_style", "brand", "technical_architecture"]},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "information_architecture", "navigation", "interaction", "layout", "visual_style", "components", "design_tokens", "motion", "content_style", "brand", "technical_architecture"],
+      "properties": {
+        "product": {"enum": ["include", "exclude", "unspecified"]},
+        "information_architecture": {"enum": ["include", "exclude", "unspecified"]},
+        "navigation": {"enum": ["include", "exclude", "unspecified"]},
+        "interaction": {"enum": ["include", "exclude", "unspecified"]},
+        "layout": {"enum": ["include", "exclude", "unspecified"]},
+        "visual_style": {"enum": ["include", "exclude", "unspecified"]},
+        "components": {"enum": ["include", "exclude", "unspecified"]},
+        "design_tokens": {"enum": ["include", "exclude", "unspecified"]},
+        "motion": {"enum": ["include", "exclude", "unspecified"]},
+        "content_style": {"enum": ["include", "exclude", "unspecified"]},
+        "brand": {"enum": ["include", "exclude", "unspecified"]},
+        "technical_architecture": {"enum": ["include", "exclude", "unspecified"]}
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "project_id"],
+      "properties": {
+        "type": {"enum": ["project", "new_project", "change_request"]},
+        "project_id": {"type": "string", "minLength": 1},
+        "change_request_id": {"type": ["string", "null"], "pattern": "^CR-[0-9]{4}$"}
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-contract-v1.schema.json",
+  "title": "Approved Reference Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_kind", "status", "source_chain", "reference_bindings", "explicit_exclusions", "raw_reference_access", "reference_data_trust", "evaluation_authority", "generator_authority", "contract_id", "contract_hash"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "contract_kind": {"const": "approved_reference_contract"},
+    "status": {"const": "approved"},
+    "source_chain": {"$ref": "#/$defs/source_chain"},
+    "reference_bindings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/binding"}},
+    "explicit_exclusions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "raw_reference_access": {"const": false},
+    "reference_data_trust": {"const": "untrusted_reference_data"},
+    "evaluation_authority": {"const": false},
+    "generator_authority": {"const": "approved_bindings_only"},
+    "contract_id": {"type": "string", "pattern": "^reference-contract-[a-f0-9]{12}$"},
+    "contract_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "source_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_requirements", "reference_synthesis", "reference_synthesis_id", "product_spec", "product_approval_record", "approved_plan", "plan_approval_record", "versions"],
+      "properties": {
+        "active_requirements": {"type": "string", "minLength": 1},
+        "reference_synthesis": {"type": "string", "minLength": 1},
+        "reference_synthesis_id": {"type": "string", "pattern": "^REFSYN-[0-9]{3,4}$"},
+        "product_spec": {"type": "string", "minLength": 1},
+        "product_approval_record": {"type": "string", "minLength": 1},
+        "approved_plan": {"type": "string", "minLength": 1},
+        "plan_approval_record": {"type": "string", "minLength": 1},
+        "versions": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_decision_id", "implementation_status", "product_spec_refs", "plan_refs", "acceptance_refs", "requirement_refs", "source_finding_refs", "source_reference_refs", "applies_to", "exclusions"],
+      "properties": {
+        "reference_decision_id": {"type": "string", "pattern": "^REFDEC-[0-9]{3,4}$"},
+        "implementation_status": {"const": "required"},
+        "product_spec_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "plan_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "acceptance_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^AC-[A-Za-z0-9_-]+$"}},
+        "requirement_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^REQ-[A-Za-z0-9_-]+$"}},
+        "source_finding_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^REFFND-[0-9]{3,4}$"}},
+        "source_reference_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^REF-[0-9]{3,4}$"}},
+        "applies_to": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "exclusions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/domain-research-source-v1.schema.json",
+  "title": "Domain research source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_id", "research_id", "source_type", "tier", "authority_level", "locator", "source_origin", "retrieved_at", "supported_claims", "trust_level", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_id": {"type": "string", "pattern": "^RRSRC-[0-9]{3}$"},
+    "research_id": {"type": "string", "pattern": "^RSRCH-[0-9]{3}$"},
+    "source_type": {"enum": ["official_documentation", "standard", "regulator", "established_product", "professional_source", "community_signal"]},
+    "tier": {"enum": ["tier_1", "tier_2", "tier_3", "tier_4"]},
+    "authority_level": {"enum": ["primary", "established", "professional", "community"]},
+    "title": {"type": ["string", "null"]},
+    "locator": {"type": "string", "minLength": 1},
+    "canonical_locator": {"type": ["string", "null"]},
+    "source_origin": {"const": "system_discovered"},
+    "retrieved_at": {"type": "string", "minLength": 1},
+    "content_hash": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "supported_claims": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "trust_level": {"const": "untrusted"},
+    "created_at": {"type": "string", "minLength": 1},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}

@@ -101,6 +101,8 @@
         "not_started",
         "waiting_user_feedback",
         "direction_selected",
+        "selected_prototype_requested",
+        "prototype_confirmed",
         "modification_requested",
         "blend_selected",
         "all_rejected",
@@ -108,6 +110,28 @@
         "ambiguous",
         "conflicting",
         "integrated_into_proposal"
+      ]
+    },
+    "design_preview_mode": {
+      "enum": [
+        null,
+        "not_started",
+        "legacy_full",
+        "direction_comparison",
+        "selected_prototype"
+      ]
+    },
+    "design_review_status": {
+      "enum": [
+        null,
+        "not_started",
+        "generating",
+        "waiting_user_selection",
+        "waiting_selected_prototype_confirmation",
+        "revision_requested",
+        "direction_selected",
+        "integrated_into_proposal",
+        "skipped_by_user"
       ]
     },
     "design_feedback_round": {
@@ -144,7 +168,8 @@
     "proposal_version": { "type": "integer", "minimum": 0 },
     "product_spec_version": { "type": "integer", "minimum": 0 },
     "plan_version": { "type": "integer", "minimum": 0 },
-    "design_preview_round": { "type": "integer", "minimum": 0 }
+    "design_preview_round": { "type": "integer", "minimum": 0 },
+    "active_design_preview_round": { "type": ["string", "null"] }
   },
   "additionalProperties": true
 }

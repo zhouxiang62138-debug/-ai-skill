@@ -1,0 +1,9 @@
+gates:
+  - gate_id: GATE-REQUIREMENTS
+    required: true
+    result: FAIL
+issues:
+  - category: scope_mismatch
+    severity: major
+    status: OPEN
+    route_to: PLANNER

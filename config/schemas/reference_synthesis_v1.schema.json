@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/reference-synthesis-v1.schema.json",
+  "title": "Reference synthesis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "synthesis_id", "source_references", "decisions", "unknown", "priority_policy", "created_at", "context", "trust_level"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "synthesis_id": {"type": "string", "pattern": "^REFSYN-[0-9]{3}$"},
+    "source_references": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^REF-[0-9]{3}$"}},
+    "decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adopt", "adapt", "avoid"],
+      "properties": {
+        "adopt": {"type": "array", "items": {"$ref": "#/$defs/decision"}},
+        "adapt": {"type": "array", "items": {"$ref": "#/$defs/decision"}},
+        "avoid": {"type": "array", "items": {"$ref": "#/$defs/decision"}}
+      }
+    },
+    "unknown": {"type": "array", "items": {"$ref": "#/$defs/unknown"}},
+    "conflicts": {"type": "array", "items": {"$ref": "#/$defs/conflict"}},
+    "run_fingerprint": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "priority_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["explicit_user_requirements_override_reference", "approved_product_artifacts_override_reference", "reference_decision_is_not_requirement"],
+      "properties": {
+        "explicit_user_requirements_override_reference": {"const": true},
+        "approved_product_artifacts_override_reference": {"const": true},
+        "reference_decision_is_not_requirement": {"const": true}
+      }
+    },
+    "created_at": {"type": "string", "minLength": 1},
+    "context": {"$ref": "reference-source-v1.schema.json#/$defs/context"},
+    "trust_level": {"const": "untrusted"},
+    "supersedes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_id", "domain", "source_findings", "rationale", "decision_source", "user_scope_status"],
+      "properties": {
+        "decision_id": {"type": "string", "pattern": "^REFDEC-[0-9]{3}$"},
+        "domain": {"$ref": "reference-source-v1.schema.json#/$defs/domain"},
+        "source_findings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^REFFND-[0-9]{3}$"}},
+        "pattern": {"type": ["string", "null"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "decision_source": {"enum": ["reference_finding", "user_explicit_exclusion", "system_policy"]},
+        "user_scope_status": {"enum": ["include", "exclude", "unspecified"]},
+        "adaptation": {"type": ["object", "null"]}
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "statement", "source_findings", "reason"],
+      "properties": {
+        "domain": {"$ref": "reference-source-v1.schema.json#/$defs/domain"},
+        "statement": {"type": "string", "minLength": 1},
+        "source_findings": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^REFFND-[0-9]{3}$"}},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_id", "domain", "source_findings", "statement", "resolution_status"],
+      "properties": {
+        "conflict_id": {"type": "string", "pattern": "^REFCON-[0-9]{3}$"},
+        "domain": {"$ref": "reference-source-v1.schema.json#/$defs/domain"},
+        "source_findings": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string", "pattern": "^REFFND-[0-9]{3}$"}},
+        "statement": {"type": "string", "minLength": 1},
+        "resolution_status": {"const": "requires_planner_resolution"}
+      }
+    }
+  }
+}

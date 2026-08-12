@@ -1,0 +1,18 @@
+import unittest
+
+from scripts.project_migration import preview_runtime_migration
+from scripts.project_state import validate_project_state
+from tests.test_project_migration import v4_state
+
+
+class V5ToV7PreviewTests(unittest.TestCase):
+    def test_preview_is_valid_v7(self) -> None:
+        state = v4_state()
+        state["schema_version"] = 5
+        preview = preview_runtime_migration(state)
+        self.assertEqual(7, preview["schema_version"])
+        self.assertEqual([], validate_project_state(preview))
+
+
+if __name__ == "__main__":
+    unittest.main()

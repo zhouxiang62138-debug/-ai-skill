@@ -51,6 +51,35 @@ issue_categories:
     target: GENERATOR
     next_status: IMPLEMENTING
     forced_severity: blocker
+  reference_missing:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  reference_incorrect:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  reference_exclusion_violation:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  reference_scope_creep:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  reference_stale_binding:
+    target: GENERATOR
+    next_status: IMPLEMENTING
+  reference_evidence_missing:
+    reason_routes:
+      generator_omission:
+        target: GENERATOR
+        next_status: IMPLEMENTING
+      evaluator_environment:
+        target: SYSTEM_OR_USER
+        next_status: BLOCKED
+      profile_gap:
+        target: PLANNER
+        next_status: PLANNING
+  reference_capability_blocked:
+    target: SYSTEM_OR_USER
+    next_status: BLOCKED
 
 severity_levels:
   - blocker

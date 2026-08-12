@@ -17,9 +17,25 @@
 
 ## 当前版本
 
+## v7：Durable Session Runtime 投影
+
+v7 在完整 v6 业务契约上新增：
+
+```yaml
+runtime:
+  session_id: session-<24 hex>
+  control_plane_id: runtime-<24 hex>
+  revision: 0
+```
+
+完整 Session、Event、Lease、Checkpoint、Tool Call 和 State Revision 位于
+SQLite，不进入 YAML。`revision` 由 Runtime CAS 递增；未持有有效 Lease 或
+`expected_revision` 不匹配时拒绝覆盖并记录冲突。v3-v6 仍可只读校验，首次读取
+不自动添加 Runtime 字段。
+
 ## v6：结构化验收与受控循环
 
-新项目使用 `schema_version: 6`。v6 在 v4 产品批准链和 v5 Skill Maintenance
+普通新项目使用 `schema_version: 7`。v6 在 v4 产品批准链和 v5 Skill Maintenance
 目标边界上，新增：
 
 - `iteration_sequence`
@@ -58,8 +74,11 @@ v4 新增：
 - `WAITING_FOR_PLAN_REVIEW` 状态的数据约束。
 - 产品探索触发原因、生成尝试次数和错误记录。
 
-F4 使用 `scripts/exploration.py` 校验同一轮恰好三套完整产品路线、必需文件、
-预览标记和路线差异，并给出中断恢复动作。探索生成最多自动尝试两次。
+F4 使用 `scripts/exploration.py` 按 `design_preview_mode` 校验工件：新项目的
+`direction_comparison` 是三份方向 `concept.md` 加一个共用比较页，只做结构、
+标记、差异性和批量 smoke check；`selected_prototype` 是唯一
+`selected_concept` 的完整三文件预览，并执行完整 Browser QA。`legacy_full` 只
+作为旧项目兼容模式保留。探索生成最多自动尝试两次。
 
 F5 使用 `scripts/feedback.py` 把用户反馈分类为单选、修改、混搭、全部否定、
 继续讨论、恢复、含糊或冲突，并生成确定性候选状态。每次反馈和明确选择使用
@@ -78,7 +97,8 @@ F6 使用 `scripts/approval.py` 区分产品批准与 Plan 批准。产品批准
 
 ## v3 兼容
 
-`scripts/project_state.py` 同时读取并校验 schema v3 和 v4：
+`scripts/project_state.py` 同时读取并校验 schema v3 和 v4（历史迁移兼容版本，
+不是当前协议；当前新项目使用 v7）：
 
 - v3 默认只读，不会因为加载而写回或迁移。
 - 规划和设计阶段的 v3 项目可在后续迁移阶段按需迁移。

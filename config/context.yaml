@@ -1,0 +1,375 @@
+version: 1
+default: deny
+
+# F14-F 只声明可用模式；正式默认仍是 F13 Full Context。
+context_delivery_mode:
+  default: f13_full
+  allowed:
+    - f13_full
+    - f14_selective_canary
+
+# Stage 6：模型 Invocation 的 rollover 由 Runtime 根据这些阈值确定，不依赖模型自报。
+rollover:
+  enabled: true
+  context_budget_percent: 85
+  max_tool_calls: 40
+  max_compactions: 3
+  max_elapsed_seconds: 1800
+  on_phase_transition: true
+  on_role_transition: true
+  model_aware_policy: config/harness_policy.yaml
+  unknown_model_defaults_to_full: true
+
+# F13.1/F13.2：描述资料选择与字节预算，不重复定义 Role 的路径权限。
+roles:
+  planner:
+    max_context_bytes: 262144
+    max_inline_bytes: 196608
+    max_sources: 32
+    max_source_inline_bytes: 65536
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 managed project 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: 已确认的需求快照
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: intent_analysis_ref
+        reason: 初始意图与事实、候选、未知的边界
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: research_requirement_ref
+        reason: Research Gate、研究必要性与预算
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_research_round
+        reason: 当前研究摘要、来源与发现
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: coverage_map_ref
+        reason: 需求覆盖图与已知缺口
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: gap_analysis_ref
+        reason: 缺口分类与用户决策边界
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: opportunity_map_ref
+        reason: 仅作为候选机会输入，不自动升级为需求
+        priority: NORMAL
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_reference_synthesis
+        reason: Planner reads the active reference synthesis
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: design_reference_subset
+        field: active_reference_synthesis
+        reason: Design Exploration only receives the current synthesis design-decision subset
+        priority: HIGH
+        delivery_mode: INLINE
+        reference_source_reason: Reference Analysis Module 生成的可追溯综合结果；Planner 只读 synthesis
+        reference_source_priority: HIGH
+        reference_source_delivery_mode: INLINE
+      - source_type: state_value
+        field: active_design_reference_synthesis
+        reason: Planner retains the active synthesis as the primary reference source
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_proposal
+        reason: 当前产品方案
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: approved_proposal
+        reason: 历史批准的产品方案
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: product_approval_record
+        reason: 产品确认记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_product_spec
+        reason: 当前正式产品规格
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_plan
+        reason: 当前开发计划
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: approved_plan
+        reason: 原始已批准 Plan 与当前变更基线
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_evaluation
+        reason: 原项目既有验收历史
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: current_release
+        reason: 当前已接受实现的 Release 指针
+        priority: NORMAL
+        delivery_mode: REFERENCE
+      - source_type: state_reference
+        field: design_selection_record
+        reason: 设计选择记录
+        priority: NORMAL
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: design_skip_record
+        reason: 设计跳过记录
+        priority: NORMAL
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: exploration_feedback_record
+        reason: 设计探索反馈
+        priority: NORMAL
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_request_record
+        reason: 当前 Change Request 记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_impact_analysis
+        reason: Change Request 影响分析
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_approval_record
+        reason: Change Request 批准记录
+        priority: HIGH
+        delivery_mode: INLINE
+  generator:
+    max_context_bytes: 393216
+    max_inline_bytes: 262144
+    max_sources: 64
+    max_source_inline_bytes: 131072
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 managed project 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: approved_plan
+        reason: 唯一可执行的批准计划
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_product_spec
+        reason: 当前正式产品规格
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: approved_reference_bindings
+        field: active_reference_synthesis
+        reason: Approved Reference decisions bound to the approved product and plan chain
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_issue_package
+        reason: 最新可执行 Evaluator issue package
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_generator_response
+        reason: 当前实现交接记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_request_record
+        reason: 当前已批准 Change Request
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_approval_record
+        reason: 当前变更范围批准记录
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_baseline
+        reason: 变更实现稳定基线
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: current_release
+        reason: 原项目 Release 基线
+        priority: NORMAL
+        delivery_mode: REFERENCE
+      - source_type: state_reference
+        field: last_evaluation
+        reason: 原项目既有验收证据
+        priority: HIGH
+        delivery_mode: INLINE
+  evaluator:
+    max_context_bytes: 327680
+    max_inline_bytes: 229376
+    max_sources: 48
+    max_source_inline_bytes: 98304
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 managed project 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: approved_plan
+        reason: 批准计划与验收范围
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_product_spec
+        reason: 当前正式产品规格与验收标准
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: reference_conformance_subset
+        field: active_reference_synthesis
+        reason: Evaluator 仅消费批准 Reference Contract，不读取原始 Reference
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_generator_response
+        reason: Generator 交接记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: latest_handoff
+        reason: Generator Handoff 与实现证据入口
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_evaluation
+        reason: 上一轮相关验收记录
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: last_issue_package
+        reason: 当前 issue package
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: evidence_manifest
+        reason: 可复现验证证据
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_request_record
+        reason: 当前已批准 Change Request
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_approval_record
+        reason: 当前变更范围批准记录
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: change_baseline
+        reason: 变更实现稳定基线
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: current_release
+        reason: 原项目 Release 基线
+        priority: NORMAL
+        delivery_mode: REFERENCE
+      - source_type: state_value
+        field: evaluation_profile
+        reason: 当前验收 Profile
+        priority: REQUIRED
+        delivery_mode: INLINE
+
+modules:
+  first_ask_intake:
+    max_context_bytes: 98304
+    max_inline_bytes: 65536
+    max_sources: 12
+    max_source_inline_bytes: 16384
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 Intake 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: 当前需求与原始用户请求
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: reference_catalog
+        field: registered_references
+        reason: 已登记引用及范围状态；原始描述只通过受控引用读取
+        priority: HIGH
+        delivery_mode: INLINE
+  domain_research:
+    max_context_bytes: 131072
+    max_inline_bytes: 98304
+    max_sources: 16
+    max_source_inline_bytes: 32768
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前研究状态、研究预算与 F10 Runtime 投影
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: 研究只读取已登记需求事实，不改写用户原话
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: intent_analysis_ref
+        reason: 研究目标来自可追溯的初始意图分析
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: research_requirement_ref
+        reason: Research Gate 与预算约束
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_research_round
+        reason: 当前研究轮次摘要与既有研究输出
+        priority: HIGH
+        delivery_mode: INLINE
+      - source_type: state_value
+        field: research_status
+        reason: 研究服务可用性与完成状态
+        priority: HIGH
+        delivery_mode: INLINE
+  reference_analysis:
+    max_context_bytes: 131072
+    max_inline_bytes: 98304
+    max_sources: 16
+    max_source_inline_bytes: 32768
+    sources:
+      - source_type: project_state
+        reference: project.yaml
+        reason: 当前 managed project 状态
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: state_reference
+        field: active_requirements
+        reason: First-Ask 已确认的需求与引用登记
+        priority: REQUIRED
+        delivery_mode: INLINE
+      - source_type: reference_catalog
+        field: registered_references
+        reason: 仅提供已登记来源、范围、模式和排除项，不注入原始内容
+        priority: HIGH
+        delivery_mode: INLINE

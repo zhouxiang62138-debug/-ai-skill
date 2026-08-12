@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/benchmark-result-v1.schema.json",
+  "title": "Harness benchmark result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "benchmark_id", "task_id", "variant", "model_id",
+    "prompt_version", "policy_version", "rubric_version", "wall_clock_seconds",
+    "token_usage", "estimated_cost", "tool_call_count", "compaction_count",
+    "evaluator_rounds", "ac_pass_rate", "critical_bug_miss_rate", "false_pass_rate",
+    "browser_coverage", "feature_completeness", "best_candidate_is_final_round"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "benchmark_id": {"type": "string", "pattern": "^benchmark-[0-9]{3}$"},
+    "task_id": {"type": "string", "minLength": 1},
+    "variant": {"enum": ["generator_only", "planner_generator", "planner_generator_evaluator", "full_browser_completeness", "full_contract_rollover"]},
+    "model_id": {"type": "string", "minLength": 1},
+    "prompt_version": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "rubric_version": {"type": "string", "minLength": 1},
+    "wall_clock_seconds": {"type": ["number", "string"], "minimum": 0},
+    "token_usage": {"type": "integer", "minimum": 0},
+    "estimated_cost": {"type": ["number", "string"], "minimum": 0},
+    "tool_call_count": {"type": "integer", "minimum": 0},
+    "compaction_count": {"type": "integer", "minimum": 0},
+    "evaluator_rounds": {"type": "integer", "minimum": 0},
+    "ac_pass_rate": {"type": ["number", "string"], "minimum": 0, "maximum": 1},
+    "critical_bug_miss_rate": {"type": ["number", "string"], "minimum": 0, "maximum": 1},
+    "false_pass_rate": {"type": ["number", "string"], "minimum": 0, "maximum": 1},
+    "browser_coverage": {"type": ["number", "string"], "minimum": 0, "maximum": 1},
+    "feature_completeness": {"type": ["number", "string"], "minimum": 0, "maximum": 10},
+    "human_review_score": {"type": ["number", "string", "null"], "minimum": 0, "maximum": 10},
+    "selected_best_candidate": {"type": ["string", "null"]},
+    "best_candidate_is_final_round": {"type": "boolean"},
+    "result_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

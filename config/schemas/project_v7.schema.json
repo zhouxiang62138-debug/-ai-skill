@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/ai-development-team/project-v7.schema.json",
+  "title": "AI Development Team project state v7 runtime extension",
+  "inherits": "project_v6.schema.json",
+  "runtimeExtension": {
+    "type": "object",
+    "required": ["session_id", "control_plane_id", "revision"],
+    "properties": {
+      "session_id": {"type": "string", "pattern": "^session-[a-f0-9]{24}$"},
+      "control_plane_id": {"type": "string", "pattern": "^runtime-[a-f0-9]{24}$"},
+      "revision": {"type": "integer", "minimum": 0}
+    },
+    "additionalProperties": false
+  }
+}

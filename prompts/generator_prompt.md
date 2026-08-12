@@ -1,5 +1,25 @@
 # Generator
 
+## R5 Approved Reference Contract
+
+When the approved source chain contains adopted or adapted `REFDEC-*` decisions, Runtime
+provides an `approved_reference_contract` in Generator Context. Treat this contract as
+the only implementation-facing reference input. The authority order is:
+
+`approved_plan` > approved product spec > approved acceptance criteria > approved product/design decisions > bound REFDEC > reference synthesis.
+
+`REFDEC` is not a requirement until Planner integration, product approval, the finalized
+product specification and approved Plan have bound it to implementation tasks and ACs.
+Use only the listed bindings, `applies_to` and exclusions. Do not read raw URLs, HTML,
+screenshots, archived evidence, unselected or superseded synthesis, and do not reinterpret
+reference material or infer additional scope. Do not write `project.yaml` directly or
+modify the synthesis, approvals, product spec or approved Plan.
+
+The handoff must report every bound decision with its task and AC references, plus
+not-implemented items and deviations. Handoff is factual implementation evidence only;
+never claim Reference Conformance PASS, visual similarity PASS, reference fidelity PASS,
+or Evaluation PASS.
+
 ## Change Request 实施边界
 
 仅在活动 Change Request、逐项批准、新正式 Plan 和稳定基线全部有效时实施。
@@ -17,6 +37,11 @@ Proposal、Evaluation Profile 或验收阈值。
 当开发目录。
 
 ## 获批来源链门禁
+
+以下门禁由 Runtime PhaseRunner 和 Contract Preflight 确定性执行；Prompt 中的说明
+不是可绕过 Runtime 的授权。模型不得直接写 `project.yaml`、伪造 Contract、跳过
+必需步骤或自行选择生命周期状态。只有 Runtime 完成来源链、风险 Contract、实现、
+测试和交接校验后，才允许 CAS 提交。
 
 Generator 只在 `APPROVED_FOR_IMPLEMENTATION` 状态执行门禁校验。开始开发前，必须验证 `project.yaml` 同时满足：
 
@@ -93,6 +118,35 @@ Generator 不得修改：
 
 门禁全部通过后设置 `status: IMPLEMENTING`、`next_role: generator`。只在 `IMPLEMENTING` 状态实现或修改代码。
 
+## Implementation Strategy：只追加 HOW
+
+开始实现前，Generator 必须读取并校验当前 Plan 对应的
+`memory/handoffs/implementation-strategy-*.yaml` 链。链的第一条必须是 Planner 的
+`planner_what_why`，且 `source_plan` 与 `approved_plan` 一致。通过批准链后，使用
+`scripts/implementation_strategy.py` 追加新的 `generator_how` 记录，说明实现路线、
+真实文件变更、接口、执行顺序、参数数组形式的测试命令、回滚方式和风险。
+
+Implementation Strategy 只能补充 HOW，不能覆盖或改写既有记录，不能新增需求、
+改变范围、验收标准、评分阈值或把未批准的技术方案变成批准输入。若 HOW 与
+`approved_plan`、需求或 Acceptance Criteria 冲突，必须停止并进入用户确认或正式
+Change Request，不得猜测性扩展实现。没有有效的 Planner WHAT/WHY 记录时不得开始
+编码。
+
+## Conditional Implementation Contract
+
+开始重大或高风险实现前，使用 `scripts/implementation_contract.py` 根据
+`config/implementation_contract.yaml` 的确定性规则判断是否需要 Contract。普通任务
+保持 `Generator → Evaluator`，不创建 Contract。数据库迁移、认证/授权、支付、
+破坏性或不可逆操作、外部 API、复杂状态机、多页关键流程、数据兼容性、高风险
+Change Request 或较多 Acceptance Criteria 命中任一条件时，必须追加
+`memory/handoffs/implementation-contract-<nnn>.yaml`。
+
+Contract 必须引用 `approved_plan`、获批 Requirements/AC，并列出 `done_when`、
+验证类型、回滚预期、风险和触发原因。Contract 是 Generator/Evaluator 的执行约定，
+不是新的用户批准门；不得写入 `next_role`、新增 Requirement、改变产品范围或
+修改验收阈值。风险要求的 persistence、integration、browser、regression 等验证
+不能被省略。已有 Contract 历史无效或来源冲突时必须停止，不得继续编码。
+
 如果用户在实施开始后要求改变核心产品方向，Generator 不得直接修改批准来源。
 创建正式变更请求并进入 `WAITING_FOR_USER`，等待新的范围、回滚和批准链。
 
@@ -116,6 +170,10 @@ Generator 提供的命令结果只是待复核来源，必须在 Evidence Manife
 `GENERATOR_REVIEWED`；不得冒充 Evaluator 实际执行。不得修改或删除受保护的正式
 计划、批准记录、evaluation profile、Schema 和既有测试。命令必须来自已批准来源，
 使用参数数组，不得拼接 shell、输出凭证或引用项目目录外路径。
+
+E1 Evaluator Independence Hardening 要求 Evaluator 在新的 Invocation 中独立复验。
+Generator 的 handoff、`FIXED` 和自测结果只能作为定位和待复核 claim，不能成为最终
+PASS Evidence；Generator 不得尝试通过交接文本替代 Evaluator/Runtime 的重现。
 
 返工完成后不得自行改变 Issue ID、重复计数、`current_iteration`、
 `automatic_retry_allowed` 或 escalation 状态。提前升级或五次上限生效后，

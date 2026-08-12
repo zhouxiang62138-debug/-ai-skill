@@ -1,0 +1,50 @@
+version: 1
+upgrade_id: E1
+name: Evaluator Independence Hardening
+
+fresh_invocation_required: true
+inherit_previous_invocation_history: false
+generator_claims_are_evidence: false
+host_conversation_isolation: adapter_declared_or_unavailable
+
+context:
+  excluded_fields:
+    - last_generator_response
+  excluded_reference_prefixes:
+    - memory/handoffs/responses/
+  excluded_source_labels:
+    - generator_chat_history
+    - generator_reasoning
+    - generator_self_assessment
+    - previous_invocation_freeform_history
+
+evidence_provenance:
+  allowed:
+    - GENERATOR_PROVIDED
+    - EVALUATOR_REPRODUCED
+    - RUNTIME_VERIFIED
+    - EXTERNAL
+  required_for_critical:
+    - EVALUATOR_REPRODUCED
+    - RUNTIME_VERIFIED
+
+reexecute:
+  build: true
+  required_tests: true
+  browser_required_scenarios: true
+  regression: true
+
+write_boundary:
+  evaluator_write_code: false
+  evaluator_write_plan: false
+  evaluator_write_requirements: false
+  evaluator_write_evaluation_rules: false
+  evaluator_write_threshold: false
+
+gate_errors:
+  fresh_invocation: EVALUATOR_FRESH_INVOCATION_REQUIRED
+  context: EVALUATION_INDEPENDENCE_CONTEXT_INVALID
+  provenance: EVIDENCE_PROVENANCE_INSUFFICIENT
+  reproduction: EVALUATOR_REPRODUCTION_REQUIRED
+  revision: EVIDENCE_REVISION_MISMATCH
+  pass: DETERMINISTIC_PASS_GATE_FAILED

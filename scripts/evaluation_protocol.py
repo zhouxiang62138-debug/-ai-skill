@@ -9,12 +9,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from project_state import (
-    ProjectStateError,
-    parse_project_yaml,
-    serialize_project_state,
-    write_project_state_atomic,
-)
+try:
+    from .project_state import (
+        ProjectStateError,
+        load_project_state,
+        parse_project_yaml,
+        serialize_project_state,
+        write_project_state_atomic,
+    )
+except ImportError:  # 兼容 tests 直接把 scripts 加入 sys.path
+    from project_state import (
+        ProjectStateError,
+        load_project_state,
+        parse_project_yaml,
+        serialize_project_state,
+        write_project_state_atomic,
+    )
 
 
 ISSUE_CATEGORIES = (
@@ -29,6 +39,13 @@ ISSUE_CATEGORIES = (
     "environment_blocker",
     "evidence_missing",
     "unauthorized_change",
+    "reference_missing",
+    "reference_incorrect",
+    "reference_exclusion_violation",
+    "reference_scope_creep",
+    "reference_stale_binding",
+    "reference_evidence_missing",
+    "reference_capability_blocked",
 )
 SEVERITY_LEVELS = ("blocker", "critical", "major", "minor", "observation")
 TRACEABILITY_STATUSES = (
@@ -76,6 +93,12 @@ ROUTE_TABLE = {
     "requirement_ambiguity": ("USER", "WAITING_FOR_USER"),
     "environment_blocker": ("SYSTEM_OR_USER", "BLOCKED"),
     "unauthorized_change": ("GENERATOR", "IMPLEMENTING"),
+    "reference_missing": ("GENERATOR", "IMPLEMENTING"),
+    "reference_incorrect": ("GENERATOR", "IMPLEMENTING"),
+    "reference_exclusion_violation": ("GENERATOR", "IMPLEMENTING"),
+    "reference_scope_creep": ("GENERATOR", "IMPLEMENTING"),
+    "reference_stale_binding": ("GENERATOR", "IMPLEMENTING"),
+    "reference_capability_blocked": ("SYSTEM_OR_USER", "BLOCKED"),
 }
 EVIDENCE_MISSING_ROUTES = {
     "generator_omission": ("GENERATOR", "IMPLEMENTING"),
@@ -158,6 +181,11 @@ def _issue_route(issue: dict[str, Any]) -> tuple[str, str]:
         source = issue.get("evidence_missing_reason")
         if source not in EVIDENCE_MISSING_ROUTES:
             raise ProjectStateError("evidence_missing 必须声明确定性的缺失原因")
+        return EVIDENCE_MISSING_ROUTES[source]
+    if category == "reference_evidence_missing":
+        source = issue.get("reference_evidence_missing_reason", "generator_omission")
+        if source not in EVIDENCE_MISSING_ROUTES:
+            raise ProjectStateError("reference_evidence_missing 必须声明确定性缺失原因")
         return EVIDENCE_MISSING_ROUTES[source]
     try:
         return ROUTE_TABLE[category]
@@ -252,6 +280,12 @@ def _validate_issue(
     if issue.get("category") == "evidence_missing":
         if issue.get("evidence_missing_reason") not in EVIDENCE_MISSING_ROUTES:
             errors.append(f"{prefix}.evidence_missing_reason 枚举无效")
+    if issue.get("category") == "reference_evidence_missing":
+        if issue.get("reference_evidence_missing_reason") not in EVIDENCE_MISSING_ROUTES:
+            errors.append(f"{prefix}.reference_evidence_missing_reason 枚举无效")
+    if str(issue.get("category", "")).startswith("reference_"):
+        if not _is_nonempty_string(issue.get("reference_decision_id")):
+            errors.append(f"{prefix}.reference_decision_id 缺失")
     if issue.get("category") == "unauthorized_change":
         if issue.get("severity") != "blocker" or issue.get("blocking") is not True:
             errors.append(f"{prefix} 未授权修改必须是 blocking blocker")
@@ -604,6 +638,24 @@ def render_evaluation_markdown(package: dict[str, Any]) -> str:
                 f"  - 证据：{', '.join(f'`{ref}`' for ref in item['evidence_refs']) or '无'}",
             ]
         )
+    reference_section = package.get("reference_conformance")
+    if isinstance(reference_section, dict):
+        lines.extend(
+            [
+                "",
+                "## Reference Conformance",
+                "",
+                f"- Gate：`{reference_section.get('result', 'NOT_EVALUATED')}`",
+                f"- Contract：`{reference_section.get('contract_id', 'N/A')}`",
+                f"- Contract Hash：`{reference_section.get('contract_hash', 'N/A')}`",
+            ]
+        )
+        for binding in reference_section.get("binding_results", []):
+            if isinstance(binding, dict):
+                lines.append(
+                    f"- `{binding.get('reference_decision_id')}`：{binding.get('result')}，"
+                    f"类型 `{binding.get('conformance_type')}`，证据 {', '.join(binding.get('evidence_refs', [])) or '缺失'}"
+                )
     lines.extend(
         [
             "",
@@ -657,12 +709,17 @@ def commit_evaluation_transaction(
     transaction_dir.mkdir(parents=True, exist_ok=False)
     issue_temp = transaction_dir / "issues.yaml.tmp"
     report_temp = transaction_dir / "report.md.tmp"
+    state_temp = transaction_dir / "project-state.yaml.tmp"
+    state_payload = deepcopy(next_state)
+    state_payload["last_evaluation"] = report_path.relative_to(root).as_posix()
+    state_payload["last_issue_package"] = issue_path.relative_to(root).as_posix()
     journal = {
         "evaluation_id": evaluation_id,
         "status": "STAGING",
         "issue_path": issue_path.relative_to(root).as_posix(),
         "report_path": report_path.relative_to(root).as_posix(),
         "state_path": "project.yaml",
+        "staged_state_path": state_temp.relative_to(root).as_posix(),
     }
     journal_path.write_text(
         json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
@@ -672,6 +729,7 @@ def commit_evaluation_transaction(
     if fail_at == "issue_write":
         raise OSError("注入 Issue 写入失败")
     report_temp.write_text(render_evaluation_markdown(package), encoding="utf-8")
+    state_temp.write_text(serialize_project_state(state_payload), encoding="utf-8")
     if fail_at == "report_write":
         raise OSError("注入 Markdown 写入失败")
     issue_path.parent.mkdir(parents=True, exist_ok=True)
@@ -690,10 +748,15 @@ def commit_evaluation_transaction(
             encoding="utf-8",
         )
         raise OSError("注入状态写入失败")
-    state_payload = deepcopy(next_state)
-    state_payload["last_evaluation"] = report_path.relative_to(root).as_posix()
-    state_payload["last_issue_package"] = issue_path.relative_to(root).as_posix()
-    state_writer(root / "project.yaml", state_payload)
+    try:
+        state_writer(root / "project.yaml", state_payload)
+    except Exception:
+        journal["status"] = "RECOVERY_REQUIRED"
+        journal_path.write_text(
+            json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        raise
     journal["status"] = "COMMITTED"
     journal_path.write_text(
         json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
@@ -704,3 +767,51 @@ def commit_evaluation_transaction(
         "report": report_path.relative_to(root).as_posix(),
         "journal": journal_path.relative_to(root).as_posix(),
     }
+
+
+def recover_evaluation_transaction(
+    project_root: str | Path,
+    evaluation_id: str,
+    *,
+    state_writer: Callable[[str | Path, dict[str, Any]], None] = write_project_state_atomic,
+) -> dict[str, str]:
+    """幂等恢复 `RECOVERY_REQUIRED` Evaluation 事务。
+
+    若 project.yaml 已包含目标引用，只补记 COMMITTED；否则使用事务中持久化的
+    完整候选状态再次提交。调用方可注入受 Lease/CAS 约束的 state_writer。
+    """
+
+    root = Path(project_root).resolve()
+    transaction_dir = root / "evaluation" / ".transactions" / evaluation_id
+    journal_path = transaction_dir / "journal.json"
+    if not journal_path.is_file():
+        raise ProjectStateError("Evaluation 恢复日志不存在")
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    if journal.get("evaluation_id") != evaluation_id:
+        raise ProjectStateError("Evaluation 恢复日志关联错误")
+    if journal.get("status") == "COMMITTED":
+        return {"result": "IDEMPOTENT", "journal": str(journal_path)}
+    if journal.get("status") != "RECOVERY_REQUIRED":
+        raise ProjectStateError(f"事务状态不可恢复：{journal.get('status')}")
+    issue_reference = str(journal["issue_path"])
+    report_reference = str(journal["report_path"])
+    if not (root / issue_reference).is_file() or not (root / report_reference).is_file():
+        raise ProjectStateError("Evaluation 已提交工件缺失，拒绝伪造恢复")
+    current = load_project_state(root / "project.yaml")
+    if (
+        current.get("last_evaluation") != report_reference
+        or current.get("last_issue_package") != issue_reference
+    ):
+        staged_path = root / str(journal["staged_state_path"])
+        if not staged_path.is_file():
+            raise ProjectStateError("Evaluation 恢复候选状态缺失")
+        staged = parse_project_yaml(staged_path.read_text(encoding="utf-8"))
+        state_writer(root / "project.yaml", staged)
+    journal["status"] = "COMMITTED"
+    temporary = journal_path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(journal_path)
+    return {"result": "RECOVERED", "journal": str(journal_path)}

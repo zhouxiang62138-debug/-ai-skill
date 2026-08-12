@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-12",
+  "scope": "AI Development Team Skill Protocol Governance and F14 final closeout",
+  "source_commit": "e6131771f13a09ec80da5998c2a4ea9aa1fa6e5d",
+  "branch": "codex/f10-runtime-correctness-hardening",
+  "working_tree_status": "MODIFIED_NO_COMMIT",
+  "frozen_baseline": "F14_CONTROLLED_QUALIFIED_BASELINE",
+  "final_status": "F14 ENGINEERING COMPLETE / CONTROLLED QUALIFIED / GLOBAL BLOCKED ONLY BY EXTERNAL REAL-GOLD ENVIRONMENT",
+  "verdicts": {
+    "protocol_governance": "PASS",
+    "protocol_drift": "PASS",
+    "f14_engineering": "PASS",
+    "controlled_qualification": "PASS",
+    "real_model": "BLOCKED",
+    "real_browser": "BLOCKED",
+    "production_correctness": "BLOCKED",
+    "efficiency": "BLOCKED",
+    "evaluator_selective": "BLOCKED",
+    "f13_emergency_fallback": "READY",
+    "global_rollout": "NOT_ENABLED"
+  },
+  "baseline": {
+    "commit": "e6131771f13a09ec80da5998c2a4ea9aa1fa6e5d",
+    "head_tree": "e9c2ac7557f43a45eddade341e1b9067d813ec52",
+    "protocol_checker": "PASS",
+    "focused_unittest": "12/12 PASS",
+    "full_unittest": "509/509 PASS",
+    "full_pytest": "930 passed, 6 skipped, 129 subtests passed (provided baseline; first local run timed out)"
+  },
+  "frozen_controlled_qualification_baseline": {
+    "baseline_source_commit": "e6131771f13a09ec80da5998c2a4ea9aa1fa6e5d",
+    "baseline_source_tree": "e9c2ac7557f43a45eddade341e1b9067d813ec52",
+    "final_commit": "REPORTED_POST_COMMIT_OUT_OF_BAND",
+    "final_tree": "REPORTED_POST_COMMIT_OUT_OF_BAND",
+    "protocol_version": 7,
+    "project_schema_version": 7,
+    "f14_qualification_status": "CONTROLLED_QUALIFIED",
+    "context_delivery_mode": "f13_full",
+    "global": "NOT_ENABLED",
+    "f13_fallback": "READY",
+    "frozen_baseline_tag_or_external_reference": "pending",
+    "final_regression": {
+      "protocol_checker": "8 checks PASS",
+      "focused_governance": "22/22 PASS",
+      "full_unittest": "519/519 PASS",
+      "full_pytest": "940 passed, 6 skipped, 129 subtests passed",
+      "git_diff_check": "PASS"
+    }
+  },
+  "governance_fixes": {
+    "root_isolation": "PASS",
+    "feature_specific_qualification": "PASS",
+    "research_gate_semantics": "PASS",
+    "manifest_route_contract": "PASS",
+    "historical_reports_rewritten": false,
+    "global_manually_enabled": false
+  },
+  "root_isolation_evidence": [
+    {"fault": "schema/template", "clone_result": "FAIL", "real_root_used": false},
+    {"fault": "role_selector_wait_logic", "clone_result": "FAIL", "real_root_used": false},
+    {"fault": "retry_governance", "clone_result": "FAIL", "real_root_used": false}
+  ],
+  "feature_gates": {
+    "selective_context": {
+      "requirements": {"controlled": "PASS", "qualification_status_not_in": ["IMPLEMENTED", "FALLBACK_F13"]},
+      "formal_enabled": false
+    },
+    "invocation_gate": {
+      "requirements": {"controlled": "PASS", "fault_injection": "PASS", "semantic_task_misclassified_as_python_only": 0},
+      "formal_enabled": false
+    },
+    "evaluator_selective_context": {
+      "requirements": {"evaluator_selective": "PASS", "quality_parity": "PASS", "real_model": "PASS", "real_browser": "PASS"},
+      "formal_enabled": false
+    },
+    "global": {
+      "requirements": ["controlled", "real_model", "real_browser", "evaluator_selective", "quality_parity", "fault_injection", "fallback"],
+      "formal_enabled": false
+    }
+  },
+  "tests": {
+    "protocol_checker": {"command": "python -B scripts/protocol_consistency.py check", "checks": 8, "verdict": "PASS"},
+    "focused_unittest": {"command": "python -B -m unittest tests.test_protocol_consistency tests.test_f14_rollout_governance -v", "passed": 22, "failed": 0, "verdict": "PASS"},
+    "full_unittest": {"command": "python -B -m unittest discover -s tests -p \"test*.py\"", "passed": 519, "failed": 0, "verdict": "PASS"},
+    "full_pytest": {"command": "python -B -m pytest -q -p no:cacheprovider", "passed": 940, "skipped": 6, "subtests_passed": 129, "failed": 0, "verdict": "PASS"},
+    "git_diff_check": {"command": "git diff --check", "diagnostics": 0, "verdict": "PASS"}
+  },
+  "real_model": {
+    "status": "BLOCKED",
+    "authenticated_host_channel": "UNAVAILABLE_FROM_HOST",
+    "invocation_executed": false,
+    "model_identity": "UNAVAILABLE_FROM_HOST",
+    "invocation_id": "UNAVAILABLE_FROM_HOST",
+    "input_tokens": "UNAVAILABLE_FROM_HOST",
+    "cached_input_tokens": "UNAVAILABLE_FROM_HOST",
+    "output_tokens": "UNAVAILABLE_FROM_HOST",
+    "total_tokens": "UNAVAILABLE_FROM_HOST",
+    "request_count": "UNAVAILABLE_FROM_HOST",
+    "latency": "UNAVAILABLE_FROM_HOST",
+    "token_saving": "NOT_PROVEN"
+  },
+  "real_browser": {
+    "status": "BLOCKED",
+    "provider": "Codex In-app Browser",
+    "open_tabs": 0,
+    "active_tabs": 0,
+    "target_app": "UNAVAILABLE",
+    "case_c_managed_project": "UNAVAILABLE",
+    "gold_case_c_executed": false,
+    "browser_run_id": "UNAVAILABLE_FROM_HOST",
+    "evidence_reference": "UNAVAILABLE_FROM_TARGET_APP"
+  },
+  "real_gold": {
+    "status": "BLOCKED",
+    "started": false,
+    "reason": "Real Codex Host invocation and runnable Case C Browser target are unavailable",
+    "production_correctness": "BLOCKED",
+    "efficiency": "BLOCKED",
+    "controlled_fixture_promoted_to_real": false
+  },
+  "rollout": {
+    "mode": "controlled",
+    "qualification_status": "CONTROLLED_QUALIFIED",
+    "context_delivery_mode": "f13_full",
+    "fallback_mode": "f13_full",
+    "automatic_fallback": true,
+    "global_enabled": false,
+    "selective_context_enabled": false,
+    "evaluator_selective_context_enabled": false,
+    "invocation_gate_enabled": false
+  },
+  "blockers": [
+    {"id": "BLOCKER-F14-RM-001", "type": "REAL_CODEX_HOST_UNAVAILABLE", "status": "OPEN"},
+    {"id": "BLOCKER-F14-RB-001", "type": "REAL_CASE_C_BROWSER_TARGET_UNAVAILABLE", "status": "OPEN"},
+    {"id": "BLOCKER-F14-GLOBAL-001", "type": "REAL_GOLD_QUALIFICATION_ENVIRONMENT_UNAVAILABLE", "status": "OPEN", "aggregates": ["BLOCKER-F14-RM-001", "BLOCKER-F14-RB-001"]}
+  ],
+  "modified_files": [
+    "SKILL.md",
+    "config/f14.yaml",
+    "config/protocol_manifest.yaml",
+    "config/requirements_discovery.yaml",
+    "docs/PLANNER_APPROVAL_WORKFLOW.md",
+    "docs/RUNTIME_CAPABILITY_STATUS.md",
+    "docs/workflow_protocol.md",
+    "intake/first_ask.md",
+    "prompts/planner_prompt.md",
+    "runtime/f14_control.py",
+    "runtime/invocation_gate.py",
+    "scripts/protocol_consistency.py",
+    "tests/test_f14_f_context_and_invocation.py",
+    "tests/test_f14_f_preflight.py",
+    "tests/test_f14_rollout_governance.py",
+    "tests/test_protocol_consistency.py",
+    "docs/reports/f14-context-efficiency/F14_FINAL_CLOSEOUT_BASELINE.md",
+    "docs/reports/f14-context-efficiency/F14_FINAL_CLOSEOUT.md",
+    "docs/reports/f14-context-efficiency/F14_FINAL_CLOSEOUT_RESULTS.json"
+  ],
+  "unresolved_risks": [
+    "No real Host token telemetry",
+    "No runnable Case C Browser Gold target",
+    "Evaluator Selective real parity not executed",
+    "Global remains disabled by policy and evidence gates"
+  ],
+  "actions_not_taken": ["commit", "push", "pull_request", "F15", "fourth_agent", "fake_real_model", "fake_token_evidence", "fake_browser_gold"]
+}

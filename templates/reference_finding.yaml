@@ -1,0 +1,19 @@
+schema_version: 1
+finding_id: REFFND-001
+reference_id: REF-001
+domain: layout
+category: spacing
+observation:
+  value: <observation>
+  measurement: null
+  notes: null
+epistemic_status: observed
+confidence: medium
+evidence_refs:
+  - REFEV-001
+user_scope_status: unspecified
+inference_basis: []
+unknown_reason: null
+supersedes: null
+trust_level: untrusted
+created_at: <ISO-8601 timestamp>

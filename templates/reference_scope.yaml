@@ -1,0 +1,26 @@
+schema_version: 1
+scope_id: REFSCP-001
+reference_id: REF-001
+requested_scope:
+  product: unspecified
+  information_architecture: unspecified
+  navigation: unspecified
+  interaction: unspecified
+  layout: unspecified
+  visual_style: unspecified
+  components: unspecified
+  design_tokens: unspecified
+  motion: unspecified
+  content_style: unspecified
+  brand: unspecified
+  technical_architecture: unspecified
+explicit_inclusions: []
+explicit_exclusions: []
+source_refs:
+  - REF-001
+created_at: <ISO-8601 timestamp>
+context:
+  type: project
+  project_id: <project_id>
+  change_request_id: null
+supersedes: null

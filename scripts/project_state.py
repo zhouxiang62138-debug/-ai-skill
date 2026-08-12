@@ -19,7 +19,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = REPO_ROOT / "config" / "schemas"
-SUPPORTED_SCHEMA_VERSIONS = (3, 4, 5, 6)
+SUPPORTED_SCHEMA_VERSIONS = (3, 4, 5, 6, 7)
 
 
 class ProjectStateError(ValueError):
@@ -242,13 +242,43 @@ def serialize_project_state(state: dict[str, Any]) -> str:
     return "\n".join(output) + "\n"
 
 
-def write_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
-    """校验通过后原子写入；不会在校验失败时破坏原状态文件。"""
+def write_project_state_atomic(
+    path: str | Path,
+    state: dict[str, Any],
+) -> None:
+    """校验通过后原子写入。
+
+    一旦目标或候选状态为 v7，普通 writer 一律拒绝；Runtime CAS 与显式迁移/回滚
+    只能通过本模块的私有适配器写入。因此遗留 writer 无法用公开参数绕过 revision
+    和 Lease 直接覆盖。
+    """
 
     errors = validate_project_state(state)
     if errors:
         raise ProjectStateError("拒绝写入无效状态：" + "; ".join(errors))
     target = Path(path).resolve()
+    if target.is_file():
+        current = load_project_state(target)
+        if current.get("schema_version") == 7 or state.get("schema_version") == 7:
+            raise ProjectStateError(
+                "schema v7 状态必须通过 Runtime CAS 或显式迁移/回滚写入"
+            )
+    _write_project_state_atomic_unchecked(target, state)
+
+
+def _write_runtime_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
+    """仅供 Runtime CAS 与迁移适配器使用的受控写入通道。"""
+
+    target = Path(path).resolve()
+    errors = validate_project_state(state)
+    if errors:
+        raise ProjectStateError("拒绝写入无效状态：" + "; ".join(errors))
+    _write_project_state_atomic_unchecked(target, state)
+
+
+def _write_project_state_atomic_unchecked(target: Path, state: dict[str, Any]) -> None:
+    """执行原子替换；调用方必须先完成写入权限和状态校验。"""
+
     target.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(
         prefix=".project-state-", suffix=".tmp", dir=target.parent
@@ -259,6 +289,12 @@ def write_project_state_atomic(path: str | Path, state: dict[str, Any]) -> None:
             temporary.flush()
             os.fsync(temporary.fileno())
         os.replace(temporary_name, target)
+        if os.name != "nt":
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
@@ -318,7 +354,20 @@ def _validate_schema_node(value: Any, schema: dict[str, Any], path: str) -> list
 
 def _load_schema(version: int) -> dict[str, Any]:
     schema_path = SCHEMA_DIR / f"project_v{version}.schema.json"
-    return json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    if version != 7:
+        return schema
+    # v7 是对完整 v6 业务契约的纯追加 Runtime 扩展。自定义验证器在这里
+    # 确定性合并，避免复制两百余行后发生业务 Schema 漂移。
+    base = json.loads(
+        (SCHEMA_DIR / "project_v6.schema.json").read_text(encoding="utf-8")
+    )
+    base["$id"] = schema["$id"]
+    base["title"] = schema["title"]
+    base["properties"]["schema_version"] = {"const": 7}
+    base["properties"]["runtime"] = schema["runtimeExtension"]
+    base["required"] = [*base["required"], "runtime"]
+    return base
 
 
 def _require(state: dict[str, Any], field: str, errors: list[str]) -> None:
@@ -330,12 +379,44 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     version = state.get("schema_version")
     status = state.get("status")
+    design_preview_mode = state.get("design_preview_mode")
+    if design_preview_mode not in {
+        None,
+        "not_started",
+        "legacy_full",
+        "direction_comparison",
+        "selected_prototype",
+    }:
+        errors.append("design_preview_mode 无效")
+    if version == 7 and design_preview_mode == "legacy_full":
+        migration = state.get("schema_migration")
+        if not (
+            isinstance(migration, dict)
+            and migration.get("from_version") in {3, 4, 5, 6}
+            and migration.get("to_version") == 7
+        ):
+            errors.append(
+                "schema_version=7 新项目不得使用 legacy_full；"
+                "该模式只允许来自 v3-v6 到 v7 的迁移兼容路径"
+            )
 
     if status == "INTAKE":
         if state.get("active_module") != "first_ask_intake":
             errors.append("$.active_module 在 INTAKE 中必须是 first_ask_intake")
         if state.get("next_role") is not None:
             errors.append("$.next_role 在 INTAKE 中必须是 null")
+
+    if status == "REQUIREMENT_RESEARCH":
+        if state.get("active_module") != "domain_research":
+            errors.append("$.active_module 在 REQUIREMENT_RESEARCH 中必须是 domain_research")
+        if state.get("next_role") is not None:
+            errors.append("$.next_role 在 REQUIREMENT_RESEARCH 中必须是 null")
+        if state.get("research_status") not in {"planned", "running"}:
+            errors.append("REQUIREMENT_RESEARCH 要求 research_status 为 planned 或 running")
+        if not state.get("active_research_round"):
+            errors.append("REQUIREMENT_RESEARCH 必须绑定 active_research_round")
+        if state.get("active_plan") is not None:
+            errors.append("REQUIREMENT_RESEARCH 期间 active_plan 必须为 null")
 
     if state.get("current_iteration") == 5 and status in {"IMPLEMENTING", "EVALUATING"}:
         errors.append("current_iteration 达到 5 后不得继续自动实现或评估")
@@ -351,9 +432,24 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         if state.get("next_role") != "generator":
             errors.append("$.next_role 在 v3 实施批准状态中必须是 generator")
 
-    if version in {4, 5, 6}:
+    if version in {4, 5, 6, 7}:
         if status in {"DESIGN_REVIEW", "PRODUCT_REVIEW", "PLANNING_COMPLETE"}:
             errors.append("v4/v5/v6 新项目不得写入旧状态别名")
+        if status == "REFERENCE_ANALYSIS":
+            if not state.get("active_requirements"):
+                errors.append("REFERENCE_ANALYSIS 必须先绑定 active_requirements")
+            if state.get("requirements_status") != "sufficient_for_planning":
+                errors.append("REFERENCE_ANALYSIS 要求需求已足以规划")
+            if state.get("reference_status") not in {"provided", "ready"}:
+                errors.append("REFERENCE_ANALYSIS 要求 reference_status 为 provided 或 ready")
+            if state.get("reference_analysis_status") not in {"not_started", "running", "blocked"}:
+                errors.append("REFERENCE_ANALYSIS 要求 reference_analysis_status 为 not_started、running 或 blocked")
+            if state.get("active_module") != "reference_analysis":
+                errors.append("REFERENCE_ANALYSIS 的 active_module 必须是 reference_analysis")
+            if state.get("next_role") is not None:
+                errors.append("REFERENCE_ANALYSIS 的 next_role 必须是 null")
+            if state.get("active_plan") is not None:
+                errors.append("REFERENCE_ANALYSIS 期间 active_plan 必须为 null")
         if status == "DESIGN_EXPLORATION":
             for field in ("active_requirements", "active_proposal"):
                 _require(state, field, errors)
@@ -372,14 +468,22 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 errors.append("设计探索期间 active_plan 必须为 null")
             if state.get("next_role") != "planner":
                 errors.append("设计探索期间 next_role 必须是 planner")
+            if design_preview_mode == "selected_prototype":
+                _require(state, "selected_design_concept", errors)
+                _require(state, "design_selection_record", errors)
         if status == "WAITING_FOR_DESIGN_REVIEW":
             _require(state, "active_design_preview_round", errors)
             if state.get("design_exploration_required") is not True:
                 errors.append("等待设计审核时必须启用设计探索")
-            if state.get("design_review_status") != "waiting_user_selection":
+            expected_review_status = (
+                "waiting_selected_prototype_confirmation"
+                if design_preview_mode == "selected_prototype"
+                else "waiting_user_selection"
+            )
+            if state.get("design_review_status") != expected_review_status:
                 errors.append(
-                    "WAITING_FOR_DESIGN_REVIEW 的 design_review_status "
-                    "必须是 waiting_user_selection"
+                    "WAITING_FOR_DESIGN_REVIEW 的 design_review_status 必须与 "
+                    "design_preview_mode 对应"
                 )
             if state.get("active_plan") is not None:
                 errors.append("设计审核期间 active_plan 必须为 null")
@@ -394,6 +498,9 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 "conflicting",
             }:
                 errors.append("等待设计审核时 design_feedback_status 无效")
+            if design_preview_mode == "selected_prototype":
+                _require(state, "selected_design_concept", errors)
+                _require(state, "design_selection_record", errors)
         if status == "PLANNING_REVISION" and state.get("design_review_status") == "direction_selected":
             _require(state, "selected_design_concept", errors)
             _require(state, "design_selection_record", errors)
@@ -402,6 +509,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                 "direction_selected",
                 "modification_requested",
                 "blend_selected",
+                "prototype_confirmed",
             }:
                 errors.append("设计方向已选择时 design_feedback_status 无效")
             if state.get("active_plan") is not None:
@@ -506,7 +614,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
                     )
         elif state.get("change_context") is not None:
             errors.append("没有 active_change_request 时 change_context 必须是 null")
-    if version in {5, 6} and state.get("project_type") == "skill_maintenance":
+    if version in {5, 6, 7} and state.get("project_type") == "skill_maintenance":
         targets = state.get("targets")
         if not isinstance(targets, dict):
             errors.append("skill_maintenance 必须声明 targets")
@@ -548,7 +656,7 @@ def _validate_semantics(state: dict[str, Any]) -> list[str]:
         sync = state.get("sync")
         if not isinstance(sync, dict) or not isinstance(sync.get("exclusions"), list):
             errors.append("skill_maintenance 必须声明 sync.exclusions")
-    if version == 6:
+    if version in {6, 7}:
         if not isinstance(state.get("iteration_sequence"), int) or state["iteration_sequence"] < 1:
             errors.append("v6 iteration_sequence 必须是正整数")
         if not isinstance(state.get("automatic_retry_allowed"), bool):
@@ -567,12 +675,12 @@ def validate_project_state(
 ) -> list[str]:
     version = state.get("schema_version")
     if version not in SUPPORTED_SCHEMA_VERSIONS:
-        return [f"不支持 schema_version={version!r}，仅支持 3、4、5 和 6"]
+        return [f"不支持 schema_version={version!r}，仅支持 3、4、5、6 和 7"]
     errors = _validate_schema_node(state, _load_schema(version), "$")
     errors.extend(_validate_semantics(state))
     if project_root is not None:
         root = Path(project_root).resolve()
-        if state.get("schema_version") in {5, 6} and state.get("project_type") == "skill_maintenance":
+        if state.get("schema_version") in {5, 6, 7} and state.get("project_type") == "skill_maintenance":
             for name, target in (state.get("targets") or {}).items():
                 if not isinstance(target, dict) or not isinstance(target.get("path"), str):
                     continue
@@ -589,6 +697,14 @@ def validate_project_state(
                     pass
         for field in (
             "active_requirements",
+            "intent_analysis_ref",
+            "research_requirement_ref",
+            "active_research_round",
+            "coverage_map_ref",
+            "gap_analysis_ref",
+            "question_set_ref",
+            "sufficiency_evaluation_ref",
+            "opportunity_map_ref",
             "active_proposal",
             "approved_proposal",
             "product_approval_record",
@@ -614,6 +730,7 @@ def validate_project_state(
             "evidence_manifest",
             "decision_summary_record",
             "schema_migration_record",
+            "active_reference_synthesis",
         ):
             reference = state.get(field)
             if not reference:
@@ -623,6 +740,15 @@ def validate_project_state(
                 candidate.relative_to(root)
             except ValueError:
                 errors.append(f"$.{field} 指向项目目录之外")
+                continue
+            if (
+                field == "active_design_preview_round"
+                and state.get("status") == "DESIGN_EXPLORATION"
+                and state.get("design_review_status") in {"generating", "revision_requested"}
+            ):
+                # 生成态先提交“本轮要生成到哪里”，随后才创建目录和工件。
+                # 完成态仍由 exploration.finalize_preview_round 按当前模式校验：
+                # 方向比较是三案，选中原型是单一 selected_concept，旧项目走兼容规则。
                 continue
             if not candidate.exists():
                 errors.append(f"$.{field} 指向不存在的文件：{reference}")
@@ -653,6 +779,8 @@ V4_DEFAULTS: dict[str, Any] = {
     "plan_status": "not_started",
     "plan_version": 0,
     "approved_plan": None,
+    "approved_plan_hash": None,
+    "approval_artifact_hashes": [],
     "plan_approval_status": "not_requested",
     "plan_approval_record": None,
     "exploration_feedback_record": None,
@@ -661,6 +789,7 @@ V4_DEFAULTS: dict[str, Any] = {
     "exploration_error_record": None,
     "design_feedback_status": "not_started",
     "design_feedback_round": 0,
+    "design_preview_mode": "legacy_full",
     "approval_revocation_record": None,
     "change_request_record": None,
 }

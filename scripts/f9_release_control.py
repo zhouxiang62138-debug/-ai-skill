@@ -355,9 +355,17 @@ def _write_final_report(
         for line in status
         if line[:2].strip() not in {"??", "A"}
     )
-    report = working / "F9_AUTONOMOUS_EVALUATION_LOOP_FINAL_REPORT.md"
-    if report.name not in added:
-        added.append(report.name)
+    report = (
+        working
+        / "docs"
+        / "reports"
+        / "f9-evaluation"
+        / "F9_AUTONOMOUS_EVALUATION_LOOP_FINAL_REPORT.md"
+    )
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report_relative = report.relative_to(working).as_posix()
+    if report_relative not in added:
+        added.append(report_relative)
     commands = [
         f"{sys.executable} -m unittest discover -s tests -p test_*.py",
         f"{sys.executable} scripts/f9_release_control.py audit <repository>",

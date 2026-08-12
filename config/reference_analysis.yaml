@@ -1,0 +1,300 @@
+version: 1
+module: reference_analysis
+protocol_version: 1
+
+# 只有 active 中的类型可以进入 v1 正式协议；reserved 类型要通过新版本配置启用
+source_types:
+  active:
+    - web_page
+    - image
+    - text_description
+  reserved:
+    - screenshot
+    - design_file
+    - document
+    - pdf
+    - video
+    - screen_recording
+    - repository
+    - source_code
+    - existing_project
+    - brand_guideline
+    - competitor_product
+  extension:
+    strategy: versioned_enum
+    unknown_source_type: reject
+    activation_requires:
+      - config_version
+      - schema_version
+      - adapter_registration
+
+reference_modes:
+  - inspiration
+  - adaptation
+  - close_recreation
+default_mode: adaptation
+scope_states:
+  - include
+  - exclude
+  - unspecified
+analysis_domains:
+  - product
+  - information_architecture
+  - navigation
+  - interaction
+  - layout
+  - visual_style
+  - components
+  - design_tokens
+  - motion
+  - content_style
+  - brand
+  - technical_architecture
+domain_statuses:
+  - analyzed
+  - not_requested
+  - excluded
+  - unsupported
+  - unknown
+  - insufficient_evidence
+  - failed
+analysis_artifact_statuses:
+  - not_started
+  - pending_analysis
+  - analyzing
+  - completed
+  - failed
+  - blocked
+  - superseded
+source_statuses:
+  - registered
+  - pending_analysis
+  - analyzing
+  - completed
+  - failed
+  - blocked
+  - superseded
+epistemic_statuses:
+  - observed
+  - inferred
+  - unknown
+confidence_levels:
+  - high
+  - medium
+  - low
+evidence_types:
+  - screenshot
+  - image
+  - file
+  - url_metadata
+  - dom_observation
+  - source_code_location
+  - document_page
+  - text_fragment
+  - browser_viewport
+source_origins:
+  - user_provided
+  - user_uploaded
+  - user_linked
+  - project_existing
+  - change_request_provided
+  - system_discovered
+
+trust:
+  trust_level: untrusted
+  instruction_authority: false
+  workflow_authority: false
+  runtime_authority: false
+  system_discovered_requires_explicit_authorization: true
+
+priority_policy:
+  explicit_user_requirements_override_reference: true
+  approved_product_artifacts_override_reference: true
+  reference_decision_is_not_requirement: true
+
+artifact_paths:
+  metadata_root: memory/references
+  evidence_root: artifacts/references
+  synthesis_root: memory/references/synthesis
+  change_request_root: change_requests/<change_request_id>/references
+  append_only: true
+  version_pattern: '<kind>-<nnn>'
+
+project_projection:
+  reference_status:
+    - none
+    - provided
+    - scope_pending
+    - ready
+    - blocked
+  reference_analysis_status:
+    - not_started
+    - running
+    - completed
+    - blocked
+  active_reference_synthesis: null_or_relative_pointer
+
+source_locator_requirements:
+  web_page:
+    - uri
+  image:
+    - uri_or_artifact_ref
+  text_description:
+    - text_ref_or_identifier
+
+id_patterns:
+  reference: '^REF-[0-9]{3}$'
+  scope: '^REFSCP-[0-9]{3}$'
+  analysis: '^REFAN-[0-9]{3}$'
+  finding: '^REFFND-[0-9]{3}$'
+  evidence: '^REFEV-[0-9]{3}$'
+  synthesis: '^REFSYN-[0-9]{3}$'
+  decision: '^REFDEC-[0-9]{3}$'
+  conflict: '^REFCON-[0-9]{3}$'
+
+limits:
+  max_references: 32
+  max_inline_content_bytes: 0
+  max_source_bytes: 10485760
+  max_text_analysis_bytes: 262144
+  max_metadata_bytes: 65536
+
+adapters:
+  text_description:
+    enabled: true
+    implementation: runtime.reference_analysis.adapters.text_description:TextDescriptionAdapter
+    version: 1
+  image:
+    enabled: true
+    implementation: runtime.reference_analysis.adapters.image:ImageAdapter
+    version: 1
+  web_page:
+    enabled: true
+    implementation: runtime.reference_analysis.adapters.web_page:WebPageAdapter
+    version: 1
+
+analyzers:
+  text_description:
+    - implementation: runtime.reference_analysis.analyzers.text_description:TextDescriptionAnalyzer
+      version: 1
+  image:
+    - implementation: runtime.reference_analysis.analyzers.capability:CapabilityAnalyzer
+      version: 1
+  web_page:
+    - implementation: runtime.reference_analysis.analyzers.capability:CapabilityAnalyzer
+      version: 1
+
+web_acquisition:
+  status: NETWORK_ACQUISITION_DEFERRED
+  allowed_schemes:
+    - https
+  reject_hosts:
+    - localhost
+    - metadata
+    - metadata.google.internal
+    - instance-data
+  reject_private_addresses: true
+  fetch_enabled: false
+
+image_capabilities:
+  formats:
+    - png
+    - jpg
+    - jpeg
+    - webp
+  max_bytes: 10485760
+  max_pixels: 100000000
+  max_metadata_bytes: 65536
+  visual_semantic_analysis: supported_with_limitations
+  layout_analysis: supported_with_limitations
+  semantic_provider: codex_native_multimodal
+  semantic_transport: official_codex_sdk
+
+acquisition:
+  protocol_version: 1
+  provider_availability:
+    - SUPPORTED
+    - AVAILABLE
+    - UNAVAILABLE
+    - BLOCKED_BY_ENVIRONMENT
+  lifecycle:
+    - REQUESTED
+    - STARTED
+    - SUCCEEDED
+    - FAILED
+    - TIMED_OUT
+    - CANCELLED
+    - UNKNOWN_AFTER_CRASH
+  retry_keeps_identity: true
+  refresh_creates_new_snapshot: true
+  browser_isolation:
+    clean_profile: true
+    host_cookies: false
+    saved_passwords: false
+    extensions: false
+    isolated_storage: true
+    downloads: false
+    popups: false
+
+browser_acquisition:
+  status: BLOCKED_BY_ENVIRONMENT
+  host_runtime_status: HOST_CAPABILITY_AVAILABLE
+  repository_runtime_status: BLOCKED_BY_ENVIRONMENT
+  f12_wiring_status: IMPLEMENTED
+  requires_https: true
+  requires_dns_resolution: true
+  requires_network_authorization: true
+  allow_cross_origin_redirects: false
+  default_viewport:
+    width: 1440
+    height: 900
+  max_dom_bytes: 262144
+  max_style_bytes: 131072
+  max_screenshot_bytes: 10485760
+  timeout_ms: 30000
+
+perception:
+  native_provider:
+    provider_id: codex-native-multimodal-perception
+    provider: codex_native_multimodal
+    transport: official_codex_sdk
+    version: 2
+    host_multimodal_input: available
+    host_capability_status: HOST_CAPABILITY_AVAILABLE
+    programmatic_skill_invocation: available_when_sdk_and_auth_available
+    programmatic_bridge_status: OFFICIAL_CODEX_SDK_APP_SERVER
+    availability: SUPPORTED_WITH_LIMITATIONS
+    model_identity: not_exposed
+    additional_api_key_required: false
+    dependency: openai-codex
+    python_minimum: "3.10"
+    max_invocations: 1
+    retry_limit: 0
+    timeout_seconds: 120
+    recursion_guard: perception_invocation=true
+    sandbox: read_only
+    approval_mode: deny_all
+  epistemic_statuses:
+    - observed
+    - inferred
+    - unknown
+  output_format: reference_finding_v1
+  trust_level: untrusted
+
+attachment_binding:
+  project_local_image: SUPPORTED_WITH_LIMITATIONS
+  direct_user_attachment: BLOCKED_BY_HOST_ATTACHMENT_METADATA
+
+design_exploration:
+  enabled: true
+  design_relevant_domains:
+    - information_architecture
+    - navigation
+    - interaction
+    - layout
+    - visual_style
+    - components
+    - design_tokens
+    - motion
+  unsupported_semantic_behavior: ignore_for_visual_guidance
+  source_of_truth: active_reference_synthesis

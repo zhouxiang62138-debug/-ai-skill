@@ -17,7 +17,8 @@
 ## 识别结果
 
 - 动作：`single` / `modify` / `blend` / `reject_all` / `discuss` /
-  `restore` / `ambiguous` / `conflicting`
+  `restore` / `prototype_confirmed` / `prototype_modify` / `ambiguous` /
+  `conflicting`
 - 引用的概念：
 - 明确排除的概念：
 - 是否要求生成新预览：
@@ -48,4 +49,11 @@
 - `design_feedback_status`：
 - 是否创建设计选择记录：
 - 是否递增设计预览轮次：
+- 方向选择后是否进入 `selected_prototype`：
+- 高保真确认是否仍需进入产品方案整合：
+## Reference 反馈约束
 
+- 当前 Reference Synthesis:
+- 用户要求保留的 Reference Decisions:
+- 用户明确拒绝的 Reference 影响:
+- 下一轮必须继续遵守的 Explicit Exclusions:

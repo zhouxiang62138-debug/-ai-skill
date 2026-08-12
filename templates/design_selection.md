@@ -27,6 +27,15 @@
 
 ## 状态约束
 
-- 本记录只允许进入 `PLANNING_REVISION`。
-- 本记录不构成产品方案批准。
-- 本记录不允许生成正式 Plan 或进入 Generator。
+- 本记录表示方向已选择，不表示 Selected Prototype 已确认。
+- 本记录创建后只允许进入 `DESIGN_EXPLORATION` 的
+  `selected_prototype` 阶段，生成一套 `selected_concept` 高保真预览。
+- 用户确认该高保真预览后，Planner 才能进入 `PLANNING_REVISION` 整合新产品方案。
+- 本记录不构成产品方案批准，不允许生成正式 Plan 或进入 Generator。
+## Reference Integration
+
+- Active Reference Synthesis:
+- Adopted Reference Decisions:
+- Adapted Reference Decisions:
+- Not Used Reference Decisions:
+- Reference Explicit Exclusions:

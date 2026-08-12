@@ -1,0 +1,6 @@
+browser_acceptance:
+  result: BLOCKED
+  failure_class: evaluation_environment_blocked
+feature_completeness:
+  result: BLOCKED
+issues: []

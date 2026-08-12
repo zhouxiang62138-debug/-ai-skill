@@ -1,0 +1,51 @@
+version: 1
+
+local_compatibility:
+  output_limit_bytes: 65536
+  stream_chunk_bytes: 8192
+  max_timeout_seconds: 3600
+  environment_allowlist:
+    - PATH
+    - SYSTEMROOT
+    - TEMP
+    - TMP
+  profiles:
+    compatibility:
+      allowed_commands:
+        - python
+        - python.exe
+        - python3
+        - python3.exe
+
+docker:
+  image: python:3.11-slim
+  network: none
+  privileged: false
+  host_pid: false
+  host_ipc: false
+  docker_socket: forbidden
+  no_new_privileges: true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  memory: 512m
+  cpus: 1
+  output_limit_bytes: 65536
+  stream_chunk_bytes: 8192
+  max_timeout_seconds: 3600
+  hidden_paths:
+    - .runtime
+  protected_files:
+    - project.yaml
+  mount:
+    target: /workspace
+    read_only: false
+  profiles:
+    default:
+      allowed_commands:
+        - python
+        - python3
+  keepalive_argv:
+    - python
+    - -c
+    - import time; time.sleep(2147483647)

@@ -35,6 +35,8 @@
       "enum": [
         "INTAKE",
         "WAITING_FOR_REQUIREMENTS",
+        "REQUIREMENT_RESEARCH",
+        "REFERENCE_ANALYSIS",
         "PLANNING",
         "DESIGN_EXPLORATION",
         "WAITING_FOR_DESIGN_REVIEW",
@@ -57,7 +59,39 @@
     "iteration_sequence": {"type": "integer", "minimum": 1},
     "automatic_retry_allowed": {"type": "boolean"},
     "next_role": {"enum": [null, "planner", "generator", "evaluator"]},
-    "active_module": {"enum": [null, "first_ask_intake"]},
+    "active_module": {"enum": [null, "first_ask_intake", "domain_research", "reference_analysis"]},
+    "reference_status": {
+      "enum": ["none", "provided", "scope_pending", "ready", "blocked"]
+    },
+    "reference_analysis_status": {
+      "enum": ["not_started", "running", "completed", "blocked"]
+    },
+    "active_reference_synthesis": {"type": ["string", "null"]},
+    "active_design_reference_synthesis": {"type": ["string", "null"], "pattern": "^(REFSYN-[0-9]{3})?$"},
+    "design_preview_mode": {
+      "enum": [
+        null,
+        "not_started",
+        "legacy_full",
+        "direction_comparison",
+        "selected_prototype"
+      ]
+    },
+    "design_review_status": {
+      "enum": [
+        null,
+        "not_started",
+        "generating",
+        "waiting_user_selection",
+        "waiting_selected_prototype_confirmation",
+        "revision_requested",
+        "direction_selected",
+        "integrated_into_proposal",
+        "skipped_by_user"
+      ]
+    },
+    "design_preview_round": {"type": "integer", "minimum": 0},
+    "active_design_preview_round": {"type": ["string", "null"]},
     "requirements_status": {
       "enum": [
         "draft",
@@ -106,6 +140,16 @@
       ]
     },
     "active_requirements": {"type": ["string", "null"]},
+    "requirements_discovery_status": {"enum": ["not_started", "intent_analyzed", "research_required", "researching", "interviewing", "sufficiency_check", "ready", "blocked"]},
+    "research_status": {"enum": ["not_started", "planned", "running", "completed", "partially_completed", "unavailable", "not_required", "blocked"]},
+    "intent_analysis_ref": {"type": ["string", "null"]},
+    "research_requirement_ref": {"type": ["string", "null"]},
+    "active_research_round": {"type": ["string", "null"]},
+    "coverage_map_ref": {"type": ["string", "null"]},
+    "gap_analysis_ref": {"type": ["string", "null"]},
+    "question_set_ref": {"type": ["string", "null"]},
+    "sufficiency_evaluation_ref": {"type": ["string", "null"]},
+    "opportunity_map_ref": {"type": ["string", "null"]},
     "active_proposal": {"type": ["string", "null"]},
     "approved_proposal": {"type": ["string", "null"]},
     "product_approval_record": {"type": ["string", "null"]},

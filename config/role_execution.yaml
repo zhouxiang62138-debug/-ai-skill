@@ -1,0 +1,28 @@
+version: 1
+
+role_execution:
+  default_mode: child_thread
+  fallback_mode: fresh_invocation
+  fresh_execution_per_role_run: true
+  reuse_completed_role_thread: false
+
+  planner:
+    preferred_mode: child_thread
+
+  generator:
+    preferred_mode: child_thread
+
+  evaluator:
+    preferred_mode: child_thread
+    fallback_requires_fresh_invocation: true
+
+  workspace:
+    preferred_mode: shared
+    authoritative_state: runtime_cas
+    project_state_write: runtime_cas_only
+
+  wait_states:
+    spawn_execution: false
+
+  modules:
+    spawn_role_thread: false

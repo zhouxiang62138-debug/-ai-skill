@@ -1,0 +1,374 @@
+"""project.yaml v7 Runtime 投影与 Compare-And-Swap。"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+from pathlib import Path
+from typing import Any
+
+from scripts.project_state import (
+    ProjectStateError,
+    load_project_state,
+    serialize_project_state,
+    validate_project_state,
+    _write_runtime_project_state_atomic,
+)
+
+from .errors import RecoveryError, StateConflictError
+from .event_types import ActorType, EventType
+from .leases import LeaseManager
+from .policy import (
+    assert_field_ownership,
+    assert_workflow_lifecycle,
+    load_lifecycle_fields,
+    load_runtime_routes,
+)
+from .session_store import SessionStore, stable_id, utc_now
+
+
+def project_state_hash(state: dict[str, Any]) -> str:
+    """计算业务状态的稳定 SHA-256。"""
+
+    return hashlib.sha256(serialize_project_state(state).encode("utf-8")).hexdigest()
+
+
+def runtime_projection(state: dict[str, Any]) -> dict[str, Any]:
+    """读取并验证 v7 Runtime 投影。"""
+
+    runtime = state.get("runtime")
+    if state.get("schema_version") != 7 or not isinstance(runtime, dict):
+        raise ProjectStateError("CAS 仅允许显式迁移后的 project schema v7")
+    return runtime
+
+
+class ProjectStateCAS:
+    """用 Lease fencing 和 revision/hash 防止静默覆盖。"""
+
+    def __init__(self, store: SessionStore, leases: LeaseManager) -> None:
+        self.store = store
+        self.leases = leases
+
+    def commit(
+        self,
+        project_yaml: str | Path,
+        next_state: dict[str, Any],
+        *,
+        session_id: str,
+        worker_id: str,
+        actor_role: str,
+        lease_version: int,
+        lease_token: str,
+        expected_revision: int,
+        idempotency_key: str,
+        fail_at: str | None = None,
+    ) -> dict[str, Any]:
+        """提交角色业务字段；生命周期字段只能由内部 CAS 迁移入口提交。"""
+
+        return self._commit(
+            project_yaml,
+            next_state,
+            session_id=session_id,
+            worker_id=worker_id,
+            actor_role=actor_role,
+            lease_version=lease_version,
+            lease_token=lease_token,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            fail_at=fail_at,
+            lifecycle_transition=None,
+        )
+
+    def _commit(
+        self,
+        project_yaml: str | Path,
+        next_state: dict[str, Any],
+        *,
+        session_id: str,
+        worker_id: str,
+        actor_role: str,
+        lease_version: int,
+        lease_token: str,
+        expected_revision: int,
+        idempotency_key: str,
+        fail_at: str | None,
+        lifecycle_transition: tuple[str, str] | None,
+    ) -> dict[str, Any]:
+        """提交一个 revision；失败注入仅供恢复测试使用。"""
+
+        path = Path(project_yaml).resolve()
+        current = load_project_state(path)
+        current_runtime = runtime_projection(current)
+        before_hash = project_state_hash(current)
+        connection = self.store.raw_connection()
+        try:
+            existing = connection.execute(
+                "SELECT * FROM state_revision_attempts WHERE session_id=? AND idempotency_key=?",
+                (session_id, idempotency_key),
+            ).fetchone()
+        finally:
+            connection.close()
+        if existing is not None and existing["status"] == "COMMITTED":
+            if (
+                int(existing["new_revision"]) != int(current_runtime["revision"])
+                or str(existing["after_hash"]) != before_hash
+            ):
+                raise StateConflictError("幂等提交与当前 project.yaml 不一致")
+            return {"result": "IDEMPOTENT", "revision": existing["new_revision"], "state_hash": existing["after_hash"]}
+        self.leases.assert_valid(session_id, worker_id, lease_version, lease_token)
+        if (
+            current_runtime["session_id"] != session_id
+            or current_runtime["revision"] != expected_revision
+        ):
+            self._conflict(
+                session_id, idempotency_key, expected_revision, current_runtime["revision"]
+            )
+            raise StateConflictError("project.yaml revision 与 expected_revision 不一致")
+        prepared = copy.deepcopy(next_state)
+        prepared["schema_version"] = 7
+        prepared["runtime"] = copy.deepcopy(current_runtime)
+        # 角色只提交其声明的业务字段；生命周期投影由内部 Runtime CAS 入口独占。
+        if lifecycle_transition is None:
+            assert_field_ownership(actor_role, current, prepared)
+        else:
+            lifecycle_fields = load_lifecycle_fields()
+            role_candidate = copy.deepcopy(prepared)
+            for field in lifecycle_fields:
+                role_candidate[field] = current.get(field)
+            assert_field_ownership(actor_role, current, role_candidate)
+        prepared["runtime"]["revision"] = expected_revision + 1
+        after_hash = project_state_hash(prepared)
+        # 所有可预见的候选错误必须在占用 revision 之前被拒绝。
+        errors = validate_project_state(prepared, path.parent)
+        if errors:
+            raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))
+        request = self.store.append_event(
+            session_id,
+            EventType.PROJECT_STATE_COMMIT_REQUESTED,
+            ActorType.WORKER,
+            worker_id,
+            idempotency_key=f"{idempotency_key}:requested",
+            correlation_id=idempotency_key,
+            payload={
+                "expected_revision": expected_revision,
+                "before_hash": before_hash,
+            },
+        )
+        # revision 是业务版本；revision_id 是一次提交尝试。ABORTED 尝试必须保留，
+        # 但不能阻止同一业务版本用新的候选内容安全重试。
+        revision_id = stable_id(
+            "revision-attempt", session_id, expected_revision + 1, idempotency_key
+        )
+        with self.store.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM state_revision_attempts
+                WHERE session_id = ? AND idempotency_key = ?
+                """,
+                (session_id, idempotency_key),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO state_revision_attempts VALUES
+                    (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, NULL)
+                    """,
+                    (
+                        revision_id,
+                        session_id,
+                        expected_revision,
+                        expected_revision + 1,
+                        before_hash,
+                        after_hash,
+                        idempotency_key,
+                        request.event_id,
+                        utc_now(),
+                    ),
+                )
+            elif (
+                existing["before_hash"] != before_hash
+                or existing["after_hash"] != after_hash
+            ):
+                raise StateConflictError("幂等 revision 的内容发生变化")
+        if fail_at == "before_project_state_commit":
+            raise OSError("注入 project.yaml 提交前崩溃")
+        # 写入前再次读取，关闭读取/生成之间的竞争窗口。
+        reloaded = load_project_state(path)
+        if (
+            runtime_projection(reloaded)["revision"] != expected_revision
+            or project_state_hash(reloaded) != before_hash
+        ):
+            self._conflict(
+                session_id, idempotency_key, expected_revision,
+                runtime_projection(reloaded)["revision"],
+            )
+            raise StateConflictError("写入前复核发现 project.yaml 已变化")
+        # 在最后一次原子替换前重新 fencing，防止 Lease 在计算候选状态后失效。
+        self.leases.assert_valid(session_id, worker_id, lease_version, lease_token)
+        # 写入前再次校验，防止校验与原子替换之间的工件状态发生变化。
+        errors = validate_project_state(prepared, path.parent)
+        if errors:
+            raise ProjectStateError("CAS 候选状态无效：" + "; ".join(errors))
+        _write_runtime_project_state_atomic(path, prepared)
+        if fail_at == "after_project_state_commit":
+            raise OSError("注入 project.yaml 提交后崩溃")
+        committed = self.store.append_event(
+            session_id,
+            EventType.PROJECT_STATE_COMMITTED,
+            ActorType.WORKER,
+            worker_id,
+            idempotency_key=f"{idempotency_key}:committed",
+            correlation_id=idempotency_key,
+            caused_by_event_id=request.event_id,
+            payload={
+                "revision": expected_revision + 1,
+                "state_hash": after_hash,
+            },
+        )
+        with self.store.transaction(immediate=True) as connection:
+            connection.execute(
+                """
+                UPDATE state_revision_attempts
+                SET status='COMMITTED', committed_at=?
+                WHERE revision_id=?
+                """,
+                (utc_now(), revision_id),
+            )
+        return {
+            "result": "COMMITTED",
+            "revision": expected_revision + 1,
+            "state_hash": after_hash,
+            "event_id": committed.event_id,
+        }
+
+    def commit_patch(
+        self,
+        project_yaml: str | Path,
+        changed_fields: dict[str, Any],
+        *,
+        source_status: str,
+        target_status: str,
+        fail_at: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """从当前状态构造受限 Patch，禁止 Worker 提交完整状态快照。"""
+
+        if not isinstance(changed_fields, dict):
+            raise StateConflictError("COMMIT_PATCH_INVALID")
+        current = load_project_state(Path(project_yaml).resolve())
+        if current.get("status") != source_status:
+            raise StateConflictError("COMMIT_SOURCE_STATUS_CONFLICT")
+        if "runtime" in changed_fields or "schema_version" in changed_fields:
+            raise StateConflictError("COMMIT_PATCH_RUNTIME_FORBIDDEN")
+        if changed_fields.get("status", target_status) != target_status:
+            raise StateConflictError("COMMIT_PATCH_TARGET_STATUS_CONFLICT")
+        assert_workflow_lifecycle(
+            source_status,
+            target_status,
+            kwargs.get("actor_role", ""),
+            changed_fields,
+        )
+        candidate = copy.deepcopy(current)
+        business_patch = copy.deepcopy(changed_fields)
+        # 调用方可以暂时携带旧格式生命周期字段，但 Runtime 始终丢弃并按目标路由重建。
+        # 新调用方只需提交业务字段，避免模型和脚本猜测 next_role/active_module。
+        for field in ("status", "next_role", "active_module"):
+            business_patch.pop(field, None)
+        candidate.update(business_patch)
+        target_route = load_runtime_routes()[target_status]
+        candidate["status"] = target_status
+        candidate["next_role"] = target_route["next_role"]
+        candidate["active_module"] = target_route["active_module"]
+        return self._commit(
+            project_yaml,
+            candidate,
+            fail_at=fail_at,
+            lifecycle_transition=(source_status, target_status),
+            **kwargs,
+        )
+
+    def _conflict(
+        self,
+        session_id: str,
+        idempotency_key: str,
+        expected_revision: int,
+        actual_revision: int,
+    ) -> None:
+        self.store.append_event(
+            session_id,
+            EventType.PROJECT_STATE_CONFLICT,
+            ActorType.ORCHESTRATOR,
+            "orchestrator",
+            idempotency_key=f"{idempotency_key}:conflict:{actual_revision}",
+            correlation_id=idempotency_key,
+            payload={
+                "expected_revision": expected_revision,
+                "actual_revision": actual_revision,
+            },
+        )
+
+    def recover_pending(self, project_yaml: str | Path, session_id: str) -> list[str]:
+        """根据 YAML revision/hash 幂等完成或取消 pending revision。"""
+
+        path = Path(project_yaml).resolve()
+        state = load_project_state(path)
+        current_revision = runtime_projection(state)["revision"]
+        current_hash = project_state_hash(state)
+        actions: list[str] = []
+        with self.store.transaction(immediate=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM state_revision_attempts
+                WHERE session_id=? AND status IN ('PENDING', 'COMMITTED')
+                ORDER BY new_revision
+                """,
+                (session_id,),
+            ).fetchall()
+            for row in rows:
+                committed_now = row["status"] == "COMMITTED"
+                if (
+                    row["new_revision"] == current_revision
+                    and row["after_hash"] == current_hash
+                ):
+                    if not committed_now:
+                        connection.execute(
+                            """UPDATE state_revision_attempts SET status='COMMITTED', committed_at=?
+                            WHERE revision_id=?""",
+                            (utc_now(), row["revision_id"]),
+                        )
+                        actions.append(f"committed:{row['revision_id']}")
+                    event_key = f"{row['idempotency_key']}:committed"
+                    self.store._append_event_in_transaction(
+                        connection,
+                        session_id,
+                        EventType.PROJECT_STATE_COMMITTED,
+                        ActorType.ORCHESTRATOR,
+                        "recovery",
+                        idempotency_key=event_key,
+                        correlation_id=str(row["idempotency_key"]),
+                        payload={"revision": row["new_revision"], "state_hash": row["after_hash"]},
+                    )
+                    if committed_now:
+                        actions.append(f"event-reconciled:{row['revision_id']}")
+                elif (
+                    row["expected_revision"] == current_revision
+                    and row["before_hash"] == current_hash
+                ):
+                    connection.execute(
+                        "UPDATE state_revision_attempts SET status='ABORTED' WHERE revision_id=?",
+                        (row["revision_id"],),
+                    )
+                    actions.append(f"aborted:{row['revision_id']}")
+                elif not committed_now:
+                    raise RecoveryError("pending revision 与项目状态无法自动对齐")
+        for action in actions:
+            self.store.append_event(
+                session_id,
+                EventType.RECOVERY_COMPLETED,
+                ActorType.ORCHESTRATOR,
+                "orchestrator",
+                idempotency_key=f"recover:{action}",
+                correlation_id=session_id,
+                payload={"action": action},
+            )
+        return actions

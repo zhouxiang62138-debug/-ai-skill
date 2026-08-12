@@ -1,0 +1,24 @@
+schema_version: 1
+manifest_id: web-app-core-v1
+profile: web_app
+artifact_kind: template
+scenarios:
+  - scenario_id: web-app-core-flow
+    requirement_id: REQ-BROWSER-CORE
+    acceptance_criterion_id: AC-BROWSER-CORE
+    preconditions:
+      - 应用已按 Profile startup_command 启动
+      - 测试数据使用隔离的受控环境
+    steps:
+      - action: navigate
+        target: /
+      - action: click
+        target: '[data-testid="primary-action"]'
+      - action: inspect_dom_state
+        target: '[data-testid="success-state"]'
+    expected_ui_state:
+      success_state: visible
+    expected_api_state:
+      business_operation: observed
+    critical_workflow: true
+    scenario_type: normal
